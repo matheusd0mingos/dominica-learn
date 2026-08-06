@@ -153,6 +153,68 @@ public sealed class ServicoDeConhecimento(
             .ToList();
     }
 
+    /// <summary>
+    /// Cria uma matéria — que, no disco, é uma pasta com a NOTA-ÍNDICE dela dentro.
+    ///
+    /// POR QUE NÃO É SÓ CRIAR A PASTA: pasta vazia não sobrevive neste vault. O repositório limpa pastas
+    /// que ficaram sem arquivo depois de mover ou apagar (senão a árvore do Obsidian encheria de pastas
+    /// mortas), então uma matéria "vazia" evaporaria no primeiro rearranjo — e o usuário veria a matéria
+    /// que ele criou sumir sozinha.
+    ///
+    /// A nota-índice resolve isso e ganha algo melhor de brinde: um mapa de conteúdo, no estilo que o
+    /// Obsidian consagrou. É o lugar natural do plano de estudo da matéria e das ligações para os
+    /// assuntos dela — e como é uma nota comum, ela aparece no grafo, entra na busca e abre no Obsidian.
+    /// Guardar a lista de matérias no banco seria a alternativa, e contrariaria a regra que rege o
+    /// projeto: o que só existe no banco some num "reindexar do zero".
+    /// </summary>
+    public async Task<Resultado<Nota>> CriarMateriaAsync(string nome, CancellationToken ct = default)
+    {
+        var limpo = (nome ?? string.Empty).Trim();
+        if (limpo.Length == 0) return Resultado<Nota>.Invalida("Dê um nome à matéria.");
+
+        // A matéria é a PRIMEIRA pasta, então o nome não pode ter barra: "Direito/Administrativo" seria
+        // uma submatéria, e submatéria é a pasta de dentro — criada junto com a primeira nota dela.
+        if (limpo.Contains('/') || limpo.Contains('\\'))
+            return Resultado<Nota>.Invalida("O nome da matéria não pode ter barra. Subpastas vêm depois, dentro dela.");
+
+        if (!CaminhoNota.TentarCriar($"{limpo}/{limpo}{CaminhoNota.Extensao}", out var caminho, out var erro) || caminho is null)
+            return Resultado<Nota>.Invalida(erro ?? "Nome de matéria inválido.");
+
+        var materia = Materia.De(limpo);
+
+        // Já existe se QUALQUER nota mora nela — não só se a nota-índice existe. Criar por cima de uma
+        // matéria que já tem conteúdo daria a impressão de ter começado do zero.
+        var caminhos = await indice.TodosOsCaminhosAsync(ct);
+        if (caminhos.Any(c => Materia.De(c) == materia))
+            return Resultado<Nota>.JaExiste($"A matéria \"{materia.Rotulo}\"");
+
+        log.LogInformation("Matéria {Materia} criada.", materia.Rotulo);
+        return await notas.CriarAsync(caminho, ConteudoDaNotaIndice(materia), ct);
+    }
+
+    /// <summary>
+    /// O mapa de conteúdo que nasce com a matéria. Markdown comum — abre igual no Obsidian.
+    ///
+    /// Público porque é função pura do nome e vale testar sozinha: foi aqui que a citação de
+    /// "[[wikilinks]]" no texto de ajuda virou uma ligação quebrada de verdade em toda matéria nova.
+    /// </summary>
+    public static string ConteudoDaNotaIndice(Materia materia) =>
+        $"""
+        ---
+        tags: [materia]
+        ---
+        # {materia.Nome}
+
+        Mapa desta matéria. Escreva aqui o plano de estudo e ligue os assuntos com `[[wikilinks]]` —
+        o que sair daqui vira aresta no grafo, e o que você citar e ainda não escreveu aparece
+        em "ainda por escrever".
+
+        ## Assuntos
+
+        ## A revisar
+
+        """;
+
     // —— TEMPLATES ————————————————————————————————————————————————————————————————————
     public async Task<IReadOnlyList<TemplateDisponivel>> TemplatesAsync(CancellationToken ct = default)
     {

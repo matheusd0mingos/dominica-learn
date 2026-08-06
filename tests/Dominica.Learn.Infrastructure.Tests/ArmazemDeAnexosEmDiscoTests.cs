@@ -11,20 +11,25 @@ namespace Dominica.Learn.Infrastructure.Tests;
 // cima falha em vez de apagar o anexo de alguém.
 public sealed class ArmazemDeAnexosEmDiscoTests : IDisposable
 {
+    private const string Apelido = "matheus";
+
+    private readonly string _raizComum;
     private readonly string _raiz;
     private readonly ArmazemDeAnexosEmDisco _armazem;
 
     public ArmazemDeAnexosEmDiscoTests()
     {
-        _raiz = Path.Combine(Path.GetTempPath(), "learn-anexos-" + Guid.NewGuid().ToString("N")[..10]);
+        _raizComum = Path.Combine(Path.GetTempPath(), "learn-anexos-" + Guid.NewGuid().ToString("N")[..10]);
+        var opcoes = Options.Create(new OpcoesDoVault { Raiz = _raizComum });
+        _raiz = Path.Combine(_raizComum, Apelido);
         _armazem = new ArmazemDeAnexosEmDisco(
-            Options.Create(new OpcoesDoVault { Raiz = _raiz }),
+            new RaizDoVaultDoUsuario(opcoes, new UsuarioDeTeste(Apelido)),
             NullLogger<ArmazemDeAnexosEmDisco>.Instance);
     }
 
     public void Dispose()
     {
-        if (Directory.Exists(_raiz)) Directory.Delete(_raiz, recursive: true);
+        if (Directory.Exists(_raizComum)) Directory.Delete(_raizComum, recursive: true);
     }
 
     private static Stream Bytes(string texto) => new MemoryStream(Encoding.UTF8.GetBytes(texto));

@@ -88,6 +88,44 @@ public class MateriasDoVaultTests
         Assert.Empty(await Montar().MateriasAsync());
     }
 
+    // —— CRIAR MATÉRIA ————————————————————————————————————————————————————————————————
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Direito/Administrativo")]
+    [InlineData("Direito\\Administrativo")]
+    public async Task Nome_invalido_de_materia_e_recusado(string nome)
+    {
+        // Com barra seria uma SUBmatéria, e submatéria é a pasta de dentro — ela nasce junto com a
+        // primeira nota que mora lá, não por aqui.
+        var r = await Montar().CriarMateriaAsync(nome);
+        Assert.False(r.Ok);
+        Assert.Equal(MotivoDaFalha.Invalida, r.Motivo);
+    }
+
+    [Fact]
+    public void A_nota_mapa_nao_nasce_com_ligacao_quebrada()
+    {
+        // Apareceu na tela: o texto de ajuda cita "[[wikilinks]]" para explicar como ligar assuntos, e
+        // o analisador o leu como ligação de verdade — toda matéria nova nascia com um item falso em
+        // "ainda por escrever". Entre crases, é código, e o analisador ignora.
+        var conteudo = ServicoDeConhecimento.ConteudoDaNotaIndice(Materia.De("Português"));
+        var analise = AnalisadorDeNota.Analisar(conteudo, "Português.md");
+
+        Assert.Empty(analise.Ligacoes);
+        Assert.Contains("`[[wikilinks]]`", conteudo, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Materia_que_ja_tem_nota_nao_e_recriada()
+    {
+        // Já existe se QUALQUER nota mora nela, e não só se a nota-mapa existe: criar por cima de uma
+        // matéria com conteúdo daria a impressão de ter começado do zero.
+        var r = await Montar("Direito/Licitações.md").CriarMateriaAsync("Direito");
+        Assert.False(r.Ok);
+        Assert.Equal(MotivoDaFalha.JaExiste, r.Motivo);
+    }
+
     [Fact]
     public async Task Rotulo_da_materia_ausente_e_o_mesmo_da_lista_e_do_grafo()
     {

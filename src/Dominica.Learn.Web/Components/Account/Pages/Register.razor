@@ -6,6 +6,8 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.WebUtilities
 @using Dominica.Learn.Web.Data
+@using Dominica.Learn.Domain.Vault
+@using Microsoft.EntityFrameworkCore
 
 @inject UserManager<ApplicationUser> UserManager
 @inject IUserStore<ApplicationUser> UserStore
@@ -27,6 +29,15 @@
             <h2>Create a new account.</h2>
             <hr />
             <ValidationSummary class="text-danger" role="alert" />
+            <div class="form-floating mb-3">
+                <InputText @bind-Value="Input.Apelido" id="Input.Apelido" class="form-control" autocomplete="nickname" aria-required="true" placeholder="matheus" />
+                <label for="Input.Apelido">Apelido</label>
+                <ValidationMessage For="() => Input.Apelido" class="text-danger" />
+                <small class="form-text text-muted">
+                    Vira o nome da pasta do seu vault no disco e não pode ser alterado depois.
+                    Letras sem acento, números e hífen.
+                </small>
+            </div>
             <div class="form-floating mb-3">
                 <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
                 <label for="Input.Email">Email</label>
@@ -72,7 +83,25 @@
 
     public async Task RegisterUser(EditContext editContext)
     {
+        // O APELIDO É VALIDADO PELO DOMÍNIO, não por DataAnnotation. Quem sabe o que é um nome de pasta
+        // seguro é o ApelidoDoUsuario, e duplicar essa regra numa anotação aqui seria a primeira das duas
+        // cópias que um dia divergem — com a divergência aparecendo como uma pasta que não pode ser criada.
+        if (!ApelidoDoUsuario.TentarCriar(Input.Apelido, out var apelido, out var erroDoApelido) || apelido is null)
+        {
+            identityErrors = [new IdentityError { Code = "Apelido", Description = erroDoApelido! }];
+            return;
+        }
+
+        // Unicidade: o apelido é uma PASTA. Dois usuários com o mesmo apelido dividiriam o mesmo vault —
+        // exatamente o defeito que este cadastro existe para não ter.
+        if (await UserManager.Users.AnyAsync(u => u.Apelido == apelido.Valor))
+        {
+            identityErrors = [new IdentityError { Code = "Apelido", Description = $"O apelido \"{apelido.Valor}\" já está em uso." }];
+            return;
+        }
+
         var user = CreateUser();
+        user.Apelido = apelido.Valor;
 
         await UserStore.SetUserNameAsync(user, Input.Email, CancellationToken.None);
         var emailStore = GetEmailStore();
@@ -133,6 +162,10 @@
 
     private sealed class InputModel
     {
+        [Required(ErrorMessage = "Escolha um apelido.")]
+        [Display(Name = "Apelido")]
+        public string Apelido { get; set; } = "";
+
         [Required]
         [EmailAddress]
         [Display(Name = "Email")]

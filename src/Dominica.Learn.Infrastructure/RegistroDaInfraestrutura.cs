@@ -44,6 +44,9 @@ public static class RegistroDaInfraestrutura
         // Singleton: o pipeline do Markdig é imutável e caro de montar; recriá-lo por requisição seria
         // pagar a construção a cada abertura de nota.
         servicos.AddSingleton<IRenderizadorDeMarkdown, RenderizadorMarkdig>();
+        // Escopo de circuito (ou o escopo que o vigia abre): dentro dele o usuário não muda.
+        servicos.AddScoped<EscopoDoUsuario>();
+        servicos.AddScoped<RaizDoVaultDoUsuario>();
         servicos.AddScoped<IRepositorioDeNotas, RepositorioDeNotasEmDisco>();
         servicos.AddScoped<IArmazemDeAnexos, ArmazemDeAnexosEmDisco>();
         servicos.AddScoped<IIndiceDoVault, IndiceEmPostgres>();

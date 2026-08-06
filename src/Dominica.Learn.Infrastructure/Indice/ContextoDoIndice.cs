@@ -5,6 +5,12 @@ namespace Dominica.Learn.Infrastructure.Indice;
 /// <summary>Uma nota no índice. Espelha o arquivo; nada aqui é dado original do usuário.</summary>
 public sealed class NotaNoIndice
 {
+    /// <summary>
+    /// De quem é esta linha. É a fronteira entre o conhecimento de uma pessoa e o de outra, e ela é
+    /// aplicada por FILTRO GLOBAL do EF Core — ver <see cref="ContextoDoIndice"/>.
+    /// </summary>
+    public string Usuario { get; set; } = string.Empty;
+
     public int Id { get; set; }
     public string Caminho { get; set; } = string.Empty;
     public string Titulo { get; set; } = string.Empty;
@@ -23,6 +29,12 @@ public sealed class NotaNoIndice
 /// <summary>Uma ligação que SAI de uma nota. <see cref="Destino"/> nulo = ligação quebrada.</summary>
 public sealed class LigacaoNoIndice
 {
+    /// <summary>
+    /// De quem é esta linha. É a fronteira entre o conhecimento de uma pessoa e o de outra, e ela é
+    /// aplicada por FILTRO GLOBAL do EF Core — ver <see cref="ContextoDoIndice"/>.
+    /// </summary>
+    public string Usuario { get; set; } = string.Empty;
+
     public int Id { get; set; }
     public int NotaId { get; set; }
     public NotaNoIndice Nota { get; set; } = null!;
@@ -36,6 +48,12 @@ public sealed class LigacaoNoIndice
 
 public sealed class EtiquetaNoIndice
 {
+    /// <summary>
+    /// De quem é esta linha. É a fronteira entre o conhecimento de uma pessoa e o de outra, e ela é
+    /// aplicada por FILTRO GLOBAL do EF Core — ver <see cref="ContextoDoIndice"/>.
+    /// </summary>
+    public string Usuario { get; set; } = string.Empty;
+
     public int Id { get; set; }
     public int NotaId { get; set; }
     public NotaNoIndice Nota { get; set; } = null!;
@@ -45,6 +63,12 @@ public sealed class EtiquetaNoIndice
 /// <summary>Uma versão anterior de uma nota. NÃO é índice: é o único lugar onde este texto ainda existe.</summary>
 public sealed class RevisaoNoIndice
 {
+    /// <summary>
+    /// De quem é esta linha. É a fronteira entre o conhecimento de uma pessoa e o de outra, e ela é
+    /// aplicada por FILTRO GLOBAL do EF Core — ver <see cref="ContextoDoIndice"/>.
+    /// </summary>
+    public string Usuario { get; set; } = string.Empty;
+
     public long Id { get; set; }
     public string Caminho { get; set; } = string.Empty;
     public string Conteudo { get; set; } = string.Empty;
@@ -64,6 +88,16 @@ public sealed class RevisaoNoIndice
 /// </summary>
 public sealed class ContextoDoIndice(DbContextOptions<ContextoDoIndice> opcoes) : DbContext(opcoes)
 {
+    /// <summary>
+    /// De quem é o vault que este contexto enxerga. Todo filtro global desta classe compara com ele.
+    ///
+    /// O PADRÃO É VAZIO, E ISSO É A PROTEÇÃO: nenhuma linha real tem usuário vazio, então um adaptador
+    /// que esquecesse de preencher este campo devolveria uma lista vazia — nunca a nota de outra pessoa.
+    /// Falhar fechado é a única forma aceitável de falhar aqui, porque vazamento de vault não dá erro,
+    /// não aparece em log, e só é descoberto pelo dono da nota.
+    /// </summary>
+    public string UsuarioAtual { get; set; } = string.Empty;
+
     public DbSet<NotaNoIndice> Notas => Set<NotaNoIndice>();
     public DbSet<LigacaoNoIndice> Ligacoes => Set<LigacaoNoIndice>();
     public DbSet<EtiquetaNoIndice> Etiquetas => Set<EtiquetaNoIndice>();
@@ -74,7 +108,11 @@ public sealed class ContextoDoIndice(DbContextOptions<ContextoDoIndice> opcoes) 
         b.Entity<NotaNoIndice>(e =>
         {
             e.ToTable("notas");
-            e.HasIndex(x => x.Caminho).IsUnique();
+            // O caminho é único DENTRO de um vault, não no banco. Sem o usuário na chave, a segunda
+            // pessoa a criar "Direito/Licitações.md" esbarraria na nota da primeira.
+            e.HasIndex(x => new { x.Usuario, x.Caminho }).IsUnique();
+            e.Property(x => x.Usuario).HasMaxLength(32);
+            e.HasQueryFilter(x => x.Usuario == UsuarioAtual);
             e.Property(x => x.Caminho).HasMaxLength(1024);
             e.Property(x => x.Titulo).HasMaxLength(512);
             e.Property(x => x.Impressao).HasMaxLength(64);
@@ -89,24 +127,35 @@ public sealed class ContextoDoIndice(DbContextOptions<ContextoDoIndice> opcoes) 
             e.HasOne(x => x.Nota).WithMany(n => n.Ligacoes).HasForeignKey(x => x.NotaId).OnDelete(DeleteBehavior.Cascade);
             // O índice por DESTINO é o que faz o painel de backlinks abrir instantaneamente: "quem aponta
             // para cá" é exatamente uma busca por esta coluna, e é a pergunta mais valiosa do produto.
-            e.HasIndex(x => x.Destino);
+            // Backlink é a consulta mais valiosa do produto e roda em toda abertura de nota: o índice
+            // inclui o usuário porque a consulta sempre inclui — o filtro global põe as duas colunas
+            // no WHERE, e um índice só por destino faria o banco varrer as ligações de todo mundo.
+            e.HasIndex(x => new { x.Usuario, x.Destino });
+            e.Property(x => x.Usuario).HasMaxLength(32);
             e.Property(x => x.Alvo).HasMaxLength(1024);
             e.Property(x => x.Destino).HasMaxLength(1024);
+            e.HasQueryFilter(x => x.Usuario == UsuarioAtual);
         });
 
         b.Entity<EtiquetaNoIndice>(e =>
         {
             e.ToTable("etiquetas");
             e.HasOne(x => x.Nota).WithMany(n => n.Etiquetas).HasForeignKey(x => x.NotaId).OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(x => x.Valor);
+            e.HasIndex(x => new { x.Usuario, x.Valor });
+            e.Property(x => x.Usuario).HasMaxLength(32);
             e.Property(x => x.Valor).HasMaxLength(512);
+            e.HasQueryFilter(x => x.Usuario == UsuarioAtual);
         });
 
         b.Entity<RevisaoNoIndice>(e =>
         {
             e.ToTable("revisoes");
-            e.HasIndex(x => new { x.Caminho, x.Em });
+            e.HasIndex(x => new { x.Usuario, x.Caminho, x.Em });
+            e.Property(x => x.Usuario).HasMaxLength(32);
             e.Property(x => x.Caminho).HasMaxLength(1024);
+            // Revisão é o único texto que não existe em arquivo nenhum. O filtro aqui também fecha a
+            // porta de buscar a revisão de outra pessoa por id — que seria adivinhável, já que é serial.
+            e.HasQueryFilter(x => x.Usuario == UsuarioAtual);
         });
     }
 }

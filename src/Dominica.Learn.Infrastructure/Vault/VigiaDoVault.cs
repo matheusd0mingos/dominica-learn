@@ -1,4 +1,6 @@
 using Dominica.Learn.Application.CasosDeUso;
+using Dominica.Learn.Application.Portas;
+using Dominica.Learn.Domain.Vault;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -101,13 +103,59 @@ public sealed class VigiaDoVault : BackgroundService
         try { _acordar.Release(); } catch (SemaphoreFullException) { }
     }
 
+    /// <summary>
+    /// Reconcilia o vault de CADA usuário, um por vez.
+    ///
+    /// A lista de usuários sai das SUBPASTAS da raiz, e não da tabela de identidade. Não é atalho: o
+    /// vigia é infraestrutura do vault e não tem — nem deve ter — acesso ao banco de contas. E o critério
+    /// é mais honesto assim: o que existe para reconciliar é o que está no disco. Uma conta criada e
+    /// nunca usada não tem pasta, e não há nada a fazer por ela.
+    /// </summary>
     private async Task ReconciliarAsync(CancellationToken ct)
     {
-        // Escopo próprio: o DbContext é scoped e este serviço é singleton. Resolver o contexto direto do
-        // provedor raiz é o clássico "captured dependency" — funciona no teste e vaza conexão em produção.
-        using var escopo = _escopos.CreateScope();
-        var reconciliacao = escopo.ServiceProvider.GetRequiredService<ReconciliarVault>();
-        await reconciliacao.ExecutarAsync(ct);
+        foreach (var apelido in VaultsNoDisco())
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                // Escopo próprio POR USUÁRIO: o DbContext é scoped e este serviço é singleton (resolver o
+                // contexto do provedor raiz é o clássico "captured dependency", que funciona no teste e
+                // vaza conexão em produção). Aqui o escopo tem uma segunda função — declarar de quem é o
+                // vault, já que não há ninguém logado para perguntar.
+                using var escopo = _escopos.CreateScope();
+                escopo.ServiceProvider.GetRequiredService<EscopoDoUsuario>().Definir(apelido);
+                await escopo.ServiceProvider.GetRequiredService<ReconciliarVault>().ExecutarAsync(ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception e)
+            {
+                // O vault de um não pode impedir a reconciliação do outro. Sem este catch, uma nota
+                // ilegível na pasta de alguém deixaria todo mundo depois dele fora de sincronia.
+                _log.LogError(e, "Falha ao reconciliar o vault de {Apelido}; seguindo para os demais.", apelido);
+            }
+        }
+    }
+
+    private IEnumerable<ApelidoDoUsuario> VaultsNoDisco()
+    {
+        var raiz = Path.GetFullPath(_opcoes.Raiz);
+        IEnumerable<string> pastas;
+        try { pastas = Directory.EnumerateDirectories(raiz); }
+        catch (DirectoryNotFoundException) { yield break; }
+
+        foreach (var pasta in pastas)
+        {
+            var nome = Path.GetFileName(pasta);
+            if (!ApelidoDoUsuario.TentarCriar(nome, out var apelido, out var erro) || apelido is null)
+            {
+                // Pasta que não é vault de ninguém — um ".git" na raiz, uma sobra de cópia. Avisa em vez
+                // de ignorar calado: se for a pasta de alguém com nome errado, o dono precisa saber por
+                // que as notas dele não aparecem.
+                _log.LogWarning("Pasta na raiz do vault que não é de nenhum usuário ({Motivo}): {Pasta}", erro, nome);
+                continue;
+            }
+            yield return apelido;
+        }
     }
 
     public override void Dispose()

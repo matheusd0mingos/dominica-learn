@@ -41,8 +41,12 @@ services:
       ConnectionStrings__Identidade: "Host=banco;Database=learn_identidade;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Vault__Raiz: /dados/vault
     volumes:
-      # O VAULT. Caminho do host no .env — aponte para a pasta que você abre no Obsidian Desktop, e os
-      # dois editam o MESMO vault. É a promessa central do produto, e ela mora nesta linha.
+      # A RAIZ DOS VAULTS. Dentro dela nasce UMA PASTA POR USUÁRIO, com o apelido escolhido no cadastro:
+      # /dados/vault/matheus, /dados/vault/joao. Cada pessoa aponta o Obsidian Desktop para a SUA pasta,
+      # e edita o mesmo vault que vê aqui — é a promessa central do produto, e ela mora nesta linha.
+      #
+      # Quem já tinha um vault solto nesta raiz precisa movê-lo para dentro da pasta do apelido; veja o
+      # resumo da migração IsolamentoPorUsuario.
       - ${VAULT_NO_HOST:?defina VAULT_NO_HOST no .env}:/dados/vault
     networks: [interna, borda]
 

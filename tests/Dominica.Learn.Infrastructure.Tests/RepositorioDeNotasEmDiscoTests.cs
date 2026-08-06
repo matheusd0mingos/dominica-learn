@@ -10,20 +10,28 @@ namespace Dominica.Learn.Infrastructure.Tests;
 // com dublê: encoding do arquivo gravado, escape da raiz, e o formato que o Obsidian vai encontrar.
 public sealed class RepositorioDeNotasEmDiscoTests : IDisposable
 {
+    private const string Apelido = "matheus";
+
+    private readonly string _raizComum;
     private readonly string _raiz;
     private readonly RepositorioDeNotasEmDisco _repo;
 
     public RepositorioDeNotasEmDiscoTests()
     {
-        _raiz = Path.Combine(Path.GetTempPath(), "learn-teste-" + Guid.NewGuid().ToString("N")[..10]);
+        // A raiz COMUM guarda os vaults; o do usuário é a subpasta. Os testes olham a subpasta, que é
+        // onde as notas de fato ficam — e é essa diferença que separa uma pessoa da outra.
+        _raizComum = Path.Combine(Path.GetTempPath(), "learn-teste-" + Guid.NewGuid().ToString("N")[..10]);
+        var opcoes = Options.Create(new OpcoesDoVault { Raiz = _raizComum });
+        _raiz = Path.Combine(_raizComum, Apelido);
         _repo = new RepositorioDeNotasEmDisco(
-            Options.Create(new OpcoesDoVault { Raiz = _raiz }),
+            opcoes,
+            new RaizDoVaultDoUsuario(opcoes, new UsuarioDeTeste(Apelido)),
             NullLogger<RepositorioDeNotasEmDisco>.Instance);
     }
 
     public void Dispose()
     {
-        if (Directory.Exists(_raiz)) Directory.Delete(_raiz, recursive: true);
+        if (Directory.Exists(_raizComum)) Directory.Delete(_raizComum, recursive: true);
     }
 
     [Fact]
@@ -152,6 +160,8 @@ public sealed class RepositorioDeNotasEmDiscoTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(fora, "segredo.md"), "não deveria sair daqui");
         try
         {
+            // A pasta do usuário é criada na primeira gravação; aqui o elo vem antes de qualquer nota.
+            Directory.CreateDirectory(_raiz);
             Directory.CreateSymbolicLink(Path.Combine(_raiz, "atalho"), fora);
 
             await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
@@ -168,8 +178,10 @@ public sealed class RepositorioDeNotasEmDiscoTests : IDisposable
     [Fact]
     public async Task Recusa_nota_maior_que_o_limite()
     {
+        var opcoes = Options.Create(new OpcoesDoVault { Raiz = _raizComum, TamanhoMaximoDaNotaBytes = 32 });
         var repoApertado = new RepositorioDeNotasEmDisco(
-            Options.Create(new OpcoesDoVault { Raiz = _raiz, TamanhoMaximoDaNotaBytes = 32 }),
+            opcoes,
+            new RaizDoVaultDoUsuario(opcoes, new UsuarioDeTeste(Apelido)),
             NullLogger<RepositorioDeNotasEmDisco>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>

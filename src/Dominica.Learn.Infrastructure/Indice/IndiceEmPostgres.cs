@@ -10,10 +10,24 @@ namespace Dominica.Learn.Infrastructure.Indice;
 /// <summary>
 /// O índice, em Postgres. Adaptador de <see cref="IIndiceDoVault"/> — o domínio não sabe que ele existe.
 /// </summary>
-public sealed class IndiceEmPostgres(ContextoDoIndice db) : IIndiceDoVault
+public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario) : IIndiceDoVault
 {
+    /// <summary>
+    /// Diz ao contexto de quem é o vault desta chamada. Todo método público começa por aqui.
+    ///
+    /// Parece repetitivo e é justamente o oposto de repetir a regra: a REGRA está uma vez só, no filtro
+    /// global do <see cref="ContextoDoIndice"/>. Aqui só se informa o sujeito. Esquecer esta linha faz a
+    /// consulta devolver vazio, não a nota de outra pessoa — ver o comentário de UsuarioAtual lá.
+    /// </summary>
+    private async Task<string> EuAsync(CancellationToken ct)
+    {
+        if (db.UsuarioAtual.Length == 0) db.UsuarioAtual = (await usuario.ApelidoAsync(ct)).Valor;
+        return db.UsuarioAtual;
+    }
+
     public async Task<IReadOnlyList<EstadoDaNota>> EstadoAtualAsync(CancellationToken ct = default)
     {
+        await EuAsync(ct);
         var linhas = await db.Notas.AsNoTracking()
             .Select(n => new { n.Caminho, n.ModificadoEm, n.Impressao })
             .ToListAsync(ct);
@@ -27,13 +41,14 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db) : IIndiceDoVault
 
     public async Task IndexarAsync(Nota nota, IReadOnlyList<LigacaoResolvida> ligacoes, CancellationToken ct = default)
     {
+        var eu = await EuAsync(ct);
         var entidade = await db.Notas
             .Include(n => n.Ligacoes).Include(n => n.Etiquetas)
             .FirstOrDefaultAsync(n => n.Caminho == nota.Caminho.Valor, ct);
 
         if (entidade is null)
         {
-            entidade = new NotaNoIndice { Caminho = nota.Caminho.Valor };
+            entidade = new NotaNoIndice { Caminho = nota.Caminho.Valor, Usuario = eu };
             db.Notas.Add(entidade);
         }
         else
@@ -58,6 +73,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db) : IIndiceDoVault
             .Where(l => !l.EhInterna)
             .Select(l => new LigacaoNoIndice
             {
+                Usuario = eu,
                 Alvo = l.Alvo,
                 Destino = l.Destino?.Valor,
                 Secao = l.Secao,
@@ -73,7 +89,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db) : IIndiceDoVault
             .SelectMany(e => e.ComAncestrais())
             .Select(e => e.Valor)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(v => new EtiquetaNoIndice { Valor = v })
+            .Select(v => new EtiquetaNoIndice { Usuario = eu, Valor = v })
             .ToList();
 
         await db.SaveChangesAsync(ct);
@@ -81,11 +97,13 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db) : IIndiceDoVault
 
     public async Task RemoverAsync(CaminhoNota caminho, CancellationToken ct = default)
     {
+        await EuAsync(ct);
         await db.Notas.Where(n => n.Caminho == caminho.Valor).ExecuteDeleteAsync(ct);
     }
 
     public async Task RenomearAsync(CaminhoNota de, CaminhoNota para, CancellationToken ct = default)
     {
+        await EuAsync(ct);
         // Atualiza em vez de apagar+criar para preservar o Id — é dele que penduram histórico, favoritos e
         // (no futuro) estatísticas de estudo. Recriar a linha perderia tudo isso em silêncio.
         await db.Notas.Where(n => n.Caminho == de.Valor)
@@ -98,6 +116,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db) : IIndiceDoVault
 
     public async Task<NotaIndexada?> ObterAsync(CaminhoNota caminho, CancellationToken ct = default)
     {
+        await EuAsync(ct);
         var n = await db.Notas.AsNoTracking().Include(x => x.Etiquetas)
             .FirstOrDefaultAsync(x => x.Caminho == caminho.Valor, ct);
         return n is null ? null : Projetar(n);
@@ -105,6 +124,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db) : IIndiceDoVault
 
     public async Task<IReadOnlyList<NotaConhecida>> NotasConhecidasAsync(CancellationToken ct = default)
     {
+        await EuAsync(ct);
         var linhas = await db.Notas.AsNoTracking().Select(n => new { n.Caminho, n.Apelidos }).ToListAsync(ct);
         var conhecidas = new List<NotaConhecida>(linhas.Count);
         foreach (var l in linhas)
@@ -115,6 +135,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db) : IIndiceDoVault
 
     public async Task<IReadOnlyList<Acerto>> BuscarAsync(ConsultaDeBusca consulta, CancellationToken ct = default)
     {
+        await EuAsync(ct);
         var q = db.Notas.AsNoTracking().Include(n => n.Etiquetas).AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(consulta.Pasta))
@@ -146,6 +167,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db) : IIndiceDoVault
 
     public async Task<IReadOnlyList<LigacaoResolvida>> BacklinksAsync(CaminhoNota caminho, CancellationToken ct = default)
     {
+        await EuAsync(ct);
         var linhas = await db.Ligacoes.AsNoTracking().Include(l => l.Nota)
             .Where(l => l.Destino == caminho.Valor)
             .OrderBy(l => l.Nota.Caminho).ThenBy(l => l.Posicao)
@@ -155,6 +177,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db) : IIndiceDoVault
 
     public async Task<IReadOnlyList<LigacaoResolvida>> LigacoesDeAsync(CaminhoNota caminho, CancellationToken ct = default)
     {
+        await EuAsync(ct);
         var linhas = await db.Ligacoes.AsNoTracking().Include(l => l.Nota)
             .Where(l => l.Nota.Caminho == caminho.Valor).OrderBy(l => l.Posicao)
             .ToListAsync(ct);
@@ -163,6 +186,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db) : IIndiceDoVault
 
     public async Task<IReadOnlyList<EtiquetaContada>> EtiquetasAsync(CancellationToken ct = default)
     {
+        await EuAsync(ct);
         var linhas = await db.Etiquetas.AsNoTracking()
             .GroupBy(e => e.Valor)
             .Select(g => new { Valor = g.Key, Notas = g.Select(x => x.NotaId).Distinct().Count() })
@@ -178,6 +202,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db) : IIndiceDoVault
 
     public async Task<IReadOnlyList<NotaIndexada>> RecentesAsync(int limite, CancellationToken ct = default)
     {
+        await EuAsync(ct);
         var notas = await db.Notas.AsNoTracking().Include(n => n.Etiquetas)
             .OrderByDescending(n => n.ModificadoEm).Take(limite).ToListAsync(ct);
         return notas.Select(Projetar).ToList();
@@ -185,6 +210,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db) : IIndiceDoVault
 
     public async Task<IReadOnlyList<CaminhoNota>> TodosOsCaminhosAsync(CancellationToken ct = default)
     {
+        await EuAsync(ct);
         var caminhos = await db.Notas.AsNoTracking().OrderBy(n => n.Caminho).Select(n => n.Caminho).ToListAsync(ct);
         return caminhos
             .Select(c => CaminhoNota.TentarCriar(c, out var k, out _) ? k : null)

@@ -74,7 +74,13 @@
                 @* MATÉRIAS — a divisão principal de um vault de concurso, e a única que já existe desde
                    o primeiro arquivo, porque é a pasta. Vem antes de Recentes e Etiquetas: recente
                    responde "no que mexi", etiqueta é transversal, e matéria é onde a nota MORA. *@
-                <MudText Typo="Typo.overline" Class="mt-3 d-block">Matérias</MudText>
+                <div class="d-flex align-center justify-space-between mt-3">
+                    <MudText Typo="Typo.overline">Matérias</MudText>
+                    <MudTooltip Text="Criar matéria (vira uma pasta com o mapa dela dentro)">
+                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.CreateNewFolder"
+                                       OnClick="CriarMateriaAsync" />
+                    </MudTooltip>
+                </div>
                 @if (_materias.Count == 0)
                 {
                     <MudText Typo="Typo.body2" Class="mud-text-secondary">
@@ -93,6 +99,10 @@
                                 {
                                     @* Duas perguntas diferentes, dois destinos: a lista responde "o que
                                        tem aqui dentro", o grafo responde "como isso se conecta". *@
+                                    <MudTooltip Text="@($"Nota nova em {m.Materia.Rotulo}")">
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.NoteAdd"
+                                                       OnClick="@(() => CriarAsync($"{m.Materia.Nome}/"))" />
+                                    </MudTooltip>
                                     <MudTooltip Text="@($"Ver o grafo de {m.Materia.Rotulo}")">
                                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Hub"
                                                        Href="@($"/grafo?materia={Uri.EscapeDataString(m.Materia.Nome)}")" />
@@ -495,6 +505,26 @@
             return;
         }
         Ir(escolha.Destino);
+    }
+
+    /// <summary>
+    /// Cria uma matéria. Vira uma pasta com o mapa de conteúdo dela dentro — pasta vazia não sobrevive
+    /// neste vault, porque o repositório limpa as que ficam sem arquivo.
+    /// </summary>
+    private async Task CriarMateriaAsync()
+    {
+        var nome = await Dialogos.ShowAsync<DialogoDeNovaMateria>("Matéria nova");
+        var fechou = await nome.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not string escolhido) return;
+
+        var r = await Conhecimento.CriarMateriaAsync(escolhido);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui criar a matéria.", Severity.Error);
+            return;
+        }
+        await RecarregarLateraisAsync();
+        Ir(r.Valor!.Caminho);
     }
 
     private async Task BuscarAsync()

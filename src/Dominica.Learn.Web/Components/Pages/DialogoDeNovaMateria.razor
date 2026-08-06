@@ -1,0 +1,45 @@
+@* Criar uma matéria. Ela vira uma PASTA no vault com o mapa de conteúdo dela dentro — pasta vazia não
+   sobrevive aqui, porque o repositório limpa as que ficam sem arquivo. *@
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Matéria nova</MudText>
+    </TitleContent>
+
+    <DialogContent>
+        <MudTextField @bind-Value="_nome" Label="Nome da matéria" Variant="Variant.Outlined"
+                      Immediate="true" AutoFocus="true" Error="@(_erro is not null)" ErrorText="@_erro"
+                      HelperText="Vira uma pasta no vault: Direito Administrativo, Português, Informática." />
+
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-3">
+            Junto com a pasta nasce a nota-mapa da matéria, onde cabe o plano de estudo e as ligações
+            para os assuntos dela. É uma nota comum: aparece na busca, no grafo e no Obsidian.
+        </MudText>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialogo.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Confirmar">Criar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    private string _nome = string.Empty;
+    private string? _erro;
+
+    private void Confirmar()
+    {
+        // A validação de verdade é do caso de uso, que sabe o que já existe no vault. Aqui só se evita a
+        // ida e volta óbvia — campo vazio e barra, que significa outra coisa.
+        var limpo = _nome.Trim();
+        if (limpo.Length == 0) { _erro = "Dê um nome à matéria."; return; }
+        if (limpo.Contains('/') || limpo.Contains('\\'))
+        {
+            _erro = "Sem barra: a matéria é a pasta de cima. As subpastas vêm com as notas.";
+            return;
+        }
+        Dialogo.Close(DialogResult.Ok(limpo));
+    }
+}

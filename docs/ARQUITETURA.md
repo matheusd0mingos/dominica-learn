@@ -65,10 +65,12 @@ o acoplamento vazou.
 | `Reconciliador` | decidir o que mudou entre disco e índice é a regra central; **função pura** |
 | `ReescritorDeLigacoes` | o que preservar ao renomear (rótulo, seção, "altura" do link) é decisão de produto |
 | `CaminhoNota` | um caminho de nota é sempre relativo e sempre para dentro do vault |
+| `ApelidoDoUsuario` | o apelido é o nome da pasta do vault, então precisa ser um segmento de caminho seguro |
+| `Materia` | a matéria de uma nota é a primeira pasta do caminho dela |
 
 Todas essas são funções puras ou objetos imutáveis. É o que permite testar "pasta inteira movida",
 "conteúdo duplicado trocando de lugar" e "Windows sincronizando com Linux" com duas listas literais, sem
-tocar em disco. **106 testes, nenhum precisa de Postgres.**
+tocar em disco. **A maioria dos testes não precisa de banco nenhum.**
 
 ---
 
@@ -83,6 +85,26 @@ acontecer.
 **Preço:** renomear muda a identidade. Pago em `ServicoDeNotas.RenomearAsync`, que reescreve os wikilinks
 de entrada. Sem essa contrapartida, renomear quebraria toda a rede de ligações — que, num vault de
 estudo, **é** o conhecimento.
+
+### A fronteira entre pessoas é uma pasta e uma coluna
+
+Cada usuário tem uma **pasta própria** dentro da raiz dos vaults (`/dados/vault/{apelido}`) e **uma
+coluna `Usuario`** em cada tabela do índice. O apelido é escolhido no cadastro e é imutável: ele *é* o
+caminho, e trocá-lo significaria mover a árvore no disco e reescrever toda linha do índice — possivelmente
+com o Obsidian de alguém aberto no meio.
+
+O isolamento é aplicado em **dois lugares únicos**, nunca espalhado:
+
+- no disco, por `RaizDoVaultDoUsuario` — um adaptador que esqueça de pedir a raiz não tem caminho onde
+  escrever;
+- no banco, por **filtro global do EF Core** — uma consulta que esqueça de declarar o usuário devolve
+  **vazio**, nunca a nota de outra pessoa.
+
+Essa assimetria é deliberada. Vazamento de vault não dá erro, não aparece em log e só é descoberto pelo
+dono da nota; a única forma aceitável de falhar aqui é **fechado**.
+
+O caminho da nota é único *dentro de* um vault, e não no banco: duas pessoas estudando para a mesma prova
+vão ambas criar `Direito/Licitações.md`, e isso tem de funcionar.
 
 ### A data de modificação não decide nada; a impressão digital decide
 

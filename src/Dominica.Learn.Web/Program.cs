@@ -1,4 +1,5 @@
 using System.Threading.RateLimiting;
+using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Infrastructure;
 using Dominica.Learn.Infrastructure.Indice;
 using Dominica.Learn.Web.Anexos;
@@ -26,6 +27,8 @@ builder.Services.AddScoped<IEditorDeTexto, EditorCodeMirror>();
 builder.Services.AddScoped<IRenderizadorDoCliente, RenderizadorDoCliente>();
 // Escopo de circuito: o tema é de quem está com a aba aberta, não do servidor.
 builder.Services.AddScoped<EstadoDoTema>();
+// A ÚNICA tradução de "existe cookie válido" para "este vault é do fulano". Tudo o mais recebe apelido.
+builder.Services.AddScoped<IUsuarioAtual, UsuarioAtualDoCircuito>();
 
 // —— IDENTIDADE ——————————————————————————————————————————————————————————————————————
 // Banco SEPARADO do índice de propósito: identidade não é conhecimento do usuário e não pode ser

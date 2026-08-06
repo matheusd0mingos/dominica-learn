@@ -10,8 +10,19 @@ namespace Dominica.Learn.Infrastructure.Indice;
 /// Ao contrário do índice, ISTO NÃO É RECONSTRUÍVEL: guarda texto que não existe mais em arquivo nenhum.
 /// Toda rotina de manutenção que truncar as tabelas do índice tem de deixar "revisoes" em paz.
 /// </summary>
-public sealed class HistoricoEmPostgres(ContextoDoIndice db, IRelogio relogio) : IHistoricoDeNotas
+public sealed class HistoricoEmPostgres(ContextoDoIndice db, IRelogio relogio, IUsuarioAtual usuario) : IHistoricoDeNotas
 {
+    /// <summary>
+    /// De quem é o vault desta chamada. A regra mora no filtro global do <see cref="ContextoDoIndice"/>;
+    /// aqui só se informa o sujeito. Vale ainda mais para revisões: o id é serial, portanto adivinhável,
+    /// e sem o filtro daria para ler a versão antiga da nota de outra pessoa pedindo o id vizinho.
+    /// </summary>
+    private async Task<string> EuAsync(CancellationToken ct)
+    {
+        if (db.UsuarioAtual.Length == 0) db.UsuarioAtual = (await usuario.ApelidoAsync(ct)).Valor;
+        return db.UsuarioAtual;
+    }
+
     /// <summary>
     /// Quantas revisões guardar por nota.
     ///
@@ -23,10 +34,12 @@ public sealed class HistoricoEmPostgres(ContextoDoIndice db, IRelogio relogio) :
 
     public async Task ArquivarAsync(CaminhoNota caminho, string conteudo, string? autor, CancellationToken ct = default)
     {
+        var eu = await EuAsync(ct);
         if (string.IsNullOrEmpty(conteudo)) return;
 
         db.Revisoes.Add(new RevisaoNoIndice
         {
+            Usuario = eu,
             Caminho = caminho.Valor,
             Conteudo = conteudo,
             Em = relogio.Agora,
@@ -42,6 +55,7 @@ public sealed class HistoricoEmPostgres(ContextoDoIndice db, IRelogio relogio) :
 
     public async Task<IReadOnlyList<Revisao>> ListarAsync(CaminhoNota caminho, int limite = 50, CancellationToken ct = default)
     {
+        await EuAsync(ct);
         var linhas = await db.Revisoes.AsNoTracking()
             .Where(r => r.Caminho == caminho.Valor)
             .OrderByDescending(r => r.Em).Take(limite).ToListAsync(ct);
@@ -50,12 +64,14 @@ public sealed class HistoricoEmPostgres(ContextoDoIndice db, IRelogio relogio) :
 
     public async Task<Revisao?> ObterAsync(long id, CancellationToken ct = default)
     {
+        await EuAsync(ct);
         var r = await db.Revisoes.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
         return r is null ? null : Projetar(r);
     }
 
     public async Task RenomearAsync(CaminhoNota de, CaminhoNota para, CancellationToken ct = default)
     {
+        await EuAsync(ct);
         // Sem isto, renomear apagaria a memória da nota: o histórico continuaria atrelado a um caminho
         // que não existe mais, invisível para sempre.
         await db.Revisoes.Where(r => r.Caminho == de.Valor)

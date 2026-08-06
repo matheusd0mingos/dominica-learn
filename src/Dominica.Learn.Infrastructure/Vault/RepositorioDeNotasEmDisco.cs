@@ -28,24 +28,22 @@ public sealed class RepositorioDeNotasEmDisco : IRepositorioDeNotas
 
     private readonly OpcoesDoVault _opcoes;
     private readonly ILogger<RepositorioDeNotasEmDisco> _log;
-    private readonly string _raiz;
+    private readonly RaizDoVaultDoUsuario _raizDoUsuario;
 
-    public RepositorioDeNotasEmDisco(IOptions<OpcoesDoVault> opcoes, ILogger<RepositorioDeNotasEmDisco> log)
+    public RepositorioDeNotasEmDisco(
+        IOptions<OpcoesDoVault> opcoes, RaizDoVaultDoUsuario raizDoUsuario, ILogger<RepositorioDeNotasEmDisco> log)
     {
         _opcoes = opcoes.Value;
+        _raizDoUsuario = raizDoUsuario;
         _log = log;
-        Directory.CreateDirectory(_opcoes.Raiz);
-        _raiz = CaminhoSeguro.Real(_opcoes.Raiz);
     }
 
-    public string Raiz => _raiz;
-
-    public Task<bool> ExisteAsync(CaminhoNota caminho, CancellationToken ct = default) =>
-        Task.FromResult(File.Exists(Absoluto(caminho)));
+    public async Task<bool> ExisteAsync(CaminhoNota caminho, CancellationToken ct = default) =>
+        File.Exists(Absoluto(await _raizDoUsuario.ObterAsync(ct), caminho));
 
     public async Task<Nota?> LerAsync(CaminhoNota caminho, CancellationToken ct = default)
     {
-        var absoluto = Absoluto(caminho);
+        var absoluto = Absoluto(await _raizDoUsuario.ObterAsync(ct), caminho);
         if (!File.Exists(absoluto)) return null;
 
         try
@@ -70,7 +68,7 @@ public sealed class RepositorioDeNotasEmDisco : IRepositorioDeNotas
             throw new InvalidOperationException(
                 $"A nota tem {bytes} bytes e o limite é {_opcoes.TamanhoMaximoDaNotaBytes}. Ajuste Vault:TamanhoMaximoDaNotaBytes se for intencional.");
 
-        var absoluto = Absoluto(caminho);
+        var absoluto = Absoluto(await _raizDoUsuario.ObterAsync(ct), caminho);
         Directory.CreateDirectory(Path.GetDirectoryName(absoluto)!);
 
         // GRAVAÇÃO ATÔMICA: escreve num temporário ao lado e troca. Sem isso, uma queda de energia no meio
@@ -92,10 +90,11 @@ public sealed class RepositorioDeNotasEmDisco : IRepositorioDeNotas
         return Nota.Criar(caminho, texto, new DateTimeOffset(File.GetLastWriteTimeUtc(absoluto), TimeSpan.Zero));
     }
 
-    public Task MoverAsync(CaminhoNota de, CaminhoNota para, CancellationToken ct = default)
+    public async Task MoverAsync(CaminhoNota de, CaminhoNota para, CancellationToken ct = default)
     {
-        var origem = Absoluto(de);
-        var destino = Absoluto(para);
+        var raiz = await _raizDoUsuario.ObterAsync(ct);
+        var origem = Absoluto(raiz, de);
+        var destino = Absoluto(raiz, para);
         if (!File.Exists(origem)) throw new FileNotFoundException($"Nota não encontrada: {de}", origem);
         // overwrite: false de propósito — sobrescrever nota alheia em silêncio é perda de dados, e o caso
         // de uso já checou a existência antes de chegar aqui.
@@ -103,30 +102,30 @@ public sealed class RepositorioDeNotasEmDisco : IRepositorioDeNotas
 
         Directory.CreateDirectory(Path.GetDirectoryName(destino)!);
         File.Move(origem, destino);
-        LimparPastaVaziaAcimaDe(origem);
-        return Task.CompletedTask;
+        LimparPastaVaziaAcimaDe(raiz, origem);
     }
 
-    public Task ApagarAsync(CaminhoNota caminho, CancellationToken ct = default)
+    public async Task ApagarAsync(CaminhoNota caminho, CancellationToken ct = default)
     {
-        var absoluto = Absoluto(caminho);
+        var raiz = await _raizDoUsuario.ObterAsync(ct);
+        var absoluto = Absoluto(raiz, caminho);
         if (File.Exists(absoluto))
         {
             File.Delete(absoluto);
-            LimparPastaVaziaAcimaDe(absoluto);
+            LimparPastaVaziaAcimaDe(raiz, absoluto);
         }
-        return Task.CompletedTask;
     }
 
     public async IAsyncEnumerable<EstadoDaNota> VarrerAsync([EnumeratorCancellation] CancellationToken ct = default)
     {
         var ignoradas = _opcoes.PastasIgnoradas.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var raiz = await _raizDoUsuario.ObterAsync(ct);
 
-        foreach (var absoluto in EnumerarArquivos(_raiz, ignoradas))
+        foreach (var absoluto in EnumerarArquivos(raiz, ignoradas))
         {
             ct.ThrowIfCancellationRequested();
 
-            var relativo = Path.GetRelativePath(_raiz, absoluto).Replace(Path.DirectorySeparatorChar, '/');
+            var relativo = Path.GetRelativePath(raiz, absoluto).Replace(Path.DirectorySeparatorChar, '/');
             if (!CaminhoNota.TentarCriar(relativo, out var caminho, out var erro) || caminho is null)
             {
                 // Arquivo com nome que o domínio recusa (caractere ilegal para outro sistema, por exemplo).
@@ -182,17 +181,18 @@ public sealed class RepositorioDeNotasEmDisco : IRepositorioDeNotas
     }
 
     /// <summary>Caminho absoluto, com a garantia de que não escapou da raiz — nem por elo simbólico.</summary>
-    private string Absoluto(CaminhoNota caminho) => CaminhoSeguro.Combinar(_raiz, caminho.Valor, caminho.Valor);
+    private static string Absoluto(string raiz, CaminhoNota caminho) =>
+        CaminhoSeguro.Combinar(raiz, caminho.Valor, caminho.Valor);
 
     /// <summary>
     /// Depois de mover/apagar, remove as pastas que ficaram vazias — até a raiz, sem incluí-la.
     /// Pasta vazia na árvore do vault é ruído visual que ninguém apaga na mão e que o Obsidian também
     /// esconde. Falha aqui é irrelevante: pasta vazia não perde dado de ninguém.
     /// </summary>
-    private void LimparPastaVaziaAcimaDe(string arquivoAbsoluto)
+    private void LimparPastaVaziaAcimaDe(string raiz, string arquivoAbsoluto)
     {
         var pasta = Path.GetDirectoryName(arquivoAbsoluto);
-        while (!string.IsNullOrEmpty(pasta) && !PathEhRaiz(pasta))
+        while (!string.IsNullOrEmpty(pasta) && !PathEhRaiz(raiz, pasta))
         {
             try
             {
@@ -205,9 +205,11 @@ public sealed class RepositorioDeNotasEmDisco : IRepositorioDeNotas
         }
     }
 
-    private bool PathEhRaiz(string pasta) =>
+    // A raiz aqui é a do USUÁRIO, e é o que impede a limpeza de pasta vazia de subir e apagar a pasta
+    // do vault dele — ou, pior, a raiz comum onde moram os vaults de todo mundo.
+    private static bool PathEhRaiz(string raiz, string pasta) =>
         string.Equals(Path.GetFullPath(pasta).TrimEnd(Path.DirectorySeparatorChar),
-                      _raiz.TrimEnd(Path.DirectorySeparatorChar), StringComparison.Ordinal);
+                      raiz.TrimEnd(Path.DirectorySeparatorChar), StringComparison.Ordinal);
 
     private void TentarApagar(string arquivo)
     {
