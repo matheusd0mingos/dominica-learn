@@ -1,0 +1,53 @@
+@using Dominica.Learn.Domain.Vault
+
+@* Renomear e mover são a MESMA caixa, com o caminho inteiro editável.
+   Separá-las em duas telas obrigaria a pessoa a decidir de antemão qual das duas quer — e na prática
+   ela quer as duas de uma vez ("põe isto em Tributário e chama de Prescrição"). *@
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Renomear ou mover</MudText>
+    </TitleContent>
+
+    <DialogContent>
+        <MudTextField @bind-Value="_novo" Label="Caminho da nota" Variant="Variant.Outlined"
+                      Immediate="true" AutoFocus="true"
+                      Error="@(_erro is not null)" ErrorText="@_erro"
+                      HelperText="Mude o nome, a pasta, ou os dois. A pasta é a matéria." />
+
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-3">
+            Os <b>[[links]]</b> de outras notas que apontam para esta são corrigidos junto — nenhum
+            caminho se perde. O arquivo continua sendo um <b>.md</b> na mesma pasta que o Obsidian abre.
+        </MudText>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialogo.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Confirmar">Renomear</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    [Parameter] public string CaminhoAtual { get; set; } = string.Empty;
+
+    private string _novo = string.Empty;
+    private string? _erro;
+
+    protected override void OnInitialized() => _novo = CaminhoAtual;
+
+    private void Confirmar()
+    {
+        // Quem sabe que "..", barra invertida e caminho absoluto são proibidos é o CaminhoNota. Repetir
+        // essa regra aqui seria a primeira das duas cópias que um dia divergem — e a que diverge numa
+        // validação de caminho é a que deixa alguém escrever fora do vault.
+        if (!CaminhoNota.TentarCriar(_novo, out var caminho, out _erro) || caminho is null)
+        {
+            StateHasChanged();
+            return;
+        }
+
+        Dialogo.Close(DialogResult.Ok(caminho));
+    }
+}

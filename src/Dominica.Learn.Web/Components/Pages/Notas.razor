@@ -206,6 +206,18 @@
                     {
                         <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
                     }
+
+                    @* Renomear e excluir ficam num menu, e não como botões soltos ao lado dos outros, por
+                       uma razão de segurança e não de espaço: são as duas únicas ações desta barra que
+                       não têm volta. Um clique errado ao mirar o "anexar" não pode apagar uma nota. *@
+                    <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true"
+                             AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight"
+                             aria-label="Mais ações desta nota">
+                        <MudMenuItem Icon="@Icons.Material.Filled.DriveFileRenameOutline"
+                                     OnClick="RenomearAsync">Renomear ou mover…</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.DeleteOutline" IconColor="Color.Error"
+                                     OnClick="ExcluirAsync">Excluir…</MudMenuItem>
+                    </MudMenu>
                 </div>
 
                 @* O editor NÃO é destruído ao ler: manter os dois no DOM e trocar a visibilidade preserva
@@ -511,6 +523,82 @@
     /// Cria uma matéria. Vira uma pasta com o mapa de conteúdo dela dentro — pasta vazia não sobrevive
     /// neste vault, porque o repositório limpa as que ficam sem arquivo.
     /// </summary>
+    /// <summary>
+    /// Renomeia ou move a nota aberta. O caminho inteiro é editável — mudar a pasta É mover, e separar
+    /// "renomear" de "mover" em duas telas obrigaria o usuário a saber de antemão qual das duas ele
+    /// quer, quando na prática ele quer as duas ao mesmo tempo ("põe isto em Tributário e chama de X").
+    ///
+    /// Quem conserta os [[links]] das outras notas é o ServicoDeNotas; aqui só se pergunta e se conta o
+    /// resultado. O número de notas ajustadas aparece no aviso porque é a prova de que os caminhos
+    /// foram preservados — e o único jeito de a pessoa notar quando NENHUM foi.
+    /// </summary>
+    private async Task RenomearAsync()
+    {
+        if (_aberta is null) return;
+        var atual = _aberta.Nota.Caminho;
+
+        var parametros = new DialogParameters<DialogoDeRenomear>
+        {
+            { d => d.CaminhoAtual, atual.Valor },
+        };
+        var dialogo = await Dialogos.ShowAsync<DialogoDeRenomear>("Renomear ou mover", parametros);
+        var fechou = await dialogo.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not CaminhoNota destino) return;
+        if (destino == atual) return;
+
+        // Grava o que estiver no editor ANTES de mover: o texto não salvo mora no navegador, e mover o
+        // arquivo debaixo dele perderia o que a pessoa acabou de escrever.
+        if (_textoPendente is not null)
+            await Servico.SalvarAsync(atual, _textoPendente, impressaoEsperada: null);
+
+        var r = await Servico.RenomearAsync(atual, destino);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui renomear.", Severity.Error);
+            return;
+        }
+
+        Avisos.Add($"Agora é \"{destino.Valor}\".", Severity.Success);
+        await RecarregarLateraisAsync();
+        Ir(destino);
+    }
+
+    /// <summary>
+    /// Exclui a nota aberta, dizendo ANTES quantas ligações apontam para ela.
+    ///
+    /// As ligações NÃO são apagadas junto, e isso é decisão: no Obsidian, link para nota inexistente é
+    /// recurso — é assim que se escreve o que ainda falta. Apagá-las mexeria no texto de outras notas
+    /// para registrar uma decisão sobre esta.
+    /// </summary>
+    private async Task ExcluirAsync()
+    {
+        if (_aberta is null) return;
+        var caminho = _aberta.Nota.Caminho;
+        var apontam = await Conhecimento.QuantasApontamParaAsync(caminho);
+
+        var parametros = new DialogParameters<DialogoDeConfirmarExclusao>
+        {
+            { d => d.Caminho, caminho.Valor },
+            { d => d.LigacoesQueApontam, apontam },
+        };
+        var dialogo = await Dialogos.ShowAsync<DialogoDeConfirmarExclusao>("Excluir nota", parametros);
+        var fechou = await dialogo.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not true) return;
+
+        var r = await Servico.ApagarAsync(caminho);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui excluir.", Severity.Error);
+            return;
+        }
+
+        Avisos.Add($"\"{caminho.Nome}\" foi excluída.", Severity.Success);
+        await FecharEditorAsync();
+        _aberta = null;
+        await RecarregarLateraisAsync();
+        Navegacao.NavigateTo("notas");
+    }
+
     private async Task CriarMateriaAsync()
     {
         var nome = await Dialogos.ShowAsync<DialogoDeNovaMateria>("Matéria nova");
