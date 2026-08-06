@@ -1,74 +1,79 @@
-﻿@page "/Account/Login"
+@page "/Account/Login"
 
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.Authentication
 @using Microsoft.AspNetCore.Identity
+@using Microsoft.Extensions.Options
 @using Dominica.Learn.Web.Data
+@using Dominica.Learn.Web.Seguranca
 
 @inject UserManager<ApplicationUser> UserManager
 @inject SignInManager<ApplicationUser> SignInManager
 @inject ILogger<Login> Logger
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
+@inject IOptions<OpcoesDeAdministracao> Admin
 
-<PageTitle>Log in</PageTitle>
+@* A PRIMEIRA tela de quem chega. Ela vinha do template: em inglês, num formulário Bootstrap solto
+   na página, com uma coluna ao lado oferecendo "entrar com outro serviço" — que aqui não existe e
+   cujo texto padrão manda o usuário ler um artigo da Microsoft. Nada disso é este produto. *@
 
-<h1>Log in</h1>
-<div class="row">
-    <div class="col-lg-6">
-        <section>
-            <StatusMessage Message="@errorMessage" />
-            <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login">
-                <DataAnnotationsValidator />
-                <h2>Use a local account to log in.</h2>
-                <hr />
-                <ValidationSummary class="text-danger" role="alert" />
-                <div class="form-floating mb-3">
-                    <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control" autocomplete="username webauthn" aria-required="true" placeholder="name@example.com" />
-                    <label for="Input.Email" class="form-label">Email</label>
-                    <ValidationMessage For="() => Input.Email" class="text-danger" />
-                </div>
-                <div class="form-floating mb-3">
-                    <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control" autocomplete="current-password" aria-required="true" placeholder="password" />
-                    <label for="Input.Password" class="form-label">Password</label>
-                    <ValidationMessage For="() => Input.Password" class="text-danger" />
-                </div>
-                <div class="checkbox mb-3">
-                    <label class="form-label">
-                        <InputCheckbox @bind-Value="Input.RememberMe" class="darker-border-checkbox form-check-input" />
-                        Remember me
-                    </label>
-                </div>
-                <div>
-                    <button type="submit" class="w-100 btn btn-lg btn-primary">Log in</button>
-                </div>
-                <hr />
-                <div class="d-flex flex-column">
-                    <span class="text-secondary mx-auto mt-2">OR</span>
-                    <PasskeySubmit Operation="PasskeyOperation.Request" Name="Input.Passkey" EmailName="Input.Email" class="btn btn-link mx-auto">Log in with a passkey</PasskeySubmit>
-                </div>
-                <hr />
-                <div>
-                    <p>
-                        <a href="Account/ForgotPassword">Forgot your password?</a>
-                    </p>
-                    <p>
-                        <a href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))">Register as a new user</a>
-                    </p>
-                    <p>
-                        <a href="Account/ResendEmailConfirmation">Resend email confirmation</a>
-                    </p>
-                </div>
-            </EditForm>
-        </section>
-    </div>
-    <div class="col-lg-4 col-lg-offset-2">
-        <section>
-            <h3>Use another service to log in.</h3>
-            <hr />
-            <ExternalLoginPicker />
-        </section>
-    </div>
+<PageTitle>Entrar — Dominica Learn</PageTitle>
+
+<div class="identidade-cartao">
+    <h1>Entrar</h1>
+
+    <StatusMessage Message="@errorMessage" />
+
+    <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login">
+        <DataAnnotationsValidator />
+        <ValidationSummary class="text-danger" role="alert" />
+
+        <div class="form-floating mb-3">
+            <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control"
+                       autocomplete="username webauthn" aria-required="true" placeholder="voce@exemplo.com" />
+            <label for="Input.Email" class="form-label">E-mail</label>
+            <ValidationMessage For="() => Input.Email" class="text-danger" />
+        </div>
+
+        <div class="form-floating mb-3">
+            <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control"
+                       autocomplete="current-password" aria-required="true" placeholder="sua frase secreta" />
+            <label for="Input.Password" class="form-label">Frase secreta</label>
+            <ValidationMessage For="() => Input.Password" class="text-danger" />
+        </div>
+
+        <div class="checkbox mb-3">
+            <label class="form-label">
+                <InputCheckbox @bind-Value="Input.RememberMe" class="darker-border-checkbox form-check-input" />
+                Continuar conectado
+            </label>
+        </div>
+
+        <button type="submit" class="w-100 btn btn-lg btn-primary">Entrar</button>
+
+        <div class="d-flex flex-column mt-3">
+            <span class="text-secondary mx-auto small">ou</span>
+            <PasskeySubmit Operation="PasskeyOperation.Request" Name="Input.Passkey" EmailName="Input.Email"
+                           class="btn btn-link mx-auto">Entrar com uma chave de acesso</PasskeySubmit>
+        </div>
+    </EditForm>
+
+    <hr />
+
+    @* NÃO há "esqueci minha senha" aqui, e a ausência é deliberada. O envio de e-mail deste app é um
+       no-op (ver IdentityNoOpEmailSender): o link existiria, o formulário diria "enviamos um e-mail" e
+       nenhum e-mail sairia. Mandar alguém esperar para sempre é pior que dizer a verdade em uma linha. *@
+    <p class="text-secondary small mb-0">
+        Perdeu o acesso? Fale com quem administra o Learn — a recuperação é feita por lá.
+        @if (Admin.Value.CadastroAberto)
+        {
+            <br />
+            <a href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))">
+                Criar uma conta
+            </a>
+        }
+    </p>
 </div>
 
 @code {
@@ -92,7 +97,7 @@
 
         if (HttpMethods.IsGet(HttpContext.Request.Method))
         {
-            // Clear the existing external cookie to ensure a clean login process
+            // Limpa o cookie externo para que o login comece de um estado limpo
             await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
         }
     }
@@ -101,32 +106,29 @@
     {
         if (!string.IsNullOrEmpty(Input.Passkey?.Error))
         {
-            errorMessage = $"Error: {Input.Passkey.Error}";
+            errorMessage = $"Erro: {Input.Passkey.Error}";
             return;
         }
 
         SignInResult result;
         if (!string.IsNullOrEmpty(Input.Passkey?.CredentialJson))
         {
-            // When performing passkey sign-in, don't perform form validation.
+            // Na entrada por chave de acesso não há formulário para validar.
             result = await SignInManager.PasskeySignInAsync(Input.Passkey.CredentialJson);
         }
         else
         {
-            // If doing a password sign-in, validate the form.
             if (!editContext.Validate())
             {
                 return;
             }
 
-            // This doesn't count login failures towards account lockout
-            // To enable password failures to trigger account lockout, set lockoutOnFailure: true
             result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
         }
 
         if (result.Succeeded)
         {
-            Logger.LogInformation("User logged in.");
+            Logger.LogInformation("Usuário entrou.");
             RedirectManager.RedirectTo(ReturnUrl);
         }
         else if (result.RequiresTwoFactor)
@@ -137,26 +139,28 @@
         }
         else if (result.IsLockedOut)
         {
-            Logger.LogWarning("User account locked out.");
+            Logger.LogWarning("Conta bloqueada por tentativas.");
             RedirectManager.RedirectTo("Account/Lockout");
         }
         else
         {
-            errorMessage = "Error: Invalid login attempt.";
+            // Mensagem propositalmente vaga: dizer "este e-mail não existe" entrega a quem tenta
+            // adivinhar quais contas existem neste servidor.
+            errorMessage = "Erro: e-mail ou frase secreta não conferem.";
         }
     }
 
     private sealed class InputModel
     {
-        [Required]
-        [EmailAddress]
+        [Required(ErrorMessage = "Informe o e-mail.")]
+        [EmailAddress(ErrorMessage = "Isso não parece um e-mail.")]
         public string Email { get; set; } = "";
 
-        [Required]
+        [Required(ErrorMessage = "Informe a frase secreta.")]
         [DataType(DataType.Password)]
         public string Password { get; set; } = "";
 
-        [Display(Name = "Remember me?")]
+        [Display(Name = "Continuar conectado")]
         public bool RememberMe { get; set; }
 
         public PasskeyInputModel? Passkey { get; set; }

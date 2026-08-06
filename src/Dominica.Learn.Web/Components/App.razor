@@ -21,7 +21,23 @@
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["Dominica.Learn.Web.styles.css"]" />
     <ImportMap />
+    @* O arco da marca na aba. SVG primeiro: escala em qualquer densidade de tela e é um arquivo só.
+       O PNG fica de reserva para navegador que ignore o type — a ordem é a que decide. *@
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="icon" type="image/png" href="favicon.png" />
+
+    @* Reaplica o tema ANTES da primeira pintura. Sem isto, quem escolheu escuro vê a página nascer
+       creme e piscar para escuro quando o circuito conecta — no escuro de um quarto, é um flash na
+       cara. É `<script>` inline no <head> de propósito: qualquer arquivo externo chegaria tarde
+       demais. Quem GRAVA a escolha é js/tema.js; isto aqui só a repõe. *@
+    <script>
+        (function () {
+            try {
+                var t = localStorage.getItem('dominica-learn-tema');
+                if (t) document.documentElement.setAttribute('data-tema', t);
+            } catch (e) { /* modo privado: cai no tema do sistema, que é o certo */ }
+        })();
+    </script>
     <HeadOutlet />
 </head>
 

@@ -1,85 +1,46 @@
-﻿@implements IDisposable
+@implements IDisposable
 
 @inject NavigationManager NavigationManager
 
-<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">Dominica Learn</a>
-    </div>
-</div>
+@* A navegação, inline na barra do topo. Sem os ícones bitmap do template: eram SVGs embutidos em
+   base64 com `fill='white'` cravado, o que já os deixava invisíveis em qualquer fundo claro. Cinco
+   itens com nome escrito não precisam de ícone. *@
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+<nav class="nav-app">
+    @* As três telas do vault são [Authorize]. Mostrá-las a quem não entrou seria oferecer três
+       botões que só fazem voltar para o login — e a tela de login já é a que a pessoa está vendo. *@
+    <AuthorizeView>
+        <Authorized>
+            <NavLink class="nav-item" href="notas">Notas</NavLink>
+            <NavLink class="nav-item" href="revisar">Revisar</NavLink>
+            <NavLink class="nav-item" href="grafo">Grafo</NavLink>
+        </Authorized>
+    </AuthorizeView>
 
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="notas">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Notas
-            </NavLink>
-        </div>
+    @* Só aparece para o admin mestre. A rota é protegida por política — isto aqui é conveniência,
+       não segurança: esconder o link nunca protegeu nada. *@
+    <AuthorizeView Policy="@Dominica.Learn.Web.Seguranca.OpcoesDeAdministracao.Politica">
+        <Authorized>
+            <NavLink class="nav-item" href="administracao">Administração</NavLink>
+        </Authorized>
+    </AuthorizeView>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="revisar">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Revisar
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="grafo">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Grafo
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Início
-            </NavLink>
-        </div>
-
-        @* Só aparece para o admin mestre. A rota é protegida por política — isto aqui é conveniência,
-           não segurança: esconder o link nunca protegeu nada. *@
-        <AuthorizeView Policy="@Dominica.Learn.Web.Seguranca.OpcoesDeAdministracao.Politica">
-            <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="administracao">
-                        <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> Administração
-                    </NavLink>
-                </div>
-            </Authorized>
-        </AuthorizeView>
-
-        <AuthorizeView>
-            <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="Account/Manage">
-                        <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> @context.User.Identity?.Name
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <form action="Account/Logout" method="post">
-                        <AntiforgeryToken />
-                        <input type="hidden" name="ReturnUrl" value="@currentUrl" />
-                        <button type="submit" class="nav-link">
-                            <span class="bi bi-arrow-bar-left-nav-menu" aria-hidden="true"></span> Logout
-                        </button>
-                    </form>
-                </div>
-            </Authorized>
-            <NotAuthorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="Account/Register">
-                        <span class="bi bi-person-nav-menu" aria-hidden="true"></span> Register
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="Account/Login">
-                        <span class="bi bi-person-badge-nav-menu" aria-hidden="true"></span> Login
-                    </NavLink>
-                </div>
-            </NotAuthorized>
-        </AuthorizeView>
-    </nav>
-</div>
+    <AuthorizeView>
+        <Authorized>
+            <span class="nav-sep" aria-hidden="true"></span>
+            <NavLink class="nav-item nav-quem" href="Account/Manage">@context.User.Identity?.Name</NavLink>
+            <form action="Account/Logout" method="post" class="nav-sair">
+                <AntiforgeryToken />
+                <input type="hidden" name="ReturnUrl" value="@currentUrl" />
+                <button type="submit" class="nav-item nav-botao">Sair</button>
+            </form>
+        </Authorized>
+        <NotAuthorized>
+            <span class="nav-sep" aria-hidden="true"></span>
+            <NavLink class="nav-item" href="Account/Login">Entrar</NavLink>
+        </NotAuthorized>
+    </AuthorizeView>
+</nav>
 
 @code {
     private string? currentUrl;
@@ -101,4 +62,3 @@
         NavigationManager.LocationChanged -= OnLocationChanged;
     }
 }
-

@@ -47,8 +47,10 @@ export async function completar(id, formulas, diagramas) {
   // houver <pre><code>, sem perguntar.
   if (alvo.querySelector('pre code')) {
     await umaVez('hl', async () => {
-      css('/lib/highlight/github.min.css')
-      await script('/lib/highlight/highlight.min.js')
+      // SEM BARRA INICIAL nos caminhos: `/lib/...` ignora o <base href> e daria 404 quando o app
+      // é servido sob /private/dominica-learn. Mesmo motivo detalhado em editor.js.
+      css('lib/highlight/github.min.css')
+      await script('lib/highlight/highlight.min.js')
     })
     alvo.querySelectorAll('pre code').forEach((bloco) => {
       // O Mermaid usa <pre class="mermaid"> sem <code>, então não colide com isto.
@@ -58,9 +60,9 @@ export async function completar(id, formulas, diagramas) {
 
   if (formulas) {
     await umaVez('katex', async () => {
-      css('/lib/katex/katex.min.css')
-      await script('/lib/katex/katex.min.js')
-      await script('/lib/katex/auto-render.min.js')
+      css('lib/katex/katex.min.css')
+      await script('lib/katex/katex.min.js')
+      await script('lib/katex/auto-render.min.js')
     })
     try {
       window.renderMathInElement(alvo, {
@@ -86,7 +88,7 @@ export async function completar(id, formulas, diagramas) {
 
   if (diagramas) {
     await umaVez('mermaid', async () => {
-      await script('/lib/mermaid/mermaid.min.js')
+      await script('lib/mermaid/mermaid.min.js')
       window.mermaid.initialize({
         startOnLoad: false,
         // securityLevel 'strict' desliga clique e HTML dentro do diagrama. O conteúdo vem de nota que o

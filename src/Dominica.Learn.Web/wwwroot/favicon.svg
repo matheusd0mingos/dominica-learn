@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- O arco Dominica na aba do navegador. Mesmo desenho de Components/Layout/Marca.razor,
+       reenquadrado para o quadrado do favicon: em 16 px os raios da base viram sujeira, então
+       eles saem e fica só o arco, que é a parte reconhecível. -->
+  <rect width="64" height="64" rx="12" fill="#0E1E33"/>
+  <g transform="translate(2 -4) scale(1)">
+    <path d="M8 58 L8 30 A22 22 0 0 1 52 30 L52 58 L43 58 L43 30 A13 13 0 0 0 17 30 L17 58 Z" fill="#F7F4EE"/>
+    <path d="M23 58 L23 27 A7 7 0 0 1 37 27 L37 58 Z" fill="#D8B56B"/>
+  </g>
+</svg>

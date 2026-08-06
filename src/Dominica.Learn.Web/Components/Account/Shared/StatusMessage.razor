@@ -1,6 +1,11 @@
-﻿@if (!string.IsNullOrEmpty(DisplayMessage))
+﻿@* ARMADILHA DA TRADUÇÃO: o que decide se a faixa é vermelha ou verde é o PREFIXO da mensagem. O
+   template só conhecia "Error", então toda mensagem traduzida para "Erro:" passaria a ser exibida
+   como SUCESSO — verde, dizendo que algo deu errado. Os dois prefixos ficam reconhecidos enquanto
+   houver mensagem em inglês em alguma tela do Identity ainda não traduzida. *@
+@if (!string.IsNullOrEmpty(DisplayMessage))
 {
-    var statusMessageClass = DisplayMessage.StartsWith("Error") ? "danger" : "success";
+    var statusMessageClass = DisplayMessage.StartsWith("Erro") || DisplayMessage.StartsWith("Error")
+        ? "danger" : "success";
     <div class="alert alert-@statusMessageClass" role="alert">
         @DisplayMessage
     </div>

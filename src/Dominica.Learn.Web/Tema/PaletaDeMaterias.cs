@@ -19,6 +19,16 @@ namespace Dominica.Learn.Web.Tema;
 ///
 /// Piores pares — claro: CVD ΔE 13,0 e visão normal 19,6. Escuro: CVD ΔE 6,9 e visão normal 19,3.
 ///
+/// A SUPERFÍCIE CONTRA A QUAL ISTO FOI MEDIDO é <see cref="TemaDominica.SuperficieClara"/> (#FFFFFF) e
+/// <see cref="TemaDominica.SuperficieEscura"/> (#16202b) — o Surface do tema, que é onde o grafo é
+/// desenhado, e NÃO o creme de fundo da página. Revalidado quando a identidade Dominica entrou:
+/// nenhum dos quatro tons precisou mudar. O que muda com a superfície é o CONTRASTE, e ele piora um
+/// pouco sobre creme (amarelo 2,17:1 no branco contra 1,97:1 no creme) — mais uma razão para o grafo
+/// morar no branco e não no fundo da página. Se alguém mudar essas duas constantes, rode de novo:
+///
+///   node scripts/validate_palette.js "#2a78d6,#eda100,#e87ba4,#008300" --mode light --surface "#FFFFFF" --pairs all
+///   node scripts/validate_palette.js "#3987e5,#c98500,#d55181,#008300" --mode dark  --surface "#16202b" --pairs all
+///
 /// O ΔE 6,9 do escuro cai na faixa 6–8, que só é aceitável COM CODIFICAÇÃO SECUNDÁRIA. E o amarelo e o
 /// magenta do tema claro ficam abaixo de 3:1 contra o fundo, o que exige o mesmo alívio. As duas dívidas
 /// são pagas pelas mesmas três coisas, e nenhuma delas é decorativa — se alguém removê-las, a paleta

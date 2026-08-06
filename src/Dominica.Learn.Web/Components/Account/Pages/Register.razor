@@ -21,23 +21,24 @@
 @inject IOptions<OpcoesDeAdministracao> Administracao
 @inject AuthenticationStateProvider Autenticacao
 
-<PageTitle>Register</PageTitle>
+<PageTitle>Criar conta — Dominica Learn</PageTitle>
 
-<h1>Register</h1>
+@* if/else, e não um `return` no meio da marcação: o Razor exige que as tags fechem DENTRO do mesmo
+   bloco, então sair cedo obrigaria a fechar o cartão duas vezes — e a segunda é a que se esquece. *@
+<div class="identidade-cartao">
+    <h1>Criar conta</h1>
 
-@if (!_podeCadastrar)
-{
-    @* Cadastro fechado é o PADRÃO, e o motivo está em OpcoesDeAdministracao: aberto, qualquer um que
-       descubra a URL cria conta e ocupa disco. A mensagem não diz "acesso negado" nem insinua que
-       existe um jeito de contornar — diz o que é verdade e quem resolve. *@
-    <div class="alert alert-secondary" role="alert">
-        O cadastro está fechado. Peça uma conta a quem administra o Dominica Learn.
-    </div>
-    return;
-}
-
-<div class="row">
-    <div class="col-lg-6">
+    @if (!_podeCadastrar)
+    {
+        @* Cadastro fechado é o PADRÃO, e o motivo está em OpcoesDeAdministracao: aberto, qualquer um que
+           descubra a URL cria conta e ocupa disco. A mensagem não diz "acesso negado" nem insinua que
+           existe um jeito de contornar — diz o que é verdade e quem resolve. *@
+        <div class="alert alert-secondary" role="alert">
+            O cadastro está fechado. Peça uma conta a quem administra o Dominica Learn.
+        </div>
+    }
+    else
+    {
         @if (_criandoComoAdmin)
         {
             <div class="alert alert-info" role="alert">
@@ -48,8 +49,6 @@
         <StatusMessage Message="@Message" />
         <EditForm Model="Input" method="post" OnValidSubmit="RegisterUser" FormName="register">
             <DataAnnotationsValidator />
-            <h2>Create a new account.</h2>
-            <hr />
             <ValidationSummary class="text-danger" role="alert" />
             <div class="form-floating mb-3">
                 <InputText @bind-Value="Input.Apelido" id="Input.Apelido" class="form-control" autocomplete="nickname" aria-required="true" placeholder="matheus" />
@@ -61,30 +60,23 @@
                 </small>
             </div>
             <div class="form-floating mb-3">
-                <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
-                <label for="Input.Email">Email</label>
+                <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="voce@exemplo.com" />
+                <label for="Input.Email">E-mail</label>
                 <ValidationMessage For="() => Input.Email" class="text-danger" />
             </div>
             <div class="form-floating mb-3">
-                <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
-                <label for="Input.Password">Password</label>
+                <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="uma frase que só você sabe" />
+                <label for="Input.Password">Frase secreta</label>
                 <ValidationMessage For="() => Input.Password" class="text-danger" />
             </div>
             <div class="form-floating mb-3">
-                <InputText type="password" @bind-Value="Input.ConfirmPassword" id="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
-                <label for="Input.ConfirmPassword">Confirm Password</label>
+                <InputText type="password" @bind-Value="Input.ConfirmPassword" id="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="a mesma frase" />
+                <label for="Input.ConfirmPassword">Repita a frase secreta</label>
                 <ValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
             </div>
-            <button type="submit" class="w-100 btn btn-lg btn-primary">Register</button>
+            <button type="submit" class="w-100 btn btn-lg btn-primary">Criar conta</button>
         </EditForm>
-    </div>
-    <div class="col-lg-4 col-lg-offset-2">
-        <section>
-            <h3>Use another service to register.</h3>
-            <hr />
-            <ExternalLoginPicker />
-        </section>
-    </div>
+    }
 </div>
 
 @code {
@@ -96,7 +88,7 @@
     [SupplyParameterFromQuery]
     private string? ReturnUrl { get; set; }
 
-    private string? Message => identityErrors is null ? null : $"Error: {string.Join(", ", identityErrors.Select(error => error.Description))}";
+    private string? Message => identityErrors is null ? null : $"Erro: {string.Join(", ", identityErrors.Select(error => error.Description))}";
 
     private bool _podeCadastrar;
     private bool _criandoComoAdmin;

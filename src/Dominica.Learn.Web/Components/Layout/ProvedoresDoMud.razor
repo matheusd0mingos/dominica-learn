@@ -14,39 +14,82 @@
    Por isso o componente é incluído por PÁGINA interativa. Custa uma linha por página e é a diferença
    entre a interface funcionar e não funcionar. *@
 
+@implements IAsyncDisposable
 @inject Dominica.Learn.Web.Tema.EstadoDoTema Tema
+@inject IJSRuntime JS
 
-<MudThemeProvider IsDarkMode="Tema.Escuro" IsDarkModeChanged="AoTrocarTema" Theme="_tema" />
+@* Sem `ObserveSystemThemeChange`: esse parâmetro NÃO existe no MudBlazor 9.8. Parâmetro inventado em
+   componente Blazor não é erro de compilação — explode em tempo de renderização, com a página inteira
+   virando página de exceção. Foi assim que este apareceu. *@
+<MudThemeProvider @ref="_provedor" IsDarkMode="_escuro" IsDarkModeChanged="AoTrocarTema" Theme="_tema" />
 <MudPopoverProvider />
-<MudDialogProvider CloseButton="true" MaxWidth="MaxWidth.Small" FullWidth="true" />
+<MudDialogProvider CloseButton="true" CloseOnEscapeKey="true" MaxWidth="MaxWidth.Small" FullWidth="true" />
 <MudSnackbarProvider />
 
 @* Estudo acontece de noite. O tema escuro aqui não é enfeite — é a diferença entre conseguir ou não ler
-   a tela às onze horas. *@
-<MudTooltip Text="@(_escuro ? "Tema claro" : "Tema escuro")">
-    <MudIconButton Size="Size.Small" Class="tema-alternador" OnClick="@(() => AoTrocarTema(!_escuro))"
+   a tela às onze horas.
+
+   Ele é `position: fixed` e pousa na vaga que o MainLayout reserva no canto da barra. Não dá para pô-lo
+   DENTRO da barra: a barra é estática e um botão com clique precisa de um componente interativo. *@
+@* A dica é o `title` NATIVO do navegador, e não um MudTooltip. Medido: com o MudTooltip, a dica
+   aparecia em (20, 97) enquanto o botão estava em (1318, 9) — mil e trezentos pixels de distância.
+   A causa é o `position: fixed` do botão, que tira o elemento do fluxo e faz o popover do MudBlazor
+   calcular a âncora no lugar errado. O `title` do navegador não depende de cálculo nenhum. *@
+<span class="tema-alternador" title="@(_escuro ? "Tema claro" : "Tema escuro")">
+    <MudIconButton Size="Size.Small" OnClick="@(() => AoTrocarTema(!_escuro))"
+                   aria-label="@(_escuro ? "Mudar para o tema claro" : "Mudar para o tema escuro")"
                    Icon="@(_escuro ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" />
-</MudTooltip>
+</span>
 
 @code {
+    private readonly MudTheme _tema = Dominica.Learn.Web.Tema.TemaDominica.Criar();
+    private MudThemeProvider? _provedor;
+    private IJSObjectReference? _js;
     private bool _escuro;
+
+    protected override void OnInitialized() => _escuro = Tema.Escuro;
+
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (!primeiraVez) return;
+
+        _js = await JS.InvokeAsync<IJSObjectReference>("import", "./js/tema.js");
+
+        // A escolha do usuário vence a do sistema; sem escolha, o sistema decide. A ordem importa:
+        // ler o localStorage ANTES de perguntar ao sistema evita que quem já escolheu claro veja a
+        // tela pular para escuro só porque o sistema operacional está escuro.
+        var guardado = await _js.InvokeAsync<string?>("guardado");
+        var escuro = guardado switch
+        {
+            "escuro" => true,
+            "claro" => false,
+            _ => _provedor is not null && await _provedor.GetSystemDarkModeAsync(),
+        };
+
+        await AoTrocarTema(escuro);
+        StateHasChanged();
+    }
 
     // O estado vive no serviço porque o grafo escolhe as cores das matérias em C#, e a paleta tem um
     // passo para fundo claro e outro para escuro — validados separadamente. Sem isto, alternar o tema
     // deixaria o grafo com as cores do tema errado e o contraste que o validador aprovou iria embora.
-    private void AoTrocarTema(bool escuro)
+    private async Task AoTrocarTema(bool escuro)
     {
         _escuro = escuro;
         Tema.Escuro = escuro;
+        // E o carimbo no <html>, que é o que faz a BARRA acompanhar. Ver js/tema.js.
+        if (_js is not null) await _js.InvokeVoidAsync("aplicar", escuro);
     }
 
-    protected override void OnInitialized() => _escuro = Tema.Escuro;
-
-    private readonly MudTheme _tema = new()
+    public async ValueTask DisposeAsync()
     {
-        Typography = new Typography
+        // O circuito pode já ter caído quando isto roda — descartar um módulo JS numa conexão morta
+        // lança, e a exceção sobe como erro do circuito sem que nada de útil tenha acontecido.
+        try
         {
-            Default = new DefaultTypography { FontFamily = ["Inter", "Segoe UI", "Helvetica Neue", "sans-serif"] },
-        },
-    };
+            if (_js is not null) await _js.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+        catch (OperationCanceledException) { }
+    }
 }

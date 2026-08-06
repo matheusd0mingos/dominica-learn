@@ -25,12 +25,20 @@ function carregarCodeMirror() {
   // paga o download do editor.
   if (carregado) return carregado
   carregado = (async () => {
-    await css('/lib/codemirror/codemirror.css')
-    await script('/lib/codemirror/codemirror.js')
+    // SEM BARRA INICIAL. `/lib/...` é relativo à RAIZ DO DOMÍNIO e ignora o <base href>: servido
+    // em /private/dominica-learn, o navegador pediria dominio.com/lib/... e levaria 404. Sem a
+    // barra, o caminho resolve contra o <base> e acerta nas duas formas de hospedagem.
+    //
+    // Aqui isso é mais traiçoeiro que num link comum: um <link> que dá 404 não reclama, e o
+    // sintoma seria "o editor abriu sem estilo nenhum" — só em PRODUÇÃO, porque em
+    // desenvolvimento o app também atende na raiz e a barra funciona por acidente. Foi assim
+    // que estava. Ver OpcoesDeHospedagem e learn/docs/DEPLOY.md.
+    await css('lib/codemirror/codemirror.css')
+    await script('lib/codemirror/codemirror.js')
     // xml vem antes do markdown: o modo markdown o usa para destacar HTML embutido
-    await script('/lib/codemirror/xml.js')
-    await script('/lib/codemirror/markdown.js')
-    await script('/lib/codemirror/continuelist.js')
+    await script('lib/codemirror/xml.js')
+    await script('lib/codemirror/markdown.js')
+    await script('lib/codemirror/continuelist.js')
   })()
   return carregado
 }

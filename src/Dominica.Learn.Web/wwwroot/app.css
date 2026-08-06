@@ -1,68 +1,263 @@
-html, body {
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+/* ═══════════════════════════════════════════════════════════════════════════════
+   Dominica Learn — a folha de identidade.
+
+   Os tokens abaixo são PORTADOS de novo/plataforma/web/src/styles.css, não inventados
+   aqui. É a mesma marca: marinho, dourado e creme. Se um valor mudar lá, muda aqui —
+   e a única forma de isso não divergir é alguém saber que os dois arquivos existem.
+   Por isso este cabeçalho.
+
+   POR QUE OS TOKENS SEGUEM TRÊS SINAIS DIFERENTES DE TEMA:
+
+   O Learn tem dois mundos de tela. As páginas do vault são interativas e o tema delas
+   é escolhido pelo usuário no alternador (MudBlazor). As páginas do Identity — login,
+   cadastro, conta — são HTML estático e não têm MudBlazor nenhum: ali o único sinal
+   disponível é a preferência do sistema operacional.
+
+   Daí a ordem:
+     1. :root                              → claro, o padrão
+     2. @media (prefers-color-scheme: dark) → escuro do SISTEMA (governa o Identity)
+     3. :root[data-tema=...]                → a escolha DO USUÁRIO, que vence as duas
+
+   O passo 3 depende de alguém carimbar o atributo no <html>; quem faz isso é o
+   ProvedoresDoMud, ao alternar. Sem ele, o alternador mudaria os componentes do
+   MudBlazor e deixaria a barra do app na cor do tema anterior.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+    --tinta: #0E1E33;        /* marinho — a cor da marca */
+    --ouro: #C9A24A;         /* dourado — o acento */
+    --ouro-luz: #E7C877;
+    --perigo: #A32D2D;
+    --ok: #0F6E56;
+    --ground: #F7F4EE;       /* creme — o fundo da página */
+    --panel: #FFFFFF;        /* a superfície onde o conteúdo mora */
+    --panel-2: #F1EDE4;
+    --linha: #E6E4DC;
+    --ink: #1B2436;
+    --ink-soft: #6B6A64;
+    --ink-faint: #78766C;
+    --raio: 10px;
+    --sombra: 0 1px 2px rgba(14, 30, 51, .06), 0 18px 40px rgba(14, 30, 51, .07);
+    /* A barra é marinho nos DOIS temas: é a âncora da marca na tela, e uma barra que
+       muda de cor com o tema deixa de ser reconhecível como "a Dominica". */
+    --barra-fundo: #0E1E33;
+    --barra-tinta: #FFFFFF;
+    color-scheme: light;
 }
 
-a, .btn-link {
-    color: #006bb7;
+@media (prefers-color-scheme: dark) {
+    :root {
+        --tinta: #0A1626;
+        --ouro: #D8B56B;
+        --ground: #0f1720;
+        --panel: #16202b;
+        --panel-2: #1e2a37;
+        --linha: #2a3542;
+        --ink: #ECE7DB;
+        --ink-soft: #b3ab98;
+        --ink-faint: #949dab;
+        --perigo: #e0655a;
+        --ok: #3fae8c;
+        --sombra: 0 1px 2px rgba(0, 0, 0, .35), 0 10px 30px rgba(0, 0, 0, .28);
+        color-scheme: dark;
+    }
 }
+
+/* A escolha do usuário vence a do sistema — NOS DOIS SENTIDOS. Só o bloco escuro não
+   basta: quem está no escuro do sistema e pede claro precisa que o claro seja
+   reafirmado, senão o @media acima continua valendo. */
+:root[data-tema="claro"] {
+    --tinta: #0E1E33; --ouro: #C9A24A; --ground: #F7F4EE; --panel: #FFFFFF;
+    --panel-2: #F1EDE4; --linha: #E6E4DC; --ink: #1B2436; --ink-soft: #6B6A64;
+    --ink-faint: #78766C; --perigo: #A32D2D; --ok: #0F6E56;
+    --sombra: 0 1px 2px rgba(14, 30, 51, .06), 0 18px 40px rgba(14, 30, 51, .07);
+    color-scheme: light;
+}
+
+:root[data-tema="escuro"] {
+    --tinta: #0A1626; --ouro: #D8B56B; --ground: #0f1720; --panel: #16202b;
+    --panel-2: #1e2a37; --linha: #2a3542; --ink: #ECE7DB; --ink-soft: #b3ab98;
+    --ink-faint: #949dab; --perigo: #e0655a; --ok: #3fae8c;
+    --sombra: 0 1px 2px rgba(0, 0, 0, .35), 0 10px 30px rgba(0, 0, 0, .28);
+    color-scheme: dark;
+}
+
+/* ── o Bootstrap fala Dominica ────────────────────────────────────────────────
+   As páginas do Identity são Bootstrap cru, e há dezoito delas. Reescrever a marcação
+   de todas seria o caminho longo para o mesmo lugar; o Bootstrap 5 lê variáveis, então
+   apontá-las para os tokens da marca reveste as dezoito de uma vez.
+
+   Isto não é "tema do Bootstrap por preguiça": é a fronteira única entre uma biblioteca
+   de terceiros e a identidade. Quando o Identity for reescrito em MudBlazor, este bloco
+   sai inteiro e nada mais precisa mudar. */
+:root {
+    --bs-body-bg: var(--ground);
+    --bs-body-color: var(--ink);
+    --bs-border-color: var(--linha);
+    --bs-primary: var(--tinta);
+    --bs-link-color: var(--tinta);
+    --bs-link-hover-color: var(--ouro);
+    --bs-border-radius: var(--raio);
+}
+
+html, body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--ground);
+    color: var(--ink);
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* O serifado é da marca — títulos e wordmark, nunca corpo de texto. */
+.wordmark {
+    font-family: Georgia, "Times New Roman", serif;
+    letter-spacing: .18em;
+    font-weight: 600;
+}
+
+h1, h2, h3 {
+    font-family: Georgia, "Times New Roman", serif;
+    letter-spacing: .01em;
+    color: var(--ink);
+}
+
+a { color: var(--tinta); }
+a:hover { color: var(--ouro); }
+:root[data-tema="escuro"] a, :root[data-tema="escuro"] a:hover { color: var(--ouro); }
+@media (prefers-color-scheme: dark) { a { color: var(--ouro); } }
 
 .btn-primary {
     color: #fff;
-    background-color: #1b6ec2;
-    border-color: #1861ac;
+    background-color: var(--tinta);
+    border-color: var(--tinta);
+}
+.btn-primary:hover, .btn-primary:focus {
+    background-color: #16304f;
+    border-color: #16304f;
+}
+.btn:focus, .btn:active:focus, .btn-link.nav-link:focus,
+.form-control:focus, .form-check-input:focus {
+    box-shadow: 0 0 0 .2rem color-mix(in srgb, var(--ouro) 45%, transparent);
+    border-color: var(--ouro);
 }
 
-.btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
-  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
+/* O <h1> de cada página nasce com tabindex="-1" e o Blazor o FOCA ao navegar (FocusOnNavigate),
+   para que o leitor de tela anuncie a tela nova. O efeito colateral é o anel de foco padrão do
+   navegador desenhado em volta do título — que na tela de login parecia um campo de formulário
+   vazio escrito "Entrar".
+
+   `:focus-visible` NÃO resolve isto, e eu tentei: o Chrome trata o foco programático de um <h1>
+   como "visível" e desenha o anel do mesmo jeito. O que resolve é mirar o `tabindex="-1"`, e o
+   raciocínio fecha: tabindex negativo quer dizer que o elemento NÃO é alcançável pelo Tab, então
+   não há navegação por teclado para sinalizar ali. Nenhum anel se perde. */
+h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
+
+/* E o anel de foco de quem navega por teclado, no dourado da marca — o padrão do navegador é
+   um contorno fino que some sobre o creme. */
+:focus-visible {
+    outline: 2px solid var(--ouro);
+    outline-offset: 2px;
 }
 
-.content {
-    padding-top: 1.1rem;
-}
+.valid.modified:not([type=checkbox]) { outline: 1px solid var(--ok); }
+.invalid { outline: 1px solid var(--perigo); }
+.validation-message { color: var(--perigo); }
 
-h1:focus {
-    outline: none;
-}
-
-.valid.modified:not([type=checkbox]) {
-    outline: 1px solid #26b050;
-}
-
-.invalid {
-    outline: 1px solid #e50000;
-}
-
-.validation-message {
-    color: #e50000;
-}
-
+/* ── as duas telas de falha ───────────────────────────────────────────────────
+   Elas aparecem no pior momento possível e vinham do template, em inglês. Um app que
+   fala português a não ser quando quebra é onde o usuário menos consegue se virar. */
 .blazor-error-boundary {
-    background: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTYiIGhlaWdodD0iNDkiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIG92ZXJmbG93PSJoaWRkZW4iPjxkZWZzPjxjbGlwUGF0aCBpZD0iY2xpcDAiPjxyZWN0IHg9IjIzNSIgeT0iNTEiIHdpZHRoPSI1NiIgaGVpZ2h0PSI0OSIvPjwvY2xpcFBhdGg+PC9kZWZzPjxnIGNsaXAtcGF0aD0idXJsKCNjbGlwMCkiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC0yMzUgLTUxKSI+PHBhdGggZD0iTTI2My41MDYgNTFDMjY0LjcxNyA1MSAyNjUuODEzIDUxLjQ4MzcgMjY2LjYwNiA1Mi4yNjU4TDI2Ny4wNTIgNTIuNzk4NyAyNjcuNTM5IDUzLjYyODMgMjkwLjE4NSA5Mi4xODMxIDI5MC41NDUgOTIuNzk1IDI5MC42NTYgOTIuOTk2QzI5MC44NzcgOTMuNTEzIDI5MSA5NC4wODE1IDI5MSA5NC42NzgyIDI5MSA5Ny4wNjUxIDI4OS4wMzggOTkgMjg2LjYxNyA5OUwyNDAuMzgzIDk5QzIzNy45NjMgOTkgMjM2IDk3LjA2NTEgMjM2IDk0LjY3ODIgMjM2IDk0LjM3OTkgMjM2LjAzMSA5NC4wODg2IDIzNi4wODkgOTMuODA3MkwyMzYuMzM4IDkzLjAxNjIgMjM2Ljg1OCA5Mi4xMzE0IDI1OS40NzMgNTMuNjI5NCAyNTkuOTYxIDUyLjc5ODUgMjYwLjQwNyA1Mi4yNjU4QzI2MS4yIDUxLjQ4MzcgMjYyLjI5NiA1MSAyNjMuNTA2IDUxWk0yNjMuNTg2IDY2LjAxODNDMjYwLjczNyA2Ni4wMTgzIDI1OS4zMTMgNjcuMTI0NSAyNTkuMzEzIDY5LjMzNyAyNTkuMzEzIDY5LjYxMDIgMjU5LjMzMiA2OS44NjA4IDI1OS4zNzEgNzAuMDg4N0wyNjEuNzk1IDg0LjAxNjEgMjY1LjM4IDg0LjAxNjEgMjY3LjgyMSA2OS43NDc1QzI2Ny44NiA2OS43MzA5IDI2Ny44NzkgNjkuNTg3NyAyNjcuODc5IDY5LjMxNzkgMjY3Ljg3OSA2Ny4xMTgyIDI2Ni40NDggNjYuMDE4MyAyNjMuNTg2IDY2LjAxODNaTTI2My41NzYgODYuMDU0N0MyNjEuMDQ5IDg2LjA1NDcgMjU5Ljc4NiA4Ny4zMDA1IDI1OS43ODYgODkuNzkyMSAyNTkuNzg2IDkyLjI4MzcgMjYxLjA0OSA5My41Mjk1IDI2My41NzYgOTMuNTI5NSAyNjYuMTE2IDkzLjUyOTUgMjY3LjM4NyA5Mi4yODM3IDI2Ny4zODcgODkuNzkyMSAyNjcuMzg3IDg3LjMwMDUgMjY2LjExNiA4Ni4wNTQ3IDI2My41NzYgODYuMDU0N1oiIGZpbGw9IiNGRkU1MDAiIGZpbGwtcnVsZT0iZXZlbm9kZCIvPjwvZz48L3N2Zz4=) no-repeat 1rem/1.8rem, #b32121;
-    padding: 1rem 1rem 1rem 3.7rem;
-    color: white;
+    background: var(--perigo);
+    color: #fff;
+    border-radius: var(--raio);
+    padding: 1rem 1.25rem;
 }
+.blazor-error-boundary::after { content: "Alguma coisa deu errado nesta parte da tela."; }
 
-    .blazor-error-boundary::after {
-        content: "An error has occurred."
-    }
-
-.darker-border-checkbox.form-check-input {
-    border-color: #929292;
-}
-
-.form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
-    color: var(--bs-secondary-color);
-    text-align: end;
-}
-
-.form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
-    text-align: start;
-}
-/* O alternador de tema vem do componente de provedores, que é incluído no topo de cada página
-   interativa; ancorá-lo no canto o coloca onde ele estaria se o layout pudesse ser interativo. */
+/* ── o alternador de tema ─────────────────────────────────────────────────────
+   Ele é `position: fixed` porque vive no ProvedoresDoMud, que é interativo, enquanto a barra
+   é estática — um botão com clique não pode nascer dentro dela. O MainLayout reserva a vaga
+   (.barra-vaga-tema) e estas coordenadas o assentam lá dentro. Se a altura da barra mudar,
+   este `top` muda junto; é o preço do arranjo, e ele está escrito aqui para não virar mistério. */
 .tema-alternador {
     position: fixed;
-    top: .5rem;
-    right: 1rem;
-    z-index: 1200;
+    top: 6px;
+    right: 12px;
+    z-index: 200;
+    line-height: 0;
+}
+
+/* O <span> é só a âncora; quem se pinta é o botão do MudBlazor dentro dele. */
+.tema-alternador .mud-icon-button { color: #fff; }
+.tema-alternador .mud-icon-button:hover { background: rgba(201, 162, 74, .22); }
+
+@media (max-width: 700px) {
+    .tema-alternador { top: 5px; right: 8px; }
+}
+
+/* ── o Identity dentro da moldura ─────────────────────────────────────────────
+   As páginas de login/cadastro são <h1> + formulário Bootstrap solto na página. Envelopá-las
+   num cartão centrado é o que as faz parecer parte do mesmo produto que a barra acima. */
+.conteudo > h1:first-child,
+.conteudo > h2:first-child { margin-top: 0; }
+
+.identidade-cartao {
+    max-width: 460px;
+    margin: 6vh auto;
+    background: var(--panel);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    box-shadow: var(--sombra);
+    padding: 30px 32px;
+}
+
+.identidade-cartao h1, .identidade-cartao h2 { margin-top: 0; font-size: 1.45rem; }
+.identidade-cartao hr { border-color: var(--linha); }
+
+/* ── o editor no tema escuro ──────────────────────────────────────────────────
+   O CodeMirror traz o tema CLARO embutido no codemirror.css e não olha para o resto da página:
+   no tema escuro o app inteiro escurecia e o editor continuava um retângulo branco no meio da
+   tela. Num app cujo tema escuro existe para estudar de madrugada, o retângulo branco é
+   exatamente a superfície onde os olhos ficam.
+
+   Isto é uma repintura por TOKENS, e não mais um arquivo de tema do CodeMirror: assim o editor
+   segue o mesmo `data-tema` que o resto e não há um segundo lugar para manter em sincronia.
+   Sem escopo `.CodeMirror` fora daqui — estes seletores existem só neste bloco. */
+:root[data-tema="escuro"] .CodeMirror,
+:root[data-tema="escuro"] .CodeMirror-gutters {
+    background: var(--panel);
+    color: var(--ink);
+    border-color: var(--linha);
+}
+
+:root[data-tema="escuro"] .CodeMirror-gutters { border-right-color: var(--linha); }
+:root[data-tema="escuro"] .CodeMirror-linenumber { color: var(--ink-faint); }
+
+/* O cursor precisa ser claro para existir sobre o fundo escuro — o padrão é preto. */
+:root[data-tema="escuro"] .CodeMirror-cursor { border-left-color: var(--ink); }
+
+/* A seleção do CodeMirror é uma <div> pintada atrás do texto, não a seleção nativa: o azul-claro
+   padrão sobre fundo escuro apaga o que está selecionado. */
+:root[data-tema="escuro"] .CodeMirror-selected { background: #33415280; }
+:root[data-tema="escuro"] .CodeMirror-focused .CodeMirror-selected { background: #3a4a5f; }
+:root[data-tema="escuro"] .CodeMirror-line::selection,
+:root[data-tema="escuro"] .CodeMirror-line > span::selection { background: #3a4a5f; }
+
+/* O realce de sintaxe do Markdown, no dourado e nos tons da marca. */
+:root[data-tema="escuro"] .cm-header { color: var(--ouro); }
+:root[data-tema="escuro"] .cm-quote { color: #8fb99a; }
+:root[data-tema="escuro"] .cm-link { color: #7fb3e8; }
+:root[data-tema="escuro"] .cm-url { color: var(--ink-faint); }
+:root[data-tema="escuro"] .cm-comment { color: var(--ink-faint); }
+:root[data-tema="escuro"] .cm-string { color: #d8a0a0; }
+:root[data-tema="escuro"] .cm-variable-2 { color: #c8b48a; }
+:root[data-tema="escuro"] .cm-tag { color: #d18f6a; }
+:root[data-tema="escuro"] .CodeMirror-activeline-background { background: #1e2a37; }
+
+/* O realce de código da PRÉVIA vem do github.min.css, que também só conhece o claro. Aqui basta
+   consertar o fundo: as cores das palavras do tema GitHub claro seguem legíveis sobre este tom. */
+:root[data-tema="escuro"] .hljs,
+:root[data-tema="escuro"] pre code {
+    background: #0f1720;
+    color: var(--ink);
 }
