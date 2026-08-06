@@ -2,3 +2,6 @@ bin/
 obj/
 .env
 vault-dev/
+*.db
+*.db-shm
+*.db-wal
