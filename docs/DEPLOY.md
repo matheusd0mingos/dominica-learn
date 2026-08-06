@@ -124,6 +124,12 @@ cada uma aponta para um lugar distinto. Confundi-las custa horas.
 *qualquer* caminho que não conheça, renderizando a home. Não dá 404, não dá erro:
 dá a tela errada, com ar de que o deploy deu certo.
 
+> **Use `./dc`, e não `docker compose`, para tudo abaixo.** O stack é montado com
+> uma pilha de `-f` que varia com o `.env`. Um `docker compose ps learn` seco lê
+> só o `docker-compose.yml`, não acha o serviço e responde *"no such service:
+> learn"* — o que parece um diagnóstico ("o contêiner não existe") e não é: é a
+> pergunta errada. O `deploy.sh` grava o `./dc` com a pilha certa a cada subida.
+
 São **duas** causas possíveis, e elas dão a mesma tela. Confira as duas, nesta
 ordem, no servidor:
 
@@ -135,9 +141,15 @@ grep -c dominica-learn Caddyfile
 #    0 → o código não chegou. git pull no ramo que a VPS acompanha.
 
 # 2. o CADDY EM MEMÓRIA tem a regra?  (é outra pergunta — leia abaixo)
-docker compose exec caddy caddy fmt /etc/caddy/Caddyfile | grep -c dominica-learn
-docker compose logs caddy --tail=5
+./dc exec caddy caddy fmt /etc/caddy/Caddyfile | grep -c dominica-learn
+./dc logs caddy --tail=5
 ```
+
+Um jeito rápido de ler a resposta do `curl -I`: **`last-modified` e `etag`
+significam ARQUIVO ESTÁTICO** — é o `index.html` do SPA da plataforma, servido
+pelo Kestrel da API. A tela de login do Learn é renderizada na hora e não tem
+nenhum dos dois. Então `server: Kestrel` + `last-modified` = a requisição foi
+para a `api`, não para o `learn`.
 
 A segunda é a traiçoeira. **O `Caddyfile` entra por bind mount**, então mudar o
 arquivo não muda a definição do serviço — e o `docker compose up -d` não recria o
@@ -148,13 +160,14 @@ a rota nova não existe.
 O `deploy.sh` agora recarrega o Caddy sozinho ao final. Para forçar à mão:
 
 ```bash
-docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+./dc exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
 E confirme que o contêiner do Learn existe:
 
 ```bash
-docker compose ps learn      # vazio = LEARN=off no .env, ou o overlay não entrou
+./dc ps learn                # vazio = LEARN=off no .env, ou o overlay não entrou
+./dc logs learn --tail=40    # subiu e caiu? o log diz por quê
 ```
 
 ### "502 Bad Gateway"
@@ -167,8 +180,10 @@ grep -E '^(LEARN|VAULT_NO_HOST|LEARN_ADMIN_EMAIL)=' .env
 ```
 
 `LEARN=off` (ou ausente) explica tudo. Ponha `LEARN=on`, preencha as outras duas e
-rode `bash deploy.sh` de novo. Se `LEARN=on` já estiver lá, o contêiner subiu e
-caiu — `docker compose logs learn` diz por quê (banco, vault, e-mail do admin).
+rode `bash deploy.sh` de novo — **editar o `.env` sozinho não sobe contêiner
+nenhum**, porque é o `deploy.sh` que monta a linha do compose com o overlay. Se
+`LEARN=on` já estiver lá, o contêiner subiu e caiu: `./dc logs learn` diz por quê
+(banco, vault, e-mail do admin).
 
 ### "A tela abre mas nada responde ao clique"
 
