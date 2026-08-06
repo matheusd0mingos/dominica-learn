@@ -10,10 +10,12 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 @implements IDisposable
+@implements IAsyncDisposable
 @inject ServicoDeConhecimento Conhecimento
 @inject EstadoDoTema Tema
 @inject NavigationManager Navegacao
 @inject ISnackbar Avisos
+@inject IJSRuntime JS
 
 @* AS ROTAS DESTA TELA:
 
@@ -36,7 +38,9 @@
    interativo de quem os abre. Ver ProvedoresDoMud. *@
 <ProvedoresDoMud />
 
-<MudPaper Class="pa-3" Elevation="0" Outlined="true">
+@* position:relative aqui é o que ancora os controles de zoom DENTRO do painel; sem ele
+   eles se prendem à janela e passeiam sobre o resto da tela ao rolar. *@
+<MudPaper Class="pa-3" Elevation="0" Outlined="true" Style="position:relative">
     <div class="d-flex align-center flex-wrap gap-3 mb-3">
         <MudText Typo="Typo.h6">@TituloDaPagina</MudText>
 
@@ -75,7 +79,19 @@
         @* SVG INLINE, sem biblioteca de grafo: as posições já vieram calculadas do domínio (LayoutDeForca),
            então aqui não sobra nenhuma conta — só coordenadas viram atributos. É por isso que o layout é
            testável e desenha igual em toda máquina. *@
-        <svg viewBox="@Viewbox" width="100%" style="height:64vh; touch-action:none" role="img"
+        @* Os controles de zoom são visíveis, e não só a roda do mouse: um gesto que não deixa rastro
+           na tela é um gesto que metade das pessoas nunca descobre — e quem está no celular não tem
+           roda nenhuma. *@
+        <div class="grafo-controles">
+            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add"
+                           aria-label="Aproximar" OnClick="@(() => ZoomAsync(true))" />
+            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Remove"
+                           aria-label="Afastar" OnClick="@(() => ZoomAsync(false))" />
+            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.CenterFocusStrong"
+                           aria-label="Enquadrar tudo" OnClick="EnquadrarAsync" />
+        </div>
+
+        <svg id="@IdDoSvg" viewBox="@Viewbox" width="100%" style="height:64vh; touch-action:none" role="img"
              aria-label="@($"Grafo de ligações — {TituloDaPagina}")">
             @* Com "só as órfãs" ligado não há aresta a desenhar — órfã é, por definição, a nota de grau
                zero. Deixar as linhas na tela mostraria ligações entre pontos que sumiram. *@
@@ -226,6 +242,48 @@
 
     public void Dispose() => Tema.Mudou -= AoMudarTema;
 
+    // —— ZOOM E ARRASTO ——————————————————————————————————————————————————————————————
+    // O módulo JS mexe SÓ no viewBox do SVG. Ele não recalcula posição nenhuma: o layout vem pronto do
+    // domínio e é determinístico — o mesmo vault desenha igual sempre, que é o que deixa a pessoa
+    // decorar onde as coisas ficam. Zoom muda quanto se vê, nunca onde as coisas estão.
+    private IJSObjectReference? _js;
+
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (_carregando) return;
+
+        _js ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/grafo.js");
+        // Religa a cada render porque trocar de matéria ou de recorte RECRIA o <svg>: os ouvintes do
+        // elemento antigo morreriam com ele, e o novo nasceria sem nenhum. O `ligar` é idempotente.
+        await _js.InvokeVoidAsync("ligar", IdDoSvg, Viewbox);
+    }
+
+    private async Task ZoomAsync(bool aproximar)
+    {
+        if (_js is not null) await _js.InvokeVoidAsync("passo", IdDoSvg, aproximar);
+    }
+
+    private async Task EnquadrarAsync()
+    {
+        if (_js is not null) await _js.InvokeVoidAsync("enquadrar", IdDoSvg);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // O circuito pode já ter caído aqui: descartar um módulo JS numa conexão morta lança, e a
+        // exceção sobe como erro do circuito sem que nada de útil tenha acontecido.
+        try
+        {
+            if (_js is not null)
+            {
+                await _js.InvokeVoidAsync("desligar", IdDoSvg);
+                await _js.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (OperationCanceledException) { }
+    }
+
     // As cores das matérias são escolhidas em C# a partir do tema. Sem este redesenho, alternar para o
     // escuro deixaria o grafo com os tons do tema claro até a próxima navegação.
     private void AoMudarTema() => InvokeAsync(StateHasChanged);
@@ -286,7 +344,15 @@
     // e a navegação cai em dominio.com/notas/... — 404. Ver Rotas.
     private void Ir(CaminhoNota caminho) => Navegacao.NavigateTo(Rotas.Nota(caminho));
 
-    private static string Viewbox => string.Create(CultureInfo.InvariantCulture, $"0 0 {Largura} {Altura}");
+    private const string IdDoSvg = "grafo-do-vault";
+
+    /// <summary>
+    /// A janela que a tela mostra. NÃO é a moldura inteira do layout: num vault de três notas isso
+    /// seriam três pontos minúsculos nos cantos de um retângulo vazio. Ver Enquadramento.
+    /// </summary>
+    private string Viewbox => Enquadramento
+        .Ajustar(_visao.Posicionado.Posicoes, Largura, Altura)
+        .ParaViewBox();
 
     // O SVG lê número com PONTO decimal. Numa máquina em pt-BR o padrão gravaria "451,3" e o navegador
     // descartaria o atributo inteiro — o grafo sairia colapsado no canto sem nenhum erro visível.
