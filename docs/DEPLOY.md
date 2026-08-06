@@ -2,105 +2,113 @@
 
 ## A pergunta primeiro: é o mesmo arquivo de deploy da plataforma?
 
-**Hoje não, e passar a ser é o certo.**
+**Agora é — o `novo/plataforma/deploy.sh` sobe os dois.**
 
-Hoje são dois deploys independentes:
+Era preciso que fosse. Servir o Learn em `/private/dominica-learn` põe ele no
+domínio da plataforma, então quem encaminha a requisição é o **Caddy da
+plataforma** — e o Caddy só alcança o contêiner do Learn se os dois estiverem na
+mesma rede do Compose. Não havia como manter dois stacks separados e o caminho ao
+mesmo tempo.
 
-| | Plataforma | Learn |
-|---|---|---|
-| compose | `novo/plataforma/docker-compose.yml` + `.prod.yml` | `novo/learn/docker-compose.yml` |
-| banco | um Postgres (`db`) | **outro** Postgres (`banco`) |
-| proxy | Caddy, com TLS | nenhum |
-| subir | `deploy.sh` | manual |
-
-Isso funciona enquanto o Learn mora num domínio próprio. **Deixa de funcionar no
-instante em que ele passa a viver em `/private/dominica-learn`**, e a razão é
-simples: esse caminho está no domínio da plataforma, então quem tem de encaminhar
-a requisição é o **Caddy da plataforma** — e o Caddy só alcança o contêiner do
-Learn se os dois estiverem na mesma rede Docker.
-
-Juntar tem duas vantagens além dessa obrigação, e as duas contam num VPS pequeno:
+Juntar trouxe duas vantagens além dessa obrigação, e as duas contam num VPS pequeno:
 
 1. **Um Postgres em vez de dois.** São ~200 MB de RAM e um alvo de backup a menos.
-   O Learn já usa dois bancos separados (`learn_indice`, `learn_identidade`) e o
-   `docker/criar-bancos.sh` existe para criá-los — compartilhar o **servidor** sem
-   compartilhar o **esquema** é exatamente o que o próprio código já diz que faz.
+   Os dois bancos do Learn (`learn_indice`, `learn_identidade`) seguem separados —
+   compartilhar o **servidor** sem compartilhar o **esquema** é exatamente o que o
+   próprio código já dizia fazer.
 2. **Um `deploy.sh` só.** Dois roteiros de deploy é um roteiro que alguém esquece
    de rodar.
+
+O compose próprio do Learn (`novo/learn/docker-compose.yml`) continua existindo e
+válido: é o caminho para rodar o Learn **sozinho**, em domínio próprio ou em
+desenvolvimento, sem a plataforma junto.
 
 ---
 
 ## Passo a passo — pondo o Learn na plataforma
 
-### 1. O Learn vira um serviço do compose da plataforma
+**Isso já está feito.** O que segue descreve as peças e por que cada uma é como é;
+para subir, pule para o passo 2.
 
-Em `novo/plataforma/docker-compose.prod.yml`, ao lado de `api` e `caddy`:
+### 1. As peças
 
-```yaml
-  learn:
-    image: dominica-learn:local
-    build:
-      context: ../..                 # o repo inteiro, como o da api
-      dockerfile: novo/learn/Dockerfile
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      # MESMO servidor Postgres da plataforma, bancos SEPARADOS.
-      ConnectionStrings__Indice: "Host=db;Database=learn_indice;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
-      ConnectionStrings__Identidade: "Host=db;Database=learn_identidade;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
-      Vault__Raiz: /dados/vault
-      # O caminho onde o Learn é servido. Vazio = raiz do domínio (subdomínio).
-      Hospedagem__CaminhoBase: /private/dominica-learn
-      # O admin mestre: a MESMA pessoa que administra a Dominica, com conta daqui.
-      Administracao__EmailDoAdminMestre: ${LEARN_ADMIN_EMAIL:?defina no .env}
-      # Fechado: só o admin cria contas. Ver OpcoesDeAdministracao.
-      Administracao__CadastroAberto: "false"
-    volumes:
-      - ${VAULT_NO_HOST:?defina VAULT_NO_HOST no .env}:/dados/vault
-```
+| arquivo | o que faz |
+|---|---|
+| `novo/plataforma/docker-compose.learn.yml` | overlay com os serviços `learn` e `learn-bancos` |
+| `novo/plataforma/Caddyfile` | o `handle /private/dominica-learn*` |
+| `novo/plataforma/deploy.sh` | pergunta, grava no `.env` e junta o overlay quando `LEARN=on` |
 
-Os dois bancos precisam existir. O `novo/learn/docker/criar-bancos.sh` faz isso —
-monte-o no `db` da plataforma como já é feito no compose do Learn.
+É **overlay opt-in**, no mesmo mecanismo do antivírus e do painel de métricas, e
+não serviço fixo do compose de produção. A razão é dura: o Learn exige duas
+variáveis novas (`VAULT_NO_HOST` e `LEARN_ADMIN_EMAIL`). Como serviço fixo, todo
+deploy de plataforma já existente passaria a **abortar** por falta delas.
 
-### 2. O Caddy encaminha o caminho
+Três armadilhas que estavam neste documento **escritas erradas**, e que só
+apareceriam em produção:
 
-Em `novo/plataforma/Caddyfile`, **antes** do `reverse_proxy api:8080` final:
+1. **O contexto do build é `../learn`, não a raiz do repo.** O `api` usa `../..`
+   porque o Dockerfile dele precisa alcançar `novo/motor`. O Dockerfile do Learn
+   copia `Directory.Build.props` e `src/Dominica.Learn.*` a partir da raiz do
+   contexto — com o repo inteiro, aqueles caminhos não existem e o build quebra
+   no `COPY`. Copiar a linha de um para o outro é o erro fácil aqui.
 
-```caddy
-	# O Learn vive sob este caminho. handle, e NÃO handle_path: o prefixo tem de
-	# CHEGAR ao Learn, porque é ele quem o remove (UsePathBase) e é ele quem o
-	# escreve de volta no <base href> das páginas. Com handle_path o prefixo seria
-	# cortado aqui e todo link do app apontaria para a raiz do domínio.
-	handle /private/dominica-learn* {
-		reverse_proxy learn:8080
-	}
-```
+2. **O usuário do Postgres da plataforma é `dominica`, literal.** O compose base
+   o fixa; não existe `POSTGRES_USER` no `.env` da plataforma. Usá-lo geraria uma
+   string de conexão com o usuário vazio.
 
-O WebSocket do Blazor Server desce por esse mesmo caminho (`/private/dominica-learn/_blazor`),
-então não precisa de regra própria — o Caddy repassa `Upgrade` sozinho.
+3. **`criar-bancos.sh` montado em `/docker-entrypoint-initdb.d/` NÃO funciona
+   aqui.** Aquilo só roda quando o diretório de dados do Postgres está vazio, e o
+   volume da plataforma já existe em qualquer deploy no ar — o script nunca
+   rodaria e o Learn subiria batendo em *"database learn_indice does not exist"*.
+   Por isso existe o serviço `learn-bancos`: um passo explícito, idempotente, que
+   cria os dois bancos e sai (o mesmo padrão do serviço `migrate` da plataforma).
 
-### 3. Subir
+### 2. Subir
 
 ```bash
 cd novo/plataforma
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+bash deploy.sh          # responda "s" em "Subir o Dominica Learn?"
+```
+
+Num `.env` que já existe, o `deploy.sh` o mantém — para ligar depois, acrescente
+as três linhas e rode de novo:
+
+```
+LEARN=on
+VAULT_NO_HOST=/dados/vault
+LEARN_ADMIN_EMAIL=voce@seudominio
+```
+
+À mão, sem o `deploy.sh`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+               -f docker-compose.learn.yml up --build
 ```
 
 As migrações do Learn rodam sozinhas na subida, como as da plataforma.
 
-### 4. Primeira conta
+### 3. Primeira conta
 
-O cadastro nasce **fechado**. Para criar a sua:
+O cadastro nasce **fechado**: só o admin cria contas. Para criar a dele, abra uma
+vez pelo `.env` — nunca editando o compose, que é versionado:
 
-1. suba com `Administracao__CadastroAberto: "true"` **uma vez**;
-2. acesse `https://SEU_DOMINIO/private/dominica-learn/Account/Register` e crie a
-   conta com o e-mail que está em `LEARN_ADMIN_EMAIL`;
-3. volte a `"false"` e suba de novo.
+```bash
+echo 'LEARN_CADASTRO_ABERTO=true' >> .env && bash deploy.sh
+```
 
-Daí em diante, você cria as contas dos outros pela tela de administração.
+Acesse `https://SEU_DOMINIO/private/dominica-learn/Account/Register` e crie a conta
+com **o mesmo e-mail** que está em `LEARN_ADMIN_EMAIL` — é a igualdade desses dois
+que faz de você o admin. Depois feche:
+
+```bash
+sed -i 's/^LEARN_CADASTRO_ABERTO=true/LEARN_CADASTRO_ABERTO=false/' .env && bash deploy.sh
+```
+
+Daí em diante, as contas dos outros saem da tela de administração.
+
+**Não deixe aberto.** Enquanto estiver, qualquer pessoa que alcance a URL cria uma
+conta, e cada conta nova é uma pasta nova de vault no seu disco.
 
 ---
 
