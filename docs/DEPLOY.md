@@ -156,6 +156,47 @@ contêiner direto.
 
 ---
 
+## O que acontece quando a conexão cai
+
+Isto merece seção própria porque é a diferença entre "a tela abriu" e "o app
+funciona", e as duas coisas são independentes num Blazor Server servido sob um
+caminho: a **primeira** resposta é HTML pré-renderizado no servidor e aparece
+inteira mesmo que o WebSocket nunca conecte. Se o `_blazor` não subir, o usuário
+vê a página montada, com todos os botões, e **nada responde ao clique** — sem
+erro, sem console, sem pista. Por isso o que vale conferir num deploy novo não é
+se a página renderiza, é se um clique faz alguma coisa.
+
+Foi conferido rodando, com o app sob `/private/dominica-learn`:
+
+| | resultado |
+|---|---|
+| WebSocket do circuito | abre em `…/private/dominica-learn/_blazor` |
+| clique de verdade (abrir um diálogo) | funciona — o circuito está vivo, não é só pré-render |
+| rede cai | o aviso de reconexão aparece sozinho e **bloqueia a tela** |
+| enquanto está fora do ar | a tela fica inerte; clique nenhum faz efeito |
+| rede volta | reconecta sozinho, sem recarregar |
+| depois de reconectar | a interatividade volta, e o texto digitado no editor continua lá |
+
+**Não existe modo offline, e isso é preço declarado do Blazor Server** (ver
+`ARQUITETURA.md`). O app exige conexão viva. O que existe é reconexão: o circuito
+fica guardado no servidor por alguns minutos, e enquanto ele durar a volta é
+transparente — o estado da tela, inclusive o texto do editor, sobrevive.
+
+O que se perde numa queda é limitado por construção: o editor grava sozinho após
+1,2 s parado (`wwwroot/js/editor.js`), então o pior caso é a última frase
+digitada. Se a máquina dormir tempo demais e o circuito expirar, o aviso passa a
+"Não consegui reconectar" e a página recarrega — a nota volta do disco, na versão
+do último autosave.
+
+**O que isso obriga do proxy:** o Caddy tem de repassar o `Upgrade` do WebSocket
+e **não** pode ter um timeout de leitura curto no caminho do Learn. O
+`reverse_proxy` padrão do Caddy já faz as duas coisas — a armadilha é acrescentar
+um `timeouts`/`flush_interval` "de segurança" nesse bloco depois. Um timeout ali
+derruba o circuito de tempos em tempos, e o sintoma é o aviso de reconexão
+piscando na tela de quem está estudando.
+
+---
+
 ## Backup — o que precisa ser salvo
 
 Em ordem de importância:

@@ -6,26 +6,31 @@
             <div></div>
             <div></div>
         </div>
+        @* Esta é a ÚNICA tela que aparece quando a conexão cai, e ela veio do template em inglês.
+           Um app inteiro em português que fala inglês justamente na hora em que quebrou é onde o
+           usuário menos consegue adivinhar o que fazer. O texto também diz o que aconteceu com o
+           que ele estava escrevendo: o editor grava sozinho após 1,2 s parado (ver editor.js), então
+           o que se perde numa queda é, no máximo, a última frase digitada. *@
         <p class="components-reconnect-first-attempt-visible">
-            Rejoining the server...
+            Reconectando ao servidor…
         </p>
         <p class="components-reconnect-repeated-attempt-visible">
-            Rejoin failed... trying again in <span id="components-seconds-to-next-attempt"></span> seconds.
+            Não consegui reconectar. Tentando de novo em <span id="components-seconds-to-next-attempt"></span> s.
         </p>
         <p class="components-reconnect-failed-visible">
-            Failed to rejoin.<br />Please retry or reload the page.
+            Não consegui reconectar.<br />Tente de novo ou recarregue a página.
         </p>
         <button id="components-reconnect-button" class="components-reconnect-failed-visible">
-            Retry
+            Tentar de novo
         </button>
         <p class="components-pause-visible">
-            The session has been paused by the server.
+            O servidor pausou esta sessão.
         </p>
         <p class="components-resume-failed-visible">
-            Failed to resume the session.<br />Please retry or reload the page.
+            Não consegui retomar a sessão.<br />Tente de novo ou recarregue a página.
         </p>
         <button id="components-resume-button" class="components-pause-visible components-resume-failed-visible">
-            Resume
+            Retomar
         </button>
     </div>
 </dialog>
