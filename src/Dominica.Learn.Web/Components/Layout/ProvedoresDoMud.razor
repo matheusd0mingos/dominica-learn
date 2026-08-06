@@ -14,7 +14,9 @@
    Por isso o componente é incluído por PÁGINA interativa. Custa uma linha por página e é a diferença
    entre a interface funcionar e não funcionar. *@
 
-<MudThemeProvider @bind-IsDarkMode="_escuro" Theme="_tema" />
+@inject Dominica.Learn.Web.Tema.EstadoDoTema Tema
+
+<MudThemeProvider IsDarkMode="Tema.Escuro" IsDarkModeChanged="AoTrocarTema" Theme="_tema" />
 <MudPopoverProvider />
 <MudDialogProvider CloseButton="true" MaxWidth="MaxWidth.Small" FullWidth="true" />
 <MudSnackbarProvider />
@@ -22,12 +24,23 @@
 @* Estudo acontece de noite. O tema escuro aqui não é enfeite — é a diferença entre conseguir ou não ler
    a tela às onze horas. *@
 <MudTooltip Text="@(_escuro ? "Tema claro" : "Tema escuro")">
-    <MudIconButton Size="Size.Small" Class="tema-alternador" OnClick="@(() => _escuro = !_escuro)"
+    <MudIconButton Size="Size.Small" Class="tema-alternador" OnClick="@(() => AoTrocarTema(!_escuro))"
                    Icon="@(_escuro ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" />
 </MudTooltip>
 
 @code {
     private bool _escuro;
+
+    // O estado vive no serviço porque o grafo escolhe as cores das matérias em C#, e a paleta tem um
+    // passo para fundo claro e outro para escuro — validados separadamente. Sem isto, alternar o tema
+    // deixaria o grafo com as cores do tema errado e o contraste que o validador aprovou iria embora.
+    private void AoTrocarTema(bool escuro)
+    {
+        _escuro = escuro;
+        Tema.Escuro = escuro;
+    }
+
+    protected override void OnInitialized() => _escuro = Tema.Escuro;
 
     private readonly MudTheme _tema = new()
     {

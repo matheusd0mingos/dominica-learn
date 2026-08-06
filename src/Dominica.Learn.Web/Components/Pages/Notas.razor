@@ -29,7 +29,7 @@
 
 <MudGrid Spacing="2" Class="pa-2">
 
-    @* —— NAVEGAÇÃO: busca, recentes, árvore do vault —— *@
+    @* —— NAVEGAÇÃO: busca, favoritas, matérias, recentes, etiquetas —— *@
     <MudItem xs="12" md="3">
         <MudPaper Class="pa-3" Elevation="0" Outlined="true">
             <MudTextField @bind-Value="_termo" Immediate="true" DebounceInterval="250"
@@ -70,6 +70,27 @@
                         }
                     </MudList>
                 }
+
+                @* MATÉRIAS — a divisão principal de um vault de concurso, e a única que já existe desde
+                   o primeiro arquivo, porque é a pasta. Vem antes de Recentes e Etiquetas: recente
+                   responde "no que mexi", etiqueta é transversal, e matéria é onde a nota MORA. *@
+                <MudText Typo="Typo.overline" Class="mt-3 d-block">Matérias</MudText>
+                @if (_materias.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                        Nenhuma ainda. Crie a nota dentro de uma pasta — "Direito/Licitações" — e a pasta
+                        vira a matéria, aqui e no grafo.
+                    </MudText>
+                }
+                <MudList T="string" Dense="true">
+                    @foreach (var m in _materias)
+                    {
+                        <MudListItem T="string" OnClick="@(() => FiltrarPorMateriaAsync(m.Materia))"
+                                     Icon="@(m.Materia.Existe ? Icons.Material.Filled.Folder : Icons.Material.Outlined.Inbox)">
+                            <MudText Typo="Typo.body2">@m.Materia.Rotulo (@m.Notas)</MudText>
+                        </MudListItem>
+                    }
+                </MudList>
 
                 <MudText Typo="Typo.overline" Class="mt-3 d-block">Recentes</MudText>
                 <MudList T="string" Dense="true">
@@ -237,6 +258,7 @@
     private IReadOnlyList<NotaIndexada> _recentes = [];
     private IReadOnlyList<NotaIndexada> _favoritas = [];
     private IReadOnlyList<TemplateDisponivel> _templates = [];
+    private IReadOnlyList<MateriaContada> _materias = [];
     private IReadOnlyList<EtiquetaContada> _etiquetas = [];
     private IReadOnlyList<Acerto> _acertos = [];
     private string _termo = string.Empty;
@@ -471,6 +493,23 @@
             : await Servico.BuscarAsync(new ConsultaDeBusca { Texto = _termo });
     }
 
+    /// <summary>
+    /// Mostra as notas de uma matéria. O filtro é por PASTA — prefixo de caminho — que é exatamente o
+    /// que a matéria é; nenhuma coluna nova, nenhum índice a manter.
+    ///
+    /// "Sem matéria" não tem pasta para filtrar, então cai numa varredura das notas da raiz. É a lista
+    /// do que ainda não foi arquivado, e ela precisa ser alcançável para poder encolher.
+    /// </summary>
+    private async Task FiltrarPorMateriaAsync(Materia materia)
+    {
+        _termo = materia.Rotulo;
+        _acertos = materia.Existe
+            ? await Servico.BuscarAsync(new ConsultaDeBusca { Pasta = materia.Nome })
+            : (await Servico.BuscarAsync(new ConsultaDeBusca { Limite = 500 }))
+                .Where(a => !Materia.De(a.Nota.Caminho).Existe)
+                .ToList();
+    }
+
     private async Task FiltrarPorEtiquetaAsync(EtiquetaContada e)
     {
         _termo = e.Etiqueta.ToString();
@@ -482,6 +521,7 @@
         _recentes = await Servico.RecentesAsync();
         _etiquetas = await Servico.EtiquetasAsync();
         _favoritas = await Conhecimento.FavoritasAsync();
+        _materias = await Conhecimento.MateriasAsync();
         _templates = await Conhecimento.TemplatesAsync();
     }
 

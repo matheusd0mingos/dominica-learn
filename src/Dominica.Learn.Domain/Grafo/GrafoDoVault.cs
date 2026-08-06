@@ -4,7 +4,7 @@ using Dominica.Learn.Domain.Vault;
 namespace Dominica.Learn.Domain.Grafo;
 
 /// <summary>Uma nota no grafo. <see cref="Grau"/> = quantas ligações tocam nela (entrando ou saindo).</summary>
-public sealed record NoDoGrafo(CaminhoNota Caminho, string Titulo, int Grau, bool Orfa);
+public sealed record NoDoGrafo(CaminhoNota Caminho, string Titulo, int Grau, bool Orfa, Materia Materia);
 
 /// <summary>Uma ligação entre dois nós, por índice na lista de nós. <see cref="Peso"/> = quantas vezes.</summary>
 public sealed record ArestaDoGrafo(int De, int Para, int Peso);
@@ -34,6 +34,16 @@ public sealed class GrafoDoVault
     public static readonly GrafoDoVault Vazio = new([], []);
 
     public IEnumerable<NoDoGrafo> Orfas => Nos.Where(n => n.Orfa);
+
+    /// <summary>
+    /// As matérias presentes, em ordem estável. A ordem é o que decide a cor de cada uma na tela —
+    /// ordenar por nome é o que faz "Direito" continuar da mesma cor entre uma abertura e outra.
+    /// </summary>
+    public IReadOnlyList<Materia> Materias => Nos
+        .Select(n => n.Materia)
+        .Distinct()
+        .OrderBy(m => m.Nome, StringComparer.Ordinal)
+        .ToList();
 
     /// <summary>
     /// Monta o grafo. <paramref name="titulos"/> é opcional; sem ele o rótulo é o nome do arquivo.
@@ -73,7 +83,10 @@ public sealed class GrafoDoVault
             c,
             titulos is not null && titulos.TryGetValue(c, out var t) && t.Length > 0 ? t : c.Nome,
             grau[i],
-            grau[i] == 0)).ToList();
+            grau[i] == 0,
+            // A matéria sai do CAMINHO, que já está aqui. Buscá-la em outro lugar custaria uma leitura de
+            // disco por nota só para desenhar o grafo — num vault de anos, centenas delas por abertura.
+            Materia.De(c))).ToList();
 
         var arestas = pesos
             .OrderBy(p => p.Key.Item1).ThenBy(p => p.Key.Item2)

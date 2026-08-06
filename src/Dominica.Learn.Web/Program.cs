@@ -7,6 +7,7 @@ using Dominica.Learn.Web.Components.Account;
 using Dominica.Learn.Web.Data;
 using Dominica.Learn.Web.Interop;
 using Dominica.Learn.Web.Seguranca;
+using Dominica.Learn.Web.Tema;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
@@ -23,6 +24,8 @@ builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddMudServices();
 builder.Services.AddScoped<IEditorDeTexto, EditorCodeMirror>();
 builder.Services.AddScoped<IRenderizadorDoCliente, RenderizadorDoCliente>();
+// Escopo de circuito: o tema é de quem está com a aba aberta, não do servidor.
+builder.Services.AddScoped<EstadoDoTema>();
 
 // —— IDENTIDADE ——————————————————————————————————————————————————————————————————————
 // Banco SEPARADO do índice de propósito: identidade não é conhecimento do usuário e não pode ser

@@ -85,6 +85,89 @@ public class GrafoTests
         Assert.Equal(a.Nos.Select(n => n.Caminho.Valor), b.Nos.Select(n => n.Caminho.Valor));
     }
 
+    // —— MATÉRIA ————————————————————————————————————————————————————————————————————————
+    [Fact]
+    public void Cada_no_carrega_a_materia_dele()
+    {
+        var g = GrafoDoVault.Montar([C("Direito/A.md"), C("Português/B.md"), C("Solta.md")], []);
+        Assert.Equal("Direito", g.Nos[0].Materia.Nome);
+        Assert.Equal("Português", g.Nos[1].Materia.Nome);
+        Assert.False(g.Nos[2].Materia.Existe);
+    }
+
+    [Fact]
+    public void Materias_saem_em_ordem_estavel()
+    {
+        // A ordem decide a COR de cada matéria na tela. Se ela variasse, "Direito é azul" deixaria de
+        // valer entre uma abertura e outra — e é essa associação que faz a legenda ser dispensável
+        // depois da primeira semana.
+        var g = GrafoDoVault.Montar([C("Português/B.md"), C("Direito/A.md"), C("Direito/C.md")], []);
+        Assert.Equal(["Direito", "Português"], g.Materias.Select(m => m.Nome));
+    }
+
+    [Fact]
+    public void Notas_da_mesma_materia_se_aproximam_mesmo_sem_ligacao()
+    {
+        // O CASO QUE ISTO RESOLVE: vault de três semanas, muita nota escrita e quase nenhuma ligação
+        // feita. Sem coesão por matéria, o grafo é uma nuvem uniforme e a pergunta "como está Direito
+        // comparado a Português?" não tem resposta na tela. A pasta existe desde o primeiro arquivo.
+        var caminhos = new[]
+        {
+            C("Direito/A.md"), C("Direito/B.md"), C("Direito/C.md"),
+            C("Português/X.md"), C("Português/Y.md"), C("Português/Z.md"),
+        };
+        var p = LayoutDeForca.Calcular(GrafoDoVault.Montar(caminhos, []), 900, 620);
+
+        double Dist(int i, int j) =>
+            Math.Sqrt(Math.Pow(p.Posicoes[i].X - p.Posicoes[j].X, 2) + Math.Pow(p.Posicoes[i].Y - p.Posicoes[j].Y, 2));
+
+        var indices = Enumerable.Range(0, p.Grafo.Nos.Count).ToArray();
+        var pares = from i in indices from j in indices where i < j select (i, j);
+
+        var mesma = pares.Where(t => p.Grafo.Nos[t.i].Materia == p.Grafo.Nos[t.j].Materia)
+                         .Average(t => Dist(t.i, t.j));
+        var outra = pares.Where(t => p.Grafo.Nos[t.i].Materia != p.Grafo.Nos[t.j].Materia)
+                         .Average(t => Dist(t.i, t.j));
+
+        Assert.True(mesma < outra, $"mesma matéria {mesma:0.0} px, matérias diferentes {outra:0.0} px");
+    }
+
+    [Fact]
+    public void Notas_soltas_na_raiz_nao_formam_um_aglomerado()
+    {
+        // "Sem matéria" NÃO é matéria em comum: duas notas soltas não têm nada a ver uma com a outra só
+        // por ainda não terem sido arquivadas. Juntá-las desenharia um agrupamento que não existe.
+        var caminhos = new[] { C("A.md"), C("B.md"), C("Direito/X.md"), C("Direito/Y.md") };
+        var p = LayoutDeForca.Calcular(GrafoDoVault.Montar(caminhos, []), 900, 620);
+
+        double Dist(int i, int j) =>
+            Math.Sqrt(Math.Pow(p.Posicoes[i].X - p.Posicoes[j].X, 2) + Math.Pow(p.Posicoes[i].Y - p.Posicoes[j].Y, 2));
+
+        int Idx(string caminho) => p.Grafo.Nos.Select((n, k) => (n, k)).First(t => t.n.Caminho.Valor == caminho).k;
+
+        Assert.True(Dist(Idx("Direito/X.md"), Idx("Direito/Y.md")) < Dist(Idx("A.md"), Idx("B.md")));
+    }
+
+    [Fact]
+    public void A_ligacao_pesa_mais_que_a_pasta()
+    {
+        // A coesão INSINUA o aglomerado; quem o forma é a ligação. Se a pasta mandasse mais, o grafo
+        // viraria um explorador de arquivos redondo e pararia de mostrar ideia nenhuma.
+        var caminhos = new[] { C("Direito/A.md"), C("Direito/B.md"), C("Português/X.md") };
+        var p = LayoutDeForca.Calcular(
+            GrafoDoVault.Montar(caminhos, [Liga("Direito/A.md", "Português/X.md")]), 900, 620);
+
+        double Dist(string a, string b)
+        {
+            int Idx(string c) => p.Grafo.Nos.Select((n, k) => (n, k)).First(t => t.n.Caminho.Valor == c).k;
+            var (i, j) = (Idx(a), Idx(b));
+            return Math.Sqrt(Math.Pow(p.Posicoes[i].X - p.Posicoes[j].X, 2) + Math.Pow(p.Posicoes[i].Y - p.Posicoes[j].Y, 2));
+        }
+
+        // A está LIGADA a X (outra matéria) e apenas na mesma pasta que B.
+        Assert.True(Dist("Direito/A.md", "Português/X.md") < Dist("Direito/A.md", "Direito/B.md"));
+    }
+
     // —— LAYOUT ————————————————————————————————————————————————————————————————————————
     [Fact]
     public void Layout_e_deterministico_entre_execucoes()

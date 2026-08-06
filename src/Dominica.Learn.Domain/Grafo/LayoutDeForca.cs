@@ -37,6 +37,12 @@ public static class LayoutDeForca
     /// </summary>
     private const double PesoDaGravidade = 0.15;
 
+    /// <summary>
+    /// Quanto notas da MESMA matéria se atraem, na ausência de ligação entre elas. Bem abaixo do peso de
+    /// uma ligação (que é 1) — a pasta insinua o aglomerado, a ligação é que o forma.
+    /// </summary>
+    private const double CoesaoDeMateria = 0.06;
+
     public static GrafoPosicionado Calcular(
         GrafoDoVault grafo, double largura = 800, double altura = 600, int iteracoes = IteracoesPadrao)
     {
@@ -62,6 +68,12 @@ public static class LayoutDeForca
         var temperatura = largura / 10.0;
         var resfriamento = temperatura / (iteracoes + 1);
 
+        // Matéria como índice inteiro, calculado UMA vez: comparar por número no laço O(n²) em vez de
+        // comparar registros a cada uma das ~90 000 combinações por iteração, vezes 300 iterações.
+        // -1 = sem matéria, e "sem matéria" NÃO é uma matéria em comum: notas soltas na raiz não têm
+        // nada a ver umas com as outras só por estarem soltas.
+        var materias = IndicesDeMateria(grafo);
+
         var dx = new double[n];
         var dy = new double[n];
 
@@ -81,6 +93,20 @@ public static class LayoutDeForca
                 // ambos para o infinito. Acontece de verdade quando dois caminhos têm o mesmo hash.
                 if (dist < 0.01) { dist = 0.01; vx = 0.01; vy = 0.01; }
                 var forca = k * k / dist;
+
+                // COESÃO POR MATÉRIA: notas da mesma matéria se repelem MENOS.
+                //
+                // Existe porque um vault jovem quase não tem ligações — nos primeiros meses você escreve
+                // muito e liga pouco. Sem isto, o grafo de quem começou a estudar há três semanas é uma
+                // nuvem uniforme que não diz nada, e a pergunta "como está Direito comparado a Português?"
+                // não tem resposta na tela. A pasta, essa, existe desde o primeiro arquivo.
+                //
+                // O sinal subtraído do termo de repulsão é literalmente uma atração fraca — e ela é fraca
+                // de propósito: forte demais desenharia as PASTAS, não as ideias, e o grafo viraria um
+                // explorador de arquivos redondo. Quem manda no desenho continua sendo a ligação.
+                if (materias is not null && materias[i] == materias[j] && materias[i] >= 0)
+                    forca -= dist * dist / k * CoesaoDeMateria;
+
                 dx[i] += vx / dist * forca; dy[i] += vy / dist * forca;
                 dx[j] -= vx / dist * forca; dy[j] -= vy / dist * forca;
             }
@@ -163,6 +189,21 @@ public static class LayoutDeForca
                 RaioDe(grafo.Nos[i].Grau)));
         }
         return posicoes;
+    }
+
+    /// <summary>Matéria de cada nó como inteiro; -1 para quem está na raiz do vault.</summary>
+    private static int[] IndicesDeMateria(GrafoDoVault grafo)
+    {
+        var mapa = new Dictionary<Vault.Materia, int>();
+        var indices = new int[grafo.Nos.Count];
+        for (var i = 0; i < grafo.Nos.Count; i++)
+        {
+            var m = grafo.Nos[i].Materia;
+            if (!m.Existe) { indices[i] = -1; continue; }
+            if (!mapa.TryGetValue(m, out var idx)) mapa[m] = idx = mapa.Count;
+            indices[i] = idx;
+        }
+        return indices;
     }
 
     /// <summary>Nó mais ligado é maior — a raiz faz crescer sem que um hub de 200 links vire um disco.</summary>

@@ -11,6 +11,9 @@ namespace Dominica.Learn.Application.CasosDeUso;
 /// <summary>Um template disponível: a nota que serve de molde.</summary>
 public sealed record TemplateDisponivel(CaminhoNota Caminho, string Nome);
 
+/// <summary>Uma matéria e quantas notas ela tem — o que o painel lateral e a legenda do grafo mostram.</summary>
+public sealed record MateriaContada(Materia Materia, int Notas);
+
 /// <summary>
 /// O que se faz com o conhecimento DEPOIS que ele está escrito: ver renderizado, navegar o grafo, marcar
 /// favorito, criar a partir de um molde.
@@ -97,6 +100,42 @@ public sealed class ServicoDeConhecimento(
         return favoritas.OrderBy(f => f.Titulo, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>
+    /// A nota é conteúdo de estudo, e não ferramenta?
+    ///
+    /// Hoje a única exceção é a pasta de templates. Ela está numa função só, e não repetida em cada
+    /// consulta, porque a primeira versão a filtrava na lista de matérias e esquecia no grafo — e o
+    /// resultado era um "Templates (1)" na legenda do grafo que a lista ao lado jurava não existir. Duas
+    /// telas discordando sobre o que é uma matéria.
+    /// </summary>
+    private static bool EhConteudoDeEstudo(CaminhoNota caminho) =>
+        !caminho.Pasta.Equals(PastaDeTemplates, StringComparison.OrdinalIgnoreCase);
+
+    // —— MATÉRIAS ————————————————————————————————————————————————————————————————————
+    /// <summary>
+    /// As matérias do vault, com a contagem de notas de cada uma.
+    ///
+    /// Sai dos CAMINHOS, que o índice já tem — nenhuma leitura de disco e nenhuma tabela nova. A matéria
+    /// é a primeira pasta, então a lista se atualiza sozinha no instante em que uma nota é movida, sem
+    /// nada para reindexar.
+    ///
+    /// A pasta de templates fica de fora: ela é ferramenta, não conteúdo de estudo, e apareceria no topo
+    /// da lista de matérias competindo com Direito e Português.
+    /// </summary>
+    public async Task<IReadOnlyList<MateriaContada>> MateriasAsync(CancellationToken ct = default)
+    {
+        var caminhos = await indice.TodosOsCaminhosAsync(ct);
+        return caminhos
+            .Where(EhConteudoDeEstudo)
+            .GroupBy(Materia.De)
+            .Select(g => new MateriaContada(g.Key, g.Count()))
+            // Sem matéria por último: é a caixa de entrada do vault, não uma matéria de verdade, e no
+            // topo empurraria as reais para baixo justamente quando há muita coisa por arquivar.
+            .OrderBy(m => m.Materia.Existe ? 0 : 1)
+            .ThenBy(m => m.Materia.Nome, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
     // —— TEMPLATES ————————————————————————————————————————————————————————————————————
     public async Task<IReadOnlyList<TemplateDisponivel>> TemplatesAsync(CancellationToken ct = default)
     {
@@ -134,7 +173,9 @@ public sealed class ServicoDeConhecimento(
         CaminhoNota? centro = null, int saltos = 2, double largura = 900, double altura = 620,
         CancellationToken ct = default)
     {
-        var caminhos = await indice.TodosOsCaminhosAsync(ct);
+        // Mesmo recorte da lista de matérias: template é ferramenta, não conhecimento, e um nó "{{titulo}}"
+        // no grafo é ruído que nunca vai se ligar a nada.
+        var caminhos = (await indice.TodosOsCaminhosAsync(ct)).Where(EhConteudoDeEstudo).ToList();
         if (caminhos.Count == 0) return LayoutDeForca.Calcular(GrafoDoVault.Vazio, largura, altura);
 
         var ligacoes = new List<LigacaoResolvida>();
