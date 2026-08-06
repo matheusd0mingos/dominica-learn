@@ -1,0 +1,224 @@
+@page "/revisar"
+@page "/revisar/{*nome}"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Cartoes
+@using Dominica.Learn.Domain.Vault
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ServicoDeCartoes Cartoes
+@inject NavigationManager Navegacao
+@inject ISnackbar Avisos
+
+<PageTitle>Revisar · Dominica Learn</PageTitle>
+
+<ProvedoresDoMud />
+
+<MudPaper Class="pa-4" Elevation="0" Outlined="true">
+    <div class="d-flex align-center flex-wrap gap-3 mb-4">
+        <MudText Typo="Typo.h6">
+            @(_materia is null ? "Revisar" : $"Revisar — {_materia.Rotulo}")
+        </MudText>
+        @if (_materia is not null)
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Text" Href="/revisar">Todas as matérias</MudButton>
+        }
+        <MudSpacer />
+        @if (_fila.Count > 0)
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">@_fila.Count por revisar</MudText>
+        }
+    </div>
+
+    @if (_carregando)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (_atual is null)
+    {
+        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-4">
+            @(_revisados > 0
+                ? $"Acabou por hoje — {_revisados} cartão(ões) revisado(s)."
+                : "Nenhum cartão vencido agora.")
+        </MudAlert>
+
+        @* A lista por matéria é o "por onde começo hoje". Fica aqui, e não numa tela à parte, porque é
+           exatamente o que se quer ver quando a fila termina ou quando ela nem começou. *@
+        @if (_porMateria.Count > 0)
+        {
+            <MudText Typo="Typo.overline" Class="d-block">Cartões por matéria</MudText>
+            <MudList T="string" Dense="true">
+                @foreach (var m in _porMateria)
+                {
+                    <MudListItem T="string" Href="@($"/revisar/{Uri.EscapeDataString(m.Materia.Nome)}")"
+                                 Icon="@(m.Vencidos > 0 ? Icons.Material.Filled.Schedule : Icons.Material.Filled.Done)"
+                                 IconColor="@(m.Vencidos > 0 ? Color.Warning : Color.Success)">
+                        <MudText Typo="Typo.body2">
+                            @m.Materia.Rotulo — <b>@m.Vencidos</b> vencido(s) de @m.Total
+                        </MudText>
+                    </MudListItem>
+                }
+            </MudList>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                Nenhum cartão no vault ainda. Escreva <code>Pergunta::Resposta</code> numa nota — ou
+                a pergunta, uma linha com <code>?</code>, e a resposta — e ela vira cartão.
+                O formato é o do plugin de repetição espaçada do Obsidian, então os mesmos cartões
+                funcionam lá.
+            </MudText>
+        }
+    }
+    else
+    {
+        <MudPaper Class="pa-6 mb-4" Outlined="true" Style="min-height:36vh">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                @_atual.Nota.Nome · @Materia.De(_atual.Nota).Rotulo
+            </MudText>
+
+            <MudText Typo="Typo.h5" Class="mt-3">@_atual.Frente</MudText>
+
+            @if (_revelado)
+            {
+                <MudDivider Class="my-4" />
+                @* white-space:pre-wrap preserva as quebras do verso de bloco: uma resposta de três linhas
+                   escrita em três linhas tem de aparecer em três linhas. *@
+                <MudText Typo="Typo.body1" Style="white-space:pre-wrap">@_atual.Verso</MudText>
+            }
+        </MudPaper>
+
+        @if (!_revelado)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large"
+                       OnClick="@(() => _revelado = true)">Mostrar resposta</MudButton>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">
+                Tente lembrar antes de virar — é o esforço de lembrar que fixa, não a leitura.
+            </MudText>
+        }
+        else
+        {
+            <div class="d-flex flex-wrap gap-2">
+                <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="_gravando"
+                           OnClick="@(() => ResponderAsync(Resposta.Errei))">Errei</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Warning" Disabled="_gravando"
+                           OnClick="@(() => ResponderAsync(Resposta.Dificil))">Difícil</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_gravando"
+                           OnClick="@(() => ResponderAsync(Resposta.Bom))">Bom</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Success" Disabled="_gravando"
+                           OnClick="@(() => ResponderAsync(Resposta.Facil))">Fácil</MudButton>
+            </div>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">
+                @_previsao
+            </MudText>
+        }
+
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-4">
+            <MudLink Href="@($"/notas/{_atual.Nota.Valor}")">Abrir a nota deste cartão</MudLink>
+            — o agendamento é gravado no próprio arquivo, e o Obsidian lê o mesmo.
+        </MudText>
+    }
+</MudPaper>
+
+@code {
+    /// <summary>Nome da matéria vindo da rota. Chamado "Nome", e não "Materia", porque um parâmetro
+    /// com o nome do tipo o sombreia dentro do componente e "Materia.De(...)" deixa de compilar.</summary>
+    [Parameter] public string? Nome { get; set; }
+
+    private Materia? _materia;
+    private IReadOnlyList<Cartao> _fila = [];
+    private IReadOnlyList<CartoesDaMateria> _porMateria = [];
+    private Cartao? _atual;
+    private bool _revelado;
+    private bool _carregando = true;
+    private bool _gravando;
+    private int _revisados;
+
+    /// <summary>O que cada botão faria, calculado com o MESMO agendador que vai gravar.</summary>
+    private string _previsao = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _materia = string.IsNullOrWhiteSpace(Nome) ? null : Materia.De(Uri.UnescapeDataString(Nome));
+        _revisados = 0;
+        await CarregarAsync();
+    }
+
+    private async Task CarregarAsync()
+    {
+        _carregando = true;
+        _fila = await Cartoes.FilaAsync(_materia);
+        _porMateria = await Cartoes.PorMateriaAsync();
+        Avancar();
+        _carregando = false;
+    }
+
+    private void Avancar()
+    {
+        _atual = _fila.FirstOrDefault();
+        _revelado = false;
+        _previsao = _atual is null ? string.Empty : Prever(_atual);
+    }
+
+    /// <summary>
+    /// Mostra o que cada resposta faz ANTES de clicar, calculado pelo mesmo <see cref="AgendadorSM2"/>
+    /// que vai gravar. Não é enfeite: sem isso a pessoa aperta os botões no escuro e nunca entende por
+    /// que um cartão voltou no dia seguinte — e deixa de confiar no agendamento.
+    /// </summary>
+    private static string Prever(Cartao cartao)
+    {
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var atual = cartao.AgendamentoOu(hoje);
+
+        string Dias(Resposta r)
+        {
+            var d = AgendadorSM2.Proximo(atual, r, hoje).IntervaloEmDias;
+            return d == 0 ? "hoje" : d == 1 ? "1 dia" : $"{d} dias";
+        }
+
+        return $"Errei: {Dias(Resposta.Errei)} · Difícil: {Dias(Resposta.Dificil)} · " +
+               $"Bom: {Dias(Resposta.Bom)} · Fácil: {Dias(Resposta.Facil)}";
+    }
+
+    private async Task ResponderAsync(Resposta resposta)
+    {
+        if (_atual is null || _gravando) return;
+
+        _gravando = true;
+        try
+        {
+            var r = await Cartoes.ResponderAsync(_atual.Nota, _atual.Linha, resposta);
+            if (!r.Ok)
+            {
+                // Conflito aqui é a nota tendo mudado por fora no meio da revisão. Recarregar a fila é a
+                // resposta certa: o cartão pode ter mudado de linha, ou nem existir mais.
+                Avisos.Add(r.Mensagem ?? "Não consegui gravar a revisão.", Severity.Warning);
+                await CarregarAsync();
+                return;
+            }
+
+            _revisados++;
+
+            // "Errei" devolve o cartão para a fila de hoje, e ele tem de voltar a aparecer NESTA sessão —
+            // é o ponto de errar. Por isso a fila é recarregada em vez de só avançar o índice.
+            if (resposta == Resposta.Errei)
+            {
+                _fila = await Cartoes.FilaAsync(_materia);
+                // ...mas não imediatamente: reencontrar o mesmo cartão no clique seguinte é decorar a
+                // resposta de dois segundos atrás, não lembrar. Ele vai para o fim da fila.
+                _fila = [.. _fila.Where(c => !(c.Nota.Equals(_atual.Nota) && c.Linha == _atual.Linha)),
+                         .. _fila.Where(c => c.Nota.Equals(_atual.Nota) && c.Linha == _atual.Linha)];
+            }
+            else
+            {
+                _fila = _fila.Skip(1).ToList();
+            }
+
+            Avancar();
+        }
+        finally
+        {
+            _gravando = false;
+        }
+    }
+}

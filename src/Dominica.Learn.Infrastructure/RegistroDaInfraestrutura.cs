@@ -56,6 +56,7 @@ public static class RegistroDaInfraestrutura
         servicos.AddScoped<ServicoDeNotas>();
         servicos.AddScoped<ServicoDeConhecimento>();
         servicos.AddScoped<ServicoDeAnexos>();
+        servicos.AddScoped<ServicoDeCartoes>();
 
         servicos.AddHostedService<VigiaDoVault>();
 
