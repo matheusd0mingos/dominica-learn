@@ -35,8 +35,16 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/*
 
+# A PASTA DAS CHAVES PRECISA EXISTIR NA IMAGEM, com o dono certo.
+#
+# Não é zelo: quando um volume nomeado é montado sobre um caminho que JÁ EXISTE na imagem, o Docker
+# copia o conteúdo E O DONO daquele caminho para o volume novo. Se o caminho NÃO existe, ele cria o
+# diretório do volume pertencendo ao ROOT — e o processo, que roda como 64198, não consegue escrever.
+# A proteção de dados então falha ao gerar a chave, e o que quebra é toda tela com formulário, porque
+# o antiforgery depende dela. Criar a pasta aqui é o que faz o volume nascer com o dono certo.
 RUN useradd --uid 64198 --create-home --shell /usr/sbin/nologin learn \
- && mkdir -p /dados/vault && chown -R learn:learn /dados
+ && mkdir -p /dados/vault /home/learn/.aspnet/DataProtection-Keys \
+ && chown -R learn:learn /dados /home/learn
 
 COPY --from=publicacao --chown=learn:learn /app ./
 USER learn
