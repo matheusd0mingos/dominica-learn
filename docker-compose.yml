@@ -1,0 +1,58 @@
+# Dominica Learn — produção em VPS Linux, atrás de um proxy reverso (Caddy/Nginx/Traefik).
+#
+# A aplicação NÃO publica porta no host: quem fala com a internet é o proxy, que termina TLS. Expor 8080
+# direto seria servir HTTP puro com cookie marcado como Secure — e o cookie simplesmente não voltaria.
+#
+# Segredos vêm de um arquivo .env ao lado deste (não versionado). Ver .env.exemplo.
+
+services:
+  banco:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?defina POSTGRES_USER no .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: learn_indice
+    volumes:
+      - dados-do-banco:/var/lib/postgresql/data
+      # Cria o segundo banco (identidade) na primeira subida. Bancos separados de propósito: o índice é
+      # descartável e reconstruível a partir do vault; a identidade não é.
+      - ./docker/criar-bancos.sh:/docker-entrypoint-initdb.d/criar-bancos.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d learn_indice"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [interna]
+
+  learn:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      banco:
+        # espera o banco ACEITAR CONEXÃO, não só o contêiner existir: a aplicação migra na subida e
+        # falharia contra um Postgres ainda inicializando.
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Indice: "Host=banco;Database=learn_indice;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__Identidade: "Host=banco;Database=learn_identidade;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Vault__Raiz: /dados/vault
+    volumes:
+      # O VAULT. Caminho do host no .env — aponte para a pasta que você abre no Obsidian Desktop, e os
+      # dois editam o MESMO vault. É a promessa central do produto, e ela mora nesta linha.
+      - ${VAULT_NO_HOST:?defina VAULT_NO_HOST no .env}:/dados/vault
+    networks: [interna, borda]
+
+volumes:
+  dados-do-banco:
+
+networks:
+  # O banco não alcança a internet nem é alcançável de fora: só a aplicação fala com ele.
+  interna:
+    internal: true
+  # Rede compartilhada com o proxy reverso, criada por fora (docker network create borda).
+  borda:
+    external: true

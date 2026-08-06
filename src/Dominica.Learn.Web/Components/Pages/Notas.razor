@@ -1,0 +1,315 @@
+@page "/notas"
+@page "/notas/{*caminho}"
+@using Dominica.Learn.Application
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Web.Interop
+@using Microsoft.JSInterop
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ServicoDeNotas Servico
+@inject IIndiceDoVault Indice
+@inject IEditorDeTexto Editor
+@inject NavigationManager Navegacao
+@inject ISnackbar Avisos
+@implements IAsyncDisposable
+
+<PageTitle>@(_aberta?.Nota.Titulo ?? "Notas") · Dominica Learn</PageTitle>
+
+<MudGrid Spacing="2" Class="pa-2">
+
+    @* —— NAVEGAÇÃO: busca, recentes, árvore do vault —— *@
+    <MudItem xs="12" md="3">
+        <MudPaper Class="pa-3" Elevation="0" Outlined="true">
+            <MudTextField @bind-Value="_termo" Immediate="true" DebounceInterval="250"
+                          OnDebounceIntervalElapsed="BuscarAsync" Placeholder="Buscar no vault…"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+
+            <MudButton StartIcon="@Icons.Material.Filled.Add" Variant="Variant.Text" Class="mt-2"
+                       OnClick="CriarAsync">Nota nova</MudButton>
+
+            @if (_acertos.Count > 0)
+            {
+                <MudText Typo="Typo.overline" Class="mt-3">Resultados</MudText>
+                <MudList T="string" Dense="true">
+                    @foreach (var a in _acertos)
+                    {
+                        <MudListItem T="string" OnClick="@(() => Ir(a.Nota.Caminho))">
+                            <MudText Typo="Typo.body2"><b>@a.Nota.Titulo</b></MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@a.Trecho</MudText>
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+            else
+            {
+                <MudText Typo="Typo.overline" Class="mt-3">Recentes</MudText>
+                <MudList T="string" Dense="true">
+                    @foreach (var n in _recentes)
+                    {
+                        <MudListItem T="string" OnClick="@(() => Ir(n.Caminho))">
+                            <MudText Typo="Typo.body2">@n.Titulo</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@n.Caminho.Pasta</MudText>
+                        </MudListItem>
+                    }
+                </MudList>
+
+                <MudText Typo="Typo.overline" Class="mt-3">Etiquetas</MudText>
+                <div>
+                    @foreach (var e in _etiquetas.Take(30))
+                    {
+                        <MudChip T="string" Size="Size.Small" OnClick="@(() => FiltrarPorEtiquetaAsync(e))">
+                            @e.Etiqueta.ToString() (@e.Notas)
+                        </MudChip>
+                    }
+                </div>
+            }
+        </MudPaper>
+    </MudItem>
+
+    @* —— EDITOR —— *@
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-3" Elevation="0" Outlined="true" Style="min-height:70vh">
+            @if (_aberta is null)
+            {
+                <MudText Typo="Typo.h6">Nenhuma nota aberta</MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Escolha uma nota à esquerda ou crie uma nova. O vault vive em arquivos .md no disco —
+                    dá para abrir a mesma pasta no Obsidian Desktop a qualquer momento.
+                </MudText>
+            }
+            else
+            {
+                <div class="d-flex align-center justify-space-between mb-2">
+                    <div>
+                        <MudText Typo="Typo.h6">@_aberta.Nota.Titulo</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@_aberta.Nota.Caminho</MudText>
+                    </div>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@_estado</MudText>
+                </div>
+
+                @if (_conflito)
+                {
+                    @* O conflito NÃO é resolvido sozinho: o outro lado pode ser o Obsidian do notebook com
+                       meia hora de trabalho. Quem decide é quem está aqui. *@
+                    <MudAlert Severity="Severity.Warning" Class="mb-2">
+                        Esta nota mudou fora do editor. Recarregue para ver o que veio de fora, ou grave por cima
+                        se o que está aqui é o que vale.
+                        <MudButton Size="Size.Small" OnClick="RecarregarAsync">Recarregar</MudButton>
+                        <MudButton Size="Size.Small" Color="Color.Warning" OnClick="ForcarGravacaoAsync">Gravar por cima</MudButton>
+                    </MudAlert>
+                }
+
+                <div id="@IdDoEditor" style="height:60vh"></div>
+            }
+        </MudPaper>
+    </MudItem>
+
+    @* —— O QUE APONTA PARA CÁ —— *@
+    <MudItem xs="12" md="3">
+        <MudPaper Class="pa-3" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.overline">Aponta para esta nota</MudText>
+            @if (_aberta is null || _aberta.Backlinks.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">Nada ainda.</MudText>
+            }
+            else
+            {
+                <MudList T="string" Dense="true">
+                    @foreach (var b in _aberta.Backlinks)
+                    {
+                        <MudListItem T="string" OnClick="@(() => Ir(b.Origem))">
+                            <MudText Typo="Typo.body2">@b.Origem.Nome</MudText>
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+
+            @if (_aberta is not null)
+            {
+                var quebradas = _aberta.Saidas.Where(l => l.Quebrada).ToList();
+                @if (quebradas.Count > 0)
+                {
+                    @* Ligação quebrada é RECURSO: é a lista do que você decidiu estudar e ainda não estudou. *@
+                    <MudText Typo="Typo.overline" Class="mt-4">Ainda por escrever</MudText>
+                    <MudList T="string" Dense="true">
+                        @foreach (var q in quebradas)
+                        {
+                            <MudListItem T="string" OnClick="@(() => CriarAPartirDeAsync(q.Alvo))">
+                                <MudText Typo="Typo.body2">@q.Alvo</MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private const string IdDoEditor = "editor-da-nota";
+
+    [Parameter] public string? Caminho { get; set; }
+
+    private NotaAberta? _aberta;
+    private SessaoDeEdicao? _sessao;
+    private DotNetObjectReference<Notas>? _referencia;
+    private ImpressaoDigital? _impressaoCarregada;
+
+    private IReadOnlyList<NotaIndexada> _recentes = [];
+    private IReadOnlyList<EtiquetaContada> _etiquetas = [];
+    private IReadOnlyList<Acerto> _acertos = [];
+    private string _termo = string.Empty;
+    private string _estado = string.Empty;
+    private bool _conflito;
+    private string? _textoPendente;
+
+    protected override async Task OnInitializedAsync() => await RecarregarLateraisAsync();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Caminho)) { _aberta = null; return; }
+        if (!CaminhoNota.TentarCriar(Caminho, out var caminho, out var erro) || caminho is null)
+        {
+            Avisos.Add(erro ?? "Caminho inválido.", Severity.Error);
+            return;
+        }
+        await AbrirAsync(caminho);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        // O editor só pode ser criado DEPOIS que a div existe no DOM — e recriado a cada troca de nota.
+        if (_aberta is null || _sessao is not null) return;
+
+        _referencia ??= DotNetObjectReference.Create(this);
+        _sessao = await Editor.AbrirAsync(IdDoEditor, _aberta.Nota.Conteudo,
+            DotNetObjectReference.Create<object>(this));
+        await _sessao.FocarAsync();
+    }
+
+    /// <summary>
+    /// Chamado pelo JavaScript quando o texto ficou parado. É o autosave.
+    /// </summary>
+    [JSInvokable]
+    public async Task AoMudarOTexto(string texto)
+    {
+        if (_aberta is null) return;
+        _textoPendente = texto;
+
+        var resultado = await Servico.SalvarAsync(_aberta.Nota.Caminho, texto, _impressaoCarregada);
+        if (resultado.Ok)
+        {
+            _impressaoCarregada = resultado.Valor!.Impressao;
+            _conflito = false;
+            // "salvo" com hora é o que faz o autosave ser CONFIÁVEL em vez de mágico: sem sinal, todo
+            // usuário eventualmente aperta Ctrl+S por desconfiança, e desconfiança de autosave vira hábito.
+            _estado = $"salvo {Servico.Agora.ToLocalTime():HH:mm:ss}";
+            await RecarregarLateraisAsync();
+        }
+        else if (resultado.Motivo == MotivoDaFalha.Conflito)
+        {
+            _conflito = true;
+            _estado = "conflito";
+        }
+        else
+        {
+            _estado = "erro ao salvar";
+            Avisos.Add(resultado.Mensagem ?? "Não consegui salvar.", Severity.Error);
+        }
+        StateHasChanged();
+    }
+
+    private async Task AbrirAsync(CaminhoNota caminho)
+    {
+        await FecharEditorAsync();
+
+        var resultado = await Servico.AbrirAsync(caminho);
+        if (!resultado.Ok)
+        {
+            Avisos.Add(resultado.Mensagem ?? "Nota não encontrada.", Severity.Warning);
+            _aberta = null;
+            return;
+        }
+        _aberta = resultado.Valor;
+        _impressaoCarregada = _aberta!.Nota.Impressao;
+        _conflito = false;
+        _estado = string.Empty;
+    }
+
+    private async Task RecarregarAsync()
+    {
+        if (_aberta is null) return;
+        await AbrirAsync(_aberta.Nota.Caminho);
+    }
+
+    private async Task ForcarGravacaoAsync()
+    {
+        if (_aberta is null || _textoPendente is null) return;
+        // impressão nula = "eu sei que mudou, grava assim mesmo" — a saída explícita do caso de uso
+        var r = await Servico.SalvarAsync(_aberta.Nota.Caminho, _textoPendente, impressaoEsperada: null);
+        if (r.Ok)
+        {
+            _impressaoCarregada = r.Valor!.Impressao;
+            _conflito = false;
+            _estado = $"salvo {Servico.Agora.ToLocalTime():HH:mm:ss}";
+        }
+    }
+
+    private async Task CriarAsync()
+    {
+        var nome = $"Nota {Servico.Agora.ToLocalTime():yyyy-MM-dd HHmm}";
+        await CriarAPartirDeAsync(nome);
+    }
+
+    private async Task CriarAPartirDeAsync(string nome)
+    {
+        if (!CaminhoNota.TentarCriar(nome, out var caminho, out var erro) || caminho is null)
+        {
+            Avisos.Add(erro ?? "Nome inválido.", Severity.Error);
+            return;
+        }
+        var r = await Servico.CriarAsync(caminho, $"# {caminho.Nome}\n\n");
+        if (!r.Ok && r.Motivo != MotivoDaFalha.JaExiste)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui criar.", Severity.Error);
+            return;
+        }
+        Ir(caminho);
+    }
+
+    private async Task BuscarAsync()
+    {
+        _acertos = string.IsNullOrWhiteSpace(_termo)
+            ? []
+            : await Servico.BuscarAsync(new ConsultaDeBusca { Texto = _termo });
+    }
+
+    private async Task FiltrarPorEtiquetaAsync(EtiquetaContada e)
+    {
+        _termo = e.Etiqueta.ToString();
+        _acertos = await Servico.BuscarAsync(new ConsultaDeBusca { Etiqueta = e.Etiqueta });
+    }
+
+    private async Task RecarregarLateraisAsync()
+    {
+        _recentes = await Servico.RecentesAsync();
+        _etiquetas = await Servico.EtiquetasAsync();
+    }
+
+    private void Ir(CaminhoNota caminho) => Navegacao.NavigateTo($"/notas/{caminho.Valor}");
+
+    private async Task FecharEditorAsync()
+    {
+        if (_sessao is not null) { await _sessao.DisposeAsync(); _sessao = null; }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await FecharEditorAsync();
+        _referencia?.Dispose();
+    }
+}
