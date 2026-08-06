@@ -112,6 +112,49 @@ conta, e cada conta nova é uma pasta nova de vault no seu disco.
 
 ---
 
+## Quando não funciona: leia o SINTOMA
+
+O caminho `/private/dominica-learn` pode responder três coisas bem diferentes, e
+cada uma aponta para um lugar distinto. Confundi-las custa horas.
+
+### "Caí na home da plataforma" (a tela de obra)
+
+**O Caddy não tem regra para esse caminho.** Sem o bloco `handle`, tudo cai no
+`reverse_proxy api:8080` do fim do arquivo — e o SPA da plataforma atende
+*qualquer* caminho que não conheça, renderizando a home. Não dá 404, não dá erro:
+dá a tela errada, com ar de que o deploy deu certo.
+
+Quase sempre a causa é que **o código do Learn não está no servidor**: o
+`Caddyfile` do servidor é o do `git pull`, e se o commit que acrescenta o `handle`
+não está no ramo que a VPS acompanha, ele não existe lá. Confira no servidor:
+
+```bash
+cd novo/plataforma
+grep -c dominica-learn Caddyfile      # 0 = o código não chegou; faça o pull/merge
+docker compose ps learn               # vazio = o contêiner nunca subiu
+```
+
+### "502 Bad Gateway"
+
+O Caddy **tem** a regra e o contêiner **não** está no ar — que é exatamente o
+estado de quem atualizou o código mas não ligou o overlay. O `.env` manda:
+
+```bash
+grep -E '^(LEARN|VAULT_NO_HOST|LEARN_ADMIN_EMAIL)=' .env
+```
+
+`LEARN=off` (ou ausente) explica tudo. Ponha `LEARN=on`, preencha as outras duas e
+rode `bash deploy.sh` de novo. Se `LEARN=on` já estiver lá, o contêiner subiu e
+caiu — `docker compose logs learn` diz por quê (banco, vault, e-mail do admin).
+
+### "A tela abre mas nada responde ao clique"
+
+O WebSocket do circuito não subiu. Ver a seção *O que acontece quando a conexão
+cai* mais adiante — e desconfie de qualquer `timeouts` acrescentado ao bloco do
+Caddy.
+
+---
+
 ## O que muda entre sub-caminho e subdomínio
 
 Só uma variável: `Hospedagem__CaminhoBase`.
