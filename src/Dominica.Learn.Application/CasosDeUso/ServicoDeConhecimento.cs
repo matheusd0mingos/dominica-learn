@@ -15,6 +15,23 @@ public sealed record TemplateDisponivel(CaminhoNota Caminho, string Nome);
 public sealed record MateriaContada(Materia Materia, int Notas);
 
 /// <summary>
+/// Tudo que a tela do grafo precisa numa consulta só.
+///
+/// <see cref="Materias"/> vem SEMPRE do recorte completo, mesmo quando <see cref="Filtrada"/> está
+/// preenchida: é a legenda, e uma legenda que só listasse a matéria já escolhida tiraria da tela o único
+/// caminho para trocar de matéria.
+/// </summary>
+public sealed record VisaoDoGrafo(
+    GrafoPosicionado Posicionado,
+    IReadOnlyList<MateriaContada> Materias,
+    Materia? Filtrada,
+    int LigacoesParaFora)
+{
+    public static readonly VisaoDoGrafo Vazia =
+        new(new GrafoPosicionado(GrafoDoVault.Vazio, [], 0, 0), [], null, 0);
+}
+
+/// <summary>
 /// O que se faz com o conhecimento DEPOIS que ele está escrito: ver renderizado, navegar o grafo, marcar
 /// favorito, criar a partir de um molde.
 ///
@@ -169,14 +186,14 @@ public sealed class ServicoDeConhecimento(
     /// por isso o uso normal da tela é com centro, respondendo "o que cerca ISTO?", que é a pergunta que
     /// alguém faz de verdade enquanto estuda.
     /// </summary>
-    public async Task<GrafoPosicionado> GrafoAsync(
+    public async Task<VisaoDoGrafo> GrafoAsync(
         CaminhoNota? centro = null, int saltos = 2, double largura = 900, double altura = 620,
-        CancellationToken ct = default)
+        Materia? materia = null, CancellationToken ct = default)
     {
         // Mesmo recorte da lista de matérias: template é ferramenta, não conhecimento, e um nó "{{titulo}}"
         // no grafo é ruído que nunca vai se ligar a nada.
         var caminhos = (await indice.TodosOsCaminhosAsync(ct)).Where(EhConteudoDeEstudo).ToList();
-        if (caminhos.Count == 0) return LayoutDeForca.Calcular(GrafoDoVault.Vazio, largura, altura);
+        if (caminhos.Count == 0) return VisaoDoGrafo.Vazia;
 
         var ligacoes = new List<LigacaoResolvida>();
         var titulos = new Dictionary<CaminhoNota, string>();
@@ -189,6 +206,32 @@ public sealed class ServicoDeConhecimento(
         var grafo = GrafoDoVault.Montar(caminhos, ligacoes, titulos);
         if (centro is not null) grafo = grafo.Vizinhanca(centro, saltos);
 
-        return LayoutDeForca.Calcular(grafo, largura, altura);
+        // A legenda sai daqui, ANTES do recorte por matéria: é ela que oferece a troca de matéria, e
+        // depois do recorte só sobraria a que já está escolhida.
+        var materias = grafo.Nos
+            .GroupBy(n => n.Materia)
+            .Select(g => new MateriaContada(g.Key, g.Count()))
+            .OrderByDescending(m => m.Notas)
+            .ThenBy(m => m.Materia.Nome, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+        var paraFora = 0;
+        if (materia is not null)
+        {
+            // Matéria pedida na URL que não existe neste recorte: devolve o grafo inteiro em vez de uma
+            // tela vazia. Um endereço antigo, de uma pasta já renomeada, tem de degradar para algo útil.
+            if (materias.Any(m => m.Materia == materia))
+            {
+                var recorte = grafo.DaMateria(materia);
+                grafo = recorte.Grafo;
+                paraFora = recorte.LigacoesParaFora;
+            }
+            else
+            {
+                materia = null;
+            }
+        }
+
+        return new VisaoDoGrafo(LayoutDeForca.Calcular(grafo, largura, altura), materias, materia, paraFora);
     }
 }

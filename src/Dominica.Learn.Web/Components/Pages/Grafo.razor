@@ -3,18 +3,34 @@
 @using Dominica.Learn.Application.CasosDeUso
 @using Dominica.Learn.Domain.Grafo
 @using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Web.Tema
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Routing
 @using System.Globalization
 @attribute [Authorize]
 @rendermode InteractiveServer
 @implements IDisposable
-@using Dominica.Learn.Web.Tema
 @inject ServicoDeConhecimento Conhecimento
 @inject EstadoDoTema Tema
 @inject NavigationManager Navegacao
 @inject ISnackbar Avisos
 
-<PageTitle>Grafo · Dominica Learn</PageTitle>
+@* AS ROTAS DESTA TELA:
+
+     /grafo                       o vault inteiro
+     /grafo?materia=Português     o grafo de UMA matéria
+     /grafo/Direito/Atos.md       a vizinhança de uma nota
+     /grafo/Direito/Atos.md?materia=Direito   as duas coisas juntas
+
+   A matéria vem na QUERY e não como segmento de rota, e isso não é preguiça: "/grafo/{*caminho}" é
+   catch-all, então "/grafo/materia/X" casaria com ele sempre que existisse uma pasta chamada "materia" —
+   um conflito silencioso que só apareceria no vault de quem tivesse essa pasta. Query não colide com
+   nada e ainda compõe com a vizinhança de uma nota.
+
+   O que importa é que o recorte É ENDEREÇO: dá para voltar, marcar e mandar por mensagem. Antes disso
+   ele era estado de tela, e "o grafo de Direito Administrativo" não tinha como ser encontrado de novo. *@
+
+<PageTitle>@TituloDaPagina · Dominica Learn</PageTitle>
 
 @* Os provedores vivem AQUI, e não no layout: diálogo e snackbar só aparecem no mesmo escopo
    interativo de quem os abre. Ver ProvedoresDoMud. *@
@@ -22,18 +38,20 @@
 
 <MudPaper Class="pa-3" Elevation="0" Outlined="true">
     <div class="d-flex align-center flex-wrap gap-3 mb-3">
-        <MudText Typo="Typo.h6">
-            @(_centro is null ? "Grafo do vault" : $"Em volta de “{_centro.Nome}”")
-        </MudText>
+        <MudText Typo="Typo.h6">@TituloDaPagina</MudText>
 
         @if (_centro is not null)
         {
             @* O grafo INTEIRO de um vault de anos é bonito de printar e inútil de usar. O padrão é local. *@
             <MudSlider T="int" Value="_saltos" ValueChanged="AoMudarSaltosAsync" Min="1" Max="4" Step="1"
                        Style="max-width:180px">Distância: @_saltos salto(s)</MudSlider>
-            <MudButton Size="Size.Small" Variant="Variant.Text" Href="/grafo">Ver o vault inteiro</MudButton>
             <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack"
                        Href="@($"/notas/{_centro.Valor}")">Voltar para a nota</MudButton>
+        }
+
+        @if (_centro is not null || _filtrada is not null)
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Text" Href="/grafo">Ver o vault inteiro</MudButton>
         }
 
         <MudSpacer />
@@ -45,7 +63,7 @@
     {
         <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
     }
-    else if (_grafo is null || _grafo.Grafo.Nos.Count == 0)
+    else if (_visao.Posicionado.Grafo.Nos.Count == 0)
     {
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
             Nada para desenhar ainda. O grafo aparece quando as notas começam a se citar com
@@ -58,25 +76,22 @@
            então aqui não sobra nenhuma conta — só coordenadas viram atributos. É por isso que o layout é
            testável e desenha igual em toda máquina. *@
         <svg viewBox="@Viewbox" width="100%" style="height:64vh; touch-action:none" role="img"
-             aria-label="Grafo de ligações entre as notas do vault">
+             aria-label="@($"Grafo de ligações — {TituloDaPagina}")">
             @* Com "só as órfãs" ligado não há aresta a desenhar — órfã é, por definição, a nota de grau
                zero. Deixar as linhas na tela mostraria ligações entre pontos que sumiram. *@
             <g stroke="var(--mud-palette-lines-default)">
-                @foreach (var a in _soOrfas ? [] : _grafo.Grafo.Arestas)
+                @foreach (var a in _soOrfas ? [] : _grafo.Arestas)
                 {
-                    var de = _grafo.Posicoes[a.De];
-                    var para = _grafo.Posicoes[a.Para];
-                    @* A aresta desbota junto com os nós que ela liga: uma linha nítida entre dois pontos
-                       apagados chamaria atenção justamente para o que foi filtrado. *@
+                    var de = _visao.Posicionado.Posicoes[a.De];
+                    var para = _visao.Posicionado.Posicoes[a.Para];
                     <line x1="@N(de.X)" y1="@N(de.Y)" x2="@N(para.X)" y2="@N(para.Y)"
-                          stroke-width="@N(Math.Min(a.Peso, 5) * 0.8)"
-                          stroke-opacity="@(Apagado(_grafo.Grafo.Nos[a.De]) || Apagado(_grafo.Grafo.Nos[a.Para]) ? "0.1" : "0.55")" />
+                          stroke-width="@N(Math.Min(a.Peso, 5) * 0.8)" stroke-opacity="0.55" />
                 }
             </g>
 
-            @foreach (var p in _grafo.Posicoes)
+            @foreach (var p in _visao.Posicionado.Posicoes)
             {
-                var no = _grafo.Grafo.Nos[p.Indice];
+                var no = _grafo.Nos[p.Indice];
                 if (_soOrfas && !no.Orfa) { continue; }
                 var atual = _centro is not null && no.Caminho.Equals(_centro);
 
@@ -86,11 +101,9 @@
                     <title>@no.Titulo — @no.Materia.Rotulo — @no.Grau ligação(ões)@(no.Orfa ? " · órfã" : "")</title>
                     @* O PREENCHIMENTO é a matéria; o ANEL tracejado é a órfã — conhecimento que você
                        produziu e nunca mais revisitou, a coisa mais útil que este desenho tem a dizer.
-                       Dois sinais em canais separados: se a órfã também disputasse a cor, ou o vault
-                       perderia a divisão por matéria, ou a órfã sumiria dentro dela. *@
+                       Dois sinais em canais separados: se a órfã disputasse a cor, um apagaria o outro. *@
                     <circle cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio)"
                             fill="@CorDa(no.Materia)"
-                            fill-opacity="@(Apagado(no) ? "0.15" : "1")"
                             stroke="@(atual ? "var(--mud-palette-text-primary)" : no.Orfa ? CorDaOrfa : "none")"
                             stroke-width="@(atual ? "2.5" : no.Orfa ? "2" : "0")"
                             stroke-dasharray="@(!atual && no.Orfa ? "3 2" : "")" />
@@ -111,35 +124,33 @@
         </svg>
 
         @* LEGENDA — obrigatória, não opcional: com quatro tons validados e o resto em neutro, é ela que
-           carrega a identidade das matérias. Clicar isola, que é a saída correta quando há mais matérias
-           que cores distinguíveis (facetar, em vez de inventar um quinto tom indistinguível). *@
+           carrega a identidade das matérias. Cada item é um LINK, então o recorte tem endereço próprio. *@
         <div class="d-flex flex-wrap align-center gap-2 mt-2">
-            @foreach (var (materia, contagem) in _contagens)
+            @foreach (var m in _visao.Materias)
             {
-                var slot = SlotDe(materia);
-                var ativa = _materiaIsolada is null || _materiaIsolada == materia;
-                <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
-                         OnClick="@(() => AlternarIsolamento(materia))"
-                         Style="@($"opacity:{(ativa ? 1 : 0.45)}")">
-                    <span style="@($"display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:{PaletaDeMaterias.Cor(slot, Tema.Escuro)}")"></span>
-                    @materia.Rotulo (@contagem)
+                var escolhida = _filtrada == m.Materia;
+                <MudChip T="string" Size="Size.Small" Variant="@(escolhida ? Variant.Filled : Variant.Text)"
+                         Href="@RotaDaMateria(escolhida ? null : m.Materia)">
+                    <span style="@($"display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:{PaletaDeMaterias.Cor(SlotDe(m.Materia), Tema.Escuro)}")"></span>
+                    @m.Materia.Rotulo (@m.Notas)
                 </MudChip>
-            }
-            @if (_contagens.Count > PaletaDeMaterias.Coloridas)
-            {
-                @* Nada de limite silencioso: quem vê cinza precisa saber que é cinza por falta de cor
-                   distinguível, e não por a matéria ser menos importante. *@
-                <MudText Typo="Typo.caption" Class="mud-text-secondary">
-                    As @PaletaDeMaterias.Coloridas maiores têm cor própria; as demais ficam em cinza —
-                    acima disso não há tom que dê para diferenciar com segurança. Clique numa matéria para isolá-la.
-                </MudText>
             }
         </div>
 
+        @if (_visao.Materias.Count > PaletaDeMaterias.Coloridas && _filtrada is null)
+        {
+            @* Nada de limite silencioso: quem vê cinza precisa saber que é cinza por falta de cor
+               distinguível, e não por a matéria ser menos importante. *@
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
+                As @PaletaDeMaterias.Coloridas maiores têm cor própria; as demais ficam em cinza — acima
+                disso não há tom que dê para diferenciar com segurança. Clique numa matéria para ver o grafo dela.
+            </MudText>
+        }
+
         <div class="d-flex flex-wrap gap-4 mt-2">
             <MudText Typo="Typo.caption" Class="mud-text-secondary">
-                @_grafo.Grafo.Nos.Count nota(s) · @_grafo.Grafo.Arestas.Count ligação(ões) ·
-                @_contagens.Count matéria(s) · @_orfas órfã(s)
+                @_grafo.Nos.Count nota(s) · @_grafo.Arestas.Count ligação(ões)
+                @(_filtrada is null ? $" · {_visao.Materias.Count} matéria(s)" : "") · @_orfas órfã(s)
             </MudText>
             <MudText Typo="Typo.caption" Class="mud-text-secondary">
                 Clique num ponto para abrir a nota. O desenho é determinístico: o mesmo vault sai igual
@@ -147,11 +158,23 @@
             </MudText>
         </div>
 
+        @if (_visao.LigacoesParaFora > 0)
+        {
+            @* Recortar ESCONDE as pontes com outras matérias, e esconder sem avisar faria o recorte
+               parecer o vault inteiro. Numa base de estudo essas pontes são o achado mais valioso: é o
+               assunto que a pasta separou e a prova cobra junto. *@
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mt-3">
+                @_visao.LigacoesParaFora ligação(ões) desta matéria apontam para fora dela e não estão
+                desenhadas aqui. <MudLink Href="/grafo">Veja o vault inteiro</MudLink> para enxergá-las.
+            </MudAlert>
+        }
+
         @if (_orfas > 0 && !_soOrfas)
         {
             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mt-3">
-                @_orfas nota(s) sem nenhuma ligação. Nota órfã é conhecimento que você escreveu e nunca
-                mais encontrou — ligá-la a algo é o que a traz de volta para a revisão.
+                @_orfas nota(s) sem nenhuma ligação@(_filtrada is null ? "" : " dentro desta matéria").
+                Nota órfã é conhecimento que você escreveu e nunca mais encontrou — ligá-la a algo é o que
+                a traz de volta para a revisão.
             </MudAlert>
         }
     }
@@ -160,38 +183,44 @@
 @code {
     [Parameter] public string? Caminho { get; set; }
 
+    /// <summary>Nome da matéria a recortar. Vem da query — ver o comentário das rotas no topo.</summary>
+    [SupplyParameterFromQuery(Name = "materia")] public string? MateriaPedida { get; set; }
+
     private const double Largura = 900;
     private const double Altura = 620;
 
-    private GrafoPosicionado? _grafo;
+    private VisaoDoGrafo _visao = VisaoDoGrafo.Vazia;
     private CaminhoNota? _centro;
     private int _saltos = 2;
     private bool _soOrfas;
     private bool _carregando = true;
     private int _orfas;
     private int _grauParaRotular = 1;
-
-    private Materia? _materiaIsolada;
-    private IReadOnlyList<(Materia Materia, int Notas)> _contagens = [];
-    // Matéria → slot de cor. Só as maiores recebem slot; as demais caem no neutro.
     private Dictionary<Materia, int> _slots = [];
 
+    private GrafoDoVault _grafo => _visao.Posicionado.Grafo;
+    private Materia? _filtrada => _visao.Filtrada;
+
     private static readonly string CorDaOrfa = "var(--mud-palette-warning)";
+
+    private string TituloDaPagina => (_centro, _filtrada) switch
+    {
+        (not null, not null) => $"“{_centro.Nome}” em {_filtrada.Rotulo}",
+        (not null, null) => $"Em volta de “{_centro.Nome}”",
+        (null, not null) => $"Grafo de {_filtrada.Rotulo}",
+        _ => "Grafo do vault",
+    };
 
     private string CorDa(Materia m) => PaletaDeMaterias.Cor(SlotDe(m), Tema.Escuro);
 
     private int SlotDe(Materia m) => _slots.TryGetValue(m, out var s) ? s : -1;
 
-    /// <summary>Apagado = existe uma matéria isolada e este nó não é dela.</summary>
-    private bool Apagado(NoDoGrafo no) => _materiaIsolada is not null && no.Materia != _materiaIsolada;
-
-    private static string Viewbox => string.Create(CultureInfo.InvariantCulture, $"0 0 {Largura} {Altura}");
-
-    // O SVG lê número com PONTO decimal. Numa máquina em pt-BR o padrão gravaria "451,3" e o navegador
-    // descartaria o atributo inteiro — o grafo sairia colapsado no canto sem nenhum erro visível.
-    private static string N(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
-
-    private static string Curto(string titulo) => titulo.Length <= 22 ? titulo : titulo[..21] + "…";
+    /// <summary>A rota deste recorte. Null na matéria = o grafo sem filtro.</summary>
+    private string RotaDaMateria(Materia? materia)
+    {
+        var baseUrl = _centro is null ? "/grafo" : $"/grafo/{_centro.Valor}";
+        return materia is null ? baseUrl : $"{baseUrl}?materia={Uri.EscapeDataString(materia.Nome)}";
+    }
 
     protected override void OnInitialized() => Tema.Mudou += AoMudarTema;
 
@@ -220,35 +249,23 @@
     private async Task CarregarAsync()
     {
         _carregando = true;
-        _grafo = await Conhecimento.GrafoAsync(_centro, _saltos, Largura, Altura);
-        _orfas = _grafo.Grafo.Orfas.Count();
 
-        // As contagens saem do GRAFO que está na tela, não do vault inteiro: numa vizinhança de dois
-        // saltos, dizer "Direito (312)" quando só quatro notas de Direito estão desenhadas seria uma
-        // legenda que não descreve o desenho.
-        _contagens = _grafo.Grafo.Nos
-            .GroupBy(n => n.Materia)
-            .Select(g => (Materia: g.Key, Notas: g.Count()))
-            .OrderByDescending(t => t.Notas)
-            .ThenBy(t => t.Materia.Nome, StringComparer.CurrentCultureIgnoreCase)
-            .ToList();
+        var materia = string.IsNullOrWhiteSpace(MateriaPedida) ? null : Materia.De(MateriaPedida);
+        _visao = await Conhecimento.GrafoAsync(_centro, _saltos, Largura, Altura, materia);
+        _orfas = _grafo.Orfas.Count();
 
         // Slot por TAMANHO, não por ordem alfabética: as matérias que ocupam mais tela são as que mais
         // ganham em ser distinguíveis. "Sem matéria" nunca recebe cor — ela é ausência, e o cinza diz
         // isso melhor que qualquer tom.
-        _slots = _contagens
-            .Where(t => t.Materia.Existe)
+        _slots = _visao.Materias
+            .Where(m => m.Materia.Existe)
             .Take(PaletaDeMaterias.Coloridas)
-            .Select((t, i) => (t.Materia, Slot: i))
+            .Select((m, i) => (m.Materia, Slot: i))
             .ToDictionary(t => t.Materia, t => t.Slot);
-
-        // Uma matéria isolada que sumiu do recorte deixaria a tela inteira apagada, sem explicação.
-        if (_materiaIsolada is not null && !_contagens.Any(t => t.Materia == _materiaIsolada))
-            _materiaIsolada = null;
 
         // Quantos rótulos cabem depende do tamanho do grafo, não de um número fixo: num grafo de 12 notas
         // dá para nomear todas; num de 300, só os polos.
-        _grauParaRotular = _grafo.Grafo.Nos.Count switch
+        _grauParaRotular = _grafo.Nos.Count switch
         {
             <= 25 => 0,
             <= 80 => 3,
@@ -265,9 +282,13 @@
 
     private void AoAlternarOrfas(bool valor) => _soOrfas = valor;
 
-    /// <summary>Clicar na legenda isola a matéria; clicar de novo devolve todas.</summary>
-    private void AlternarIsolamento(Materia materia) =>
-        _materiaIsolada = _materiaIsolada == materia ? null : materia;
-
     private void Ir(CaminhoNota caminho) => Navegacao.NavigateTo($"/notas/{caminho.Valor}");
+
+    private static string Viewbox => string.Create(CultureInfo.InvariantCulture, $"0 0 {Largura} {Altura}");
+
+    // O SVG lê número com PONTO decimal. Numa máquina em pt-BR o padrão gravaria "451,3" e o navegador
+    // descartaria o atributo inteiro — o grafo sairia colapsado no canto sem nenhum erro visível.
+    private static string N(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string Curto(string titulo) => titulo.Length <= 22 ? titulo : titulo[..21] + "…";
 }

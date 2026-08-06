@@ -87,7 +87,18 @@
                     {
                         <MudListItem T="string" OnClick="@(() => FiltrarPorMateriaAsync(m.Materia))"
                                      Icon="@(m.Materia.Existe ? Icons.Material.Filled.Folder : Icons.Material.Outlined.Inbox)">
-                            <MudText Typo="Typo.body2">@m.Materia.Rotulo (@m.Notas)</MudText>
+                            <div class="d-flex align-center justify-space-between">
+                                <MudText Typo="Typo.body2">@m.Materia.Rotulo (@m.Notas)</MudText>
+                                @if (m.Materia.Existe)
+                                {
+                                    @* Duas perguntas diferentes, dois destinos: a lista responde "o que
+                                       tem aqui dentro", o grafo responde "como isso se conecta". *@
+                                    <MudTooltip Text="@($"Ver o grafo de {m.Materia.Rotulo}")">
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Hub"
+                                                       Href="@($"/grafo?materia={Uri.EscapeDataString(m.Materia.Nome)}")" />
+                                    </MudTooltip>
+                                }
+                            </div>
                         </MudListItem>
                     }
                 </MudList>

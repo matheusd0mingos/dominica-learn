@@ -10,6 +10,16 @@ public sealed record NoDoGrafo(CaminhoNota Caminho, string Titulo, int Grau, boo
 public sealed record ArestaDoGrafo(int De, int Para, int Peso);
 
 /// <summary>
+/// O grafo de uma matéria só, mais quantas ligações ficaram do lado de fora.
+///
+/// <see cref="LigacoesParaFora"/> não é estatística de enfeite: recortar uma matéria ESCONDE as pontes
+/// que ela tem com as outras, e esconder sem avisar faz o recorte parecer o vault inteiro. Numa base de
+/// estudo essas pontes são o achado mais valioso que existe — "isto de Administrativo puxa Constitucional"
+/// é exatamente o tipo de ligação que a prova cobra e que a pasta separou.
+/// </summary>
+public sealed record RecorteDeMateria(GrafoDoVault Grafo, int LigacoesParaFora);
+
+/// <summary>
 /// O grafo de conhecimento: quem aponta para quem.
 ///
 /// É a visão que o Obsidian tornou famosa, e o motivo dela existir não é estética — é diagnóstico. Duas
@@ -94,6 +104,45 @@ public sealed class GrafoDoVault
             .ToList();
 
         return new GrafoDoVault(nos, arestas);
+    }
+
+    /// <summary>
+    /// O grafo de UMA matéria: só as notas dela e as ligações entre elas.
+    ///
+    /// É um recorte de verdade, e não um esmaecimento das outras: assim o layout é recalculado só para
+    /// estas notas e usa a tela inteira. A estrutura interna de "Direito Administrativo" aparece do
+    /// tamanho que ela é, em vez de espremida num canto pelo resto do vault.
+    ///
+    /// O grau de cada nó é RECALCULADO dentro do recorte. Manter o grau original faria uma nota parecer
+    /// central por causa de ligações que não estão desenhadas — e, pior, esconderia a órfã-dentro-da-
+    /// matéria: a nota que só se liga a outra matéria e não conversa com nenhuma colega de pasta. Essa é
+    /// justamente uma das coisas que este recorte serve para mostrar.
+    /// </summary>
+    public RecorteDeMateria DaMateria(Materia materia)
+    {
+        var mantidos = Nos.Select((n, i) => (n, i)).Where(x => x.n.Materia == materia).Select(x => x.i).ToList();
+        if (mantidos.Count == 0) return new RecorteDeMateria(Vazio, 0);
+
+        var remapa = mantidos.Select((antigo, novo) => (antigo, novo)).ToDictionary(x => x.antigo, x => x.novo);
+
+        var dentro = new List<ArestaDoGrafo>();
+        var paraFora = 0;
+        foreach (var a in Arestas)
+        {
+            var temDe = remapa.ContainsKey(a.De);
+            var temPara = remapa.ContainsKey(a.Para);
+            if (temDe && temPara) dentro.Add(new ArestaDoGrafo(remapa[a.De], remapa[a.Para], a.Peso));
+            else if (temDe || temPara) paraFora++;
+        }
+
+        var grau = new int[mantidos.Count];
+        foreach (var a in dentro) { grau[a.De] += a.Peso; grau[a.Para] += a.Peso; }
+
+        var nos = mantidos
+            .Select((antigo, novo) => Nos[antigo] with { Grau = grau[novo], Orfa = grau[novo] == 0 })
+            .ToList();
+
+        return new RecorteDeMateria(new GrafoDoVault(nos, dentro), paraFora);
     }
 
     /// <summary>

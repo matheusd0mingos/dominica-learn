@@ -168,6 +168,79 @@ public class GrafoTests
         Assert.True(Dist("Direito/A.md", "Português/X.md") < Dist("Direito/A.md", "Direito/B.md"));
     }
 
+    // —— RECORTE POR MATÉRIA ——————————————————————————————————————————————————————————
+    [Fact]
+    public void Recorte_fica_so_com_as_notas_da_materia()
+    {
+        var g = GrafoDoVault.Montar(
+            [C("Direito/A.md"), C("Direito/B.md"), C("Português/X.md")],
+            [Liga("Direito/A.md", "Direito/B.md")]);
+
+        var r = g.DaMateria(Materia.De("Direito"));
+        Assert.Equal(["Direito/A.md", "Direito/B.md"], r.Grafo.Nos.Select(n => n.Caminho.Valor));
+        Assert.Single(r.Grafo.Arestas);
+    }
+
+    [Fact]
+    public void Ligacao_que_sai_da_materia_e_contada_e_nao_desenhada()
+    {
+        // Recortar ESCONDE as pontes com outras matérias. Esconder sem avisar faria o recorte parecer o
+        // vault inteiro — e a ponte é o achado mais valioso de uma base de estudo: o assunto que a pasta
+        // separou e a prova cobra junto.
+        var g = GrafoDoVault.Montar(
+            [C("Direito/A.md"), C("Direito/B.md"), C("Português/X.md"), C("Português/Y.md")],
+            [Liga("Direito/A.md", "Direito/B.md"), Liga("Direito/A.md", "Português/X.md"),
+             Liga("Direito/B.md", "Português/Y.md")]);
+
+        var r = g.DaMateria(Materia.De("Direito"));
+        Assert.Single(r.Grafo.Arestas);
+        Assert.Equal(2, r.LigacoesParaFora);
+    }
+
+    [Fact]
+    public void Grau_e_recalculado_dentro_do_recorte()
+    {
+        // A nota que só conversa com OUTRA matéria é órfã dentro desta — e essa é justamente uma das
+        // coisas que o recorte serve para mostrar. Manter o grau original a faria parecer conectada.
+        var g = GrafoDoVault.Montar(
+            [C("Direito/Sozinha.md"), C("Direito/Outra.md"), C("Português/X.md")],
+            [Liga("Direito/Sozinha.md", "Português/X.md")]);
+
+        var r = g.DaMateria(Materia.De("Direito"));
+        var sozinha = r.Grafo.Nos.First(n => n.Caminho.Valor == "Direito/Sozinha.md");
+        Assert.Equal(0, sozinha.Grau);
+        Assert.True(sozinha.Orfa);
+        Assert.Equal(2, r.Grafo.Orfas.Count());
+    }
+
+    [Fact]
+    public void Recorte_preserva_titulo_e_materia_dos_nos()
+    {
+        var titulos = new Dictionary<CaminhoNota, string> { [C("Direito/A.md")] = "Atos Administrativos" };
+        var g = GrafoDoVault.Montar([C("Direito/A.md"), C("Português/X.md")], [], titulos);
+
+        var no = Assert.Single(g.DaMateria(Materia.De("Direito")).Grafo.Nos);
+        Assert.Equal("Atos Administrativos", no.Titulo);
+        Assert.Equal("Direito", no.Materia.Nome);
+    }
+
+    [Fact]
+    public void Recorte_de_materia_inexistente_e_vazio_e_nao_quebra()
+    {
+        var g = GrafoDoVault.Montar([C("Direito/A.md")], []);
+        var r = g.DaMateria(Materia.De("Astrofísica"));
+        Assert.Empty(r.Grafo.Nos);
+        Assert.Equal(0, r.LigacoesParaFora);
+    }
+
+    [Fact]
+    public void Recorte_das_notas_sem_materia_tambem_funciona()
+    {
+        // "Sem matéria" é a caixa de entrada do vault, e ela precisa ser alcançável para poder encolher.
+        var g = GrafoDoVault.Montar([C("Solta.md"), C("Outra.md"), C("Direito/A.md")], []);
+        Assert.Equal(2, g.DaMateria(Materia.Nenhuma).Grafo.Nos.Count);
+    }
+
     // —— LAYOUT ————————————————————————————————————————————————————————————————————————
     [Fact]
     public void Layout_e_deterministico_entre_execucoes()
