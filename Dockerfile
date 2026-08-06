@@ -18,8 +18,28 @@ RUN dotnet restore src/Dominica.Learn.Web/Dominica.Learn.Web.csproj
 
 FROM restauracao AS publicacao
 COPY src/ src/
-RUN dotnet publish src/Dominica.Learn.Web/Dominica.Learn.Web.csproj \
-    -c Release -o /app --no-restore
+
+# SEM --no-restore. Ele parece economia óbvia — o estágio acima já restaurou — e é o defeito mais caro
+# que este projeto teve: o publish saía SEM wwwroot/_framework, e o manifesto de assets saía sem a rota
+# de blazor.web.js. Como esse arquivo não existe fisicamente por outro caminho, ele dava 404, o circuito
+# do Blazor nunca conectava e o app parecia inteiro — todas as telas montavam pelo pré-render e NENHUM
+# botão respondia. Nada no log, nada quebrado: só uma tela morta.
+#
+# A causa é que o restore do estágio anterior roda com SÓ os .csproj presentes, e os assets estáticos do
+# framework se resolvem quando o projeto tem os arquivos dele. O `--no-restore` proíbe o publish de
+# refazer essa resolução.
+#
+# Medido, não deduzido: com --no-restore, wwwroot/_framework não existe e a rota some do manifesto; sem
+# ele, blazor.web.js volta e o HTML passa a pedir a versão com impressão digital. O restore de novo é
+# barato — os pacotes já estão em cache na camada acima.
+RUN dotnet publish src/Dominica.Learn.Web/Dominica.Learn.Web.csproj -c Release -o /app
+
+# A GUARDA. Se o arquivo sumir de novo — por outra flag, outro SDK, outra reorganização —, o build FALHA
+# aqui, no lugar certo, em vez de gerar uma imagem que sobe bonita e não responde a clique nenhum.
+RUN test -s /app/wwwroot/_framework/blazor.web.js \
+ || (echo "ERRO: /app/wwwroot/_framework/blazor.web.js não foi publicado." \
+  && echo "Sem ele o circuito do Blazor não conecta e nenhum botão do app funciona." \
+  && echo "Ver o comentário acima: quase sempre é --no-restore no dotnet publish." && exit 1)
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app

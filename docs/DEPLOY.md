@@ -229,9 +229,31 @@ nenhum**, porque é o `deploy.sh` que monta a linha do compose com o overlay. Se
 
 ### "A tela abre mas nada responde ao clique"
 
-O WebSocket do circuito não subiu. Ver a seção *O que acontece quando a conexão
-cai* mais adiante — e desconfie de qualquer `timeouts` acrescentado ao bloco do
-Caddy.
+**Este é o pior de todos, porque não parece um defeito.** O Blazor Server entrega
+a primeira tela pré-renderizada no servidor: ela aparece inteira, com barra,
+menus e botões, mesmo que o circuito nunca conecte. O que falta é invisível.
+
+Confira o arquivo do qual tudo depende:
+
+```bash
+curl -sI https://SEU_DOMINIO/private/dominica-learn/_framework/blazor.web.js | head -1
+```
+
+**404 aqui é a resposta.** Sem esse arquivo não há circuito e nenhum clique
+funciona. Ele não existe por nenhum outro caminho — é o publish que tem de
+colocá-lo em `wwwroot/_framework/`.
+
+A causa já vista: **`--no-restore` no `dotnet publish`** do Dockerfile. O restore
+do estágio anterior roda com só os `.csproj` presentes, e os assets estáticos do
+framework se resolvem quando o projeto tem os arquivos dele; o `--no-restore`
+proíbe o publish de refazer essa resolução. O resultado é um publish sem
+`wwwroot/_framework` e um manifesto sem a rota — build verde, imagem menor, app
+morto. Hoje o Dockerfile falha o build se o arquivo não sair, e o `deploy.sh`
+confere a URL antes de dizer que terminou.
+
+Se o `blazor.web.js` responder 200 e ainda assim nada funcionar, aí sim é o
+WebSocket: veja *O que acontece quando a conexão cai*, e desconfie de qualquer
+`timeouts` acrescentado ao bloco do Caddy.
 
 ---
 
