@@ -1,0 +1,156 @@
+@page "/administracao"
+@using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Infrastructure.Vault
+@using Dominica.Learn.Web.Data
+@using Dominica.Learn.Web.Seguranca
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.Extensions.Options
+@attribute [Authorize(Policy = OpcoesDeAdministracao.Politica)]
+@rendermode InteractiveServer
+@inject UserManager<ApplicationUser> Usuarios
+@inject IOptions<OpcoesDeAdministracao> Admin
+@inject IOptions<OpcoesDoVault> Vault
+
+<PageTitle>Administração · Dominica Learn</PageTitle>
+
+<ProvedoresDoMud />
+
+@* A tela do ADMIN MESTRE — a mesma pessoa que administra a Dominica, com conta daqui.
+   Protegida por política, e não por um "if" na marcação: esconder botão não é proteger rota. *@
+
+<MudPaper Class="pa-4" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h6">Administração</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">
+        Admin mestre: <b>@Admin.Value.EmailDoAdminMestre</b> ·
+        cadastro <b>@(Admin.Value.CadastroAberto ? "aberto a qualquer um" : "fechado")</b>
+    </MudText>
+
+    @if (!string.IsNullOrEmpty(Criado))
+    {
+        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+            Conta de <b>@Criado</b> criada. Passe a senha a ela — o Learn não envia e-mail.
+        </MudAlert>
+    }
+
+    @if (!Admin.Value.CadastroAberto)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+            Com o cadastro fechado, só você cria contas. É o padrão, e é o que impede alguém que descubra
+            o endereço de criar conta e ocupar disco. Para abrir a qualquer um, mude
+            <code>Administracao:CadastroAberto</code> no ambiente — não há botão aqui de propósito:
+            abrir o cadastro do sistema não devia ser um clique.
+        </MudAlert>
+    }
+
+    <MudButton StartIcon="@Icons.Material.Filled.PersonAdd" Variant="Variant.Filled" Color="Color.Primary"
+               Href="/Account/Register" Class="mb-4">Criar conta para alguém</MudButton>
+
+    <MudText Typo="Typo.overline" Class="d-block">Contas e vaults</MudText>
+    @if (_contas.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">Nenhuma conta ainda.</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true" Striped="true">
+            <thead>
+                <tr>
+                    <th>Apelido</th><th>E-mail</th><th>Notas</th><th>Em disco</th><th>Pasta</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var c in _contas)
+                {
+                    <tr>
+                        <td>
+                            @c.Apelido
+                            @if (c.EhAdmin) { <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text">admin</MudChip> }
+                        </td>
+                        <td>@c.Email</td>
+                        <td>@(c.Existe ? c.Notas.ToString() : "—")</td>
+                        <td>@(c.Existe ? Tamanho(c.Bytes) : "—")</td>
+                        <td>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                @(c.Existe ? c.Pasta : "ainda não usou o vault")
+                            </MudText>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-3">
+            Os números são lidos do DISCO, não do índice — é o disco que enche o VPS, e é ele que continua
+            certo mesmo se o índice estiver desatualizado. Uma conta sem pasta é alguém que se cadastrou e
+            nunca escreveu nada.
+        </MudText>
+    }
+</MudPaper>
+
+@code {
+    /// <summary>Preenchido quando se volta do cadastro tendo criado a conta de alguém.</summary>
+    [SupplyParameterFromQuery(Name = "criado")] public string? Criado { get; set; }
+
+    private sealed record Conta(string Apelido, string? Email, bool EhAdmin, bool Existe, int Notas, long Bytes, string Pasta);
+
+    private IReadOnlyList<Conta> _contas = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var raiz = Path.GetFullPath(Vault.Value.Raiz);
+
+        var usuarios = await Usuarios.Users
+            .OrderBy(u => u.Apelido)
+            .Select(u => new { u.Apelido, u.Email })
+            .ToListAsync();
+
+        _contas = usuarios.Select(u =>
+        {
+            var pasta = Path.Combine(raiz, u.Apelido);
+            var existe = u.Apelido.Length > 0 && Directory.Exists(pasta);
+            var (notas, bytes) = existe ? MedirVault(pasta) : (0, 0L);
+            return new Conta(
+                u.Apelido.Length > 0 ? u.Apelido : "(sem apelido)",
+                u.Email,
+                Admin.Value.EmailDoAdminMestre.Equals(u.Email, StringComparison.OrdinalIgnoreCase),
+                existe, notas, bytes, pasta);
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Conta e pesa o vault direto no disco.
+    ///
+    /// Do DISCO e não do índice porque é o disco que enche o VPS — e porque é ele que continua verdadeiro
+    /// quando o índice está desatualizado, que é justamente o momento em que alguém abre esta tela.
+    /// </summary>
+    private static (int Notas, long Bytes) MedirVault(string pasta)
+    {
+        var notas = 0;
+        var bytes = 0L;
+        try
+        {
+            foreach (var arquivo in Directory.EnumerateFiles(pasta, "*", SearchOption.AllDirectories))
+            {
+                var info = new FileInfo(arquivo);
+                bytes += info.Length;
+                if (arquivo.EndsWith(CaminhoNota.Extensao, StringComparison.OrdinalIgnoreCase)) notas++;
+            }
+        }
+        catch (IOException) { /* pasta ocupada: o número sai aproximado, e isso não justifica quebrar a tela */ }
+        catch (UnauthorizedAccessException) { }
+        return (notas, bytes);
+    }
+
+    // if comum, e não expressão switch: o Razor lê o "<" de "< 1024" como início de tag e o arquivo
+    // deixa de compilar com um erro que não tem nada a ver com o que se quis escrever.
+    private static string Tamanho(long bytes)
+    {
+        const long kb = 1024, mb = kb * 1024, gb = mb * 1024;
+        if (bytes < kb) return $"{bytes} B";
+        if (bytes < mb) return $"{bytes / (double)kb:0.#} KB";
+        if (bytes < gb) return $"{bytes / (double)mb:0.#} MB";
+        return $"{bytes / (double)gb:0.##} GB";
+    }
+}

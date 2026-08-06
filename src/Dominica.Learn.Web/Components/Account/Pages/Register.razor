@@ -7,6 +7,8 @@
 @using Microsoft.AspNetCore.WebUtilities
 @using Dominica.Learn.Web.Data
 @using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Web.Seguranca
+@using Microsoft.Extensions.Options
 @using Microsoft.EntityFrameworkCore
 
 @inject UserManager<ApplicationUser> UserManager
@@ -16,13 +18,33 @@
 @inject ILogger<Register> Logger
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
+@inject IOptions<OpcoesDeAdministracao> Administracao
+@inject AuthenticationStateProvider Autenticacao
 
 <PageTitle>Register</PageTitle>
 
 <h1>Register</h1>
 
+@if (!_podeCadastrar)
+{
+    @* Cadastro fechado é o PADRÃO, e o motivo está em OpcoesDeAdministracao: aberto, qualquer um que
+       descubra a URL cria conta e ocupa disco. A mensagem não diz "acesso negado" nem insinua que
+       existe um jeito de contornar — diz o que é verdade e quem resolve. *@
+    <div class="alert alert-secondary" role="alert">
+        O cadastro está fechado. Peça uma conta a quem administra o Dominica Learn.
+    </div>
+    return;
+}
+
 <div class="row">
     <div class="col-lg-6">
+        @if (_criandoComoAdmin)
+        {
+            <div class="alert alert-info" role="alert">
+                Você está criando uma conta <b>para outra pessoa</b>, como administrador. Passe a senha a ela;
+                o apelido escolhido aqui vira a pasta do vault dela e não muda depois.
+            </div>
+        }
         <StatusMessage Message="@Message" />
         <EditForm Model="Input" method="post" OnValidSubmit="RegisterUser" FormName="register">
             <DataAnnotationsValidator />
@@ -76,13 +98,29 @@
 
     private string? Message => identityErrors is null ? null : $"Error: {string.Join(", ", identityErrors.Select(error => error.Description))}";
 
-    protected override void OnInitialized()
+    private bool _podeCadastrar;
+    private bool _criandoComoAdmin;
+
+    protected override async Task OnInitializedAsync()
     {
         Input ??= new();
+
+        // O admin mestre passa mesmo com o cadastro fechado: é assim que ele cria a conta dos outros,
+        // sem precisar de convite por token nem de abrir a porta para o mundo por alguns minutos.
+        var estado = await Autenticacao.GetAuthenticationStateAsync();
+        _criandoComoAdmin = Administracao.Value.EhAdminMestre(estado.User);
+        _podeCadastrar = Administracao.Value.CadastroAberto || _criandoComoAdmin;
     }
 
     public async Task RegisterUser(EditContext editContext)
     {
+        // Esconder o formulário não é proteger: o POST pode ser montado à mão. A checagem que vale é esta.
+        if (!_podeCadastrar)
+        {
+            identityErrors = [new IdentityError { Code = "Fechado", Description = "O cadastro está fechado." }];
+            return;
+        }
+
         // O APELIDO É VALIDADO PELO DOMÍNIO, não por DataAnnotation. Quem sabe o que é um nome de pasta
         // seguro é o ApelidoDoUsuario, e duplicar essa regra numa anotação aqui seria a primeira das duas
         // cópias que um dia divergem — com a divergência aparecendo como uma pasta que não pode ser criada.
@@ -130,6 +168,12 @@
             RedirectManager.RedirectTo(
                 "Account/RegisterConfirmation",
                 new() { ["email"] = Input.Email, ["returnUrl"] = ReturnUrl });
+        }
+        else if (_criandoComoAdmin)
+        {
+            // NÃO autentica: o admin acabou de criar a conta de OUTRA pessoa e continuaria logado como
+            // ela — trocando de vault sem perceber, no meio da própria sessão.
+            RedirectManager.RedirectTo("/administracao", new() { ["criado"] = apelido.Valor });
         }
         else
         {

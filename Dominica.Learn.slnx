@@ -9,5 +9,6 @@
     <Project Path="tests/Dominica.Learn.Application.Tests/Dominica.Learn.Application.Tests.csproj" />
     <Project Path="tests/Dominica.Learn.Domain.Tests/Dominica.Learn.Domain.Tests.csproj" />
     <Project Path="tests/Dominica.Learn.Infrastructure.Tests/Dominica.Learn.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Dominica.Learn.Web.Tests/Dominica.Learn.Web.Tests.csproj" />
   </Folder>
 </Solution>

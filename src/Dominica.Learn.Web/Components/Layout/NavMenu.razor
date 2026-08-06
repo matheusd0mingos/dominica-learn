@@ -30,6 +30,18 @@
             </NavLink>
         </div>
 
+        @* Só aparece para o admin mestre. A rota é protegida por política — isto aqui é conveniência,
+           não segurança: esconder o link nunca protegeu nada. *@
+        <AuthorizeView Policy="@Dominica.Learn.Web.Seguranca.OpcoesDeAdministracao.Politica">
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="administracao">
+                        <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> Administração
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+
         <AuthorizeView>
             <Authorized>
                 <div class="nav-item px-3">

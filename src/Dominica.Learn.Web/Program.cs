@@ -51,6 +51,18 @@ builder.Services.AddAuthentication(o =>
 // para aplicar.
 builder.Services.AddAuthorization();
 
+// —— ADMINISTRAÇÃO ——————————————————————————————————————————————————————————————————
+// O admin mestre é a MESMA PESSOA da Dominica, com CONTA daqui: o Learn não consulta o emissor de
+// identidade da plataforma para funcionar. Ver OpcoesDeAdministracao.
+builder.Services.AddOptions<OpcoesDeAdministracao>()
+    .Bind(builder.Configuration.GetSection(OpcoesDeAdministracao.Secao));
+
+var administracao = builder.Configuration.GetSection(OpcoesDeAdministracao.Secao).Get<OpcoesDeAdministracao>()
+    ?? new OpcoesDeAdministracao();
+
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy(OpcoesDeAdministracao.Politica, p => p.RequireAssertion(ctx => administracao.EhAdminMestre(ctx.User)));
+
 builder.Services.AddDbContext<ApplicationDbContext>(o => o.UseNpgsql(conexaoIdentidade));
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
