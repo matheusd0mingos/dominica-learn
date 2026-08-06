@@ -1,0 +1,70 @@
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Vault
+
+@* Diálogo de criação: nome e, opcionalmente, um molde.
+   Ele existe porque criar nota com nome automático ("Nota 2026-08-06 1432") é o caminho mais curto para
+   um vault de duzentos arquivos que ninguém consegue procurar. O nome é a primeira decisão de organização
+   e tem de ser do usuário. *@
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Nota nova</MudText>
+    </TitleContent>
+
+    <DialogContent>
+        <MudTextField @bind-Value="_nome" Label="Nome (pode incluir a pasta: Direito/Licitações)"
+                      Variant="Variant.Outlined" Immediate="true" AutoFocus="true"
+                      Error="@(_erro is not null)" ErrorText="@_erro"
+                      HelperText="O nome vira o caminho do arquivo .md no disco — é o mesmo que o Obsidian veria." />
+
+        @if (Templates.Count > 0)
+        {
+            <MudSelect T="CaminhoNota" @bind-Value="_template" Label="A partir de um molde"
+                       Variant="Variant.Outlined" Clearable="true" Class="mt-4"
+                       HelperText="Os moldes são notas comuns na pasta Templates. {{titulo}}, {{data}} e {{hora}} são substituídos.">
+                @foreach (var t in Templates)
+                {
+                    <MudSelectItem T="CaminhoNota" Value="@t.Caminho">@t.Nome</MudSelectItem>
+                }
+            </MudSelect>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-4">
+                Nenhum molde ainda. Crie uma nota dentro da pasta <b>@ServicoDeConhecimento.PastaDeTemplates</b>
+                e ela passa a aparecer aqui.
+            </MudText>
+        }
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialogo.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Confirmar">Criar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    [Parameter] public IReadOnlyList<TemplateDisponivel> Templates { get; set; } = [];
+    [Parameter] public string NomeInicial { get; set; } = string.Empty;
+
+    private string _nome = string.Empty;
+    private CaminhoNota? _template;
+    private string? _erro;
+
+    protected override void OnInitialized() => _nome = NomeInicial;
+
+    private void Confirmar()
+    {
+        // A validação do NOME é do domínio, não daqui: quem sabe que "..", barra invertida e caminho
+        // absoluto são proibidos é o CaminhoNota, e duplicar essa regra na tela seria a primeira das duas
+        // cópias que um dia divergem.
+        if (!CaminhoNota.TentarCriar(_nome, out var caminho, out _erro) || caminho is null)
+        {
+            StateHasChanged();
+            return;
+        }
+        Dialogo.Close(DialogResult.Ok(new EscolhaDeNovaNota(caminho, _template)));
+    }
+}

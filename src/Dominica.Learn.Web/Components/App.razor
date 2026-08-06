@@ -7,6 +7,10 @@
     <base href="/" />
     <ResourcePreloader />
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    @* O MudBlazor não funciona só com AddMudServices(): sem esta folha e o script lá embaixo, os
+       componentes renderizam sem estilo e o que depende de JS — Snackbar, Tooltip, Dialog, Menu —
+       simplesmente não aparece, sem erro nenhum no console. *@
+    <link rel="stylesheet" href="_content/MudBlazor/MudBlazor.min.css" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["Dominica.Learn.Web.styles.css"]" />
     <ImportMap />
@@ -18,6 +22,7 @@
     <Routes />
     <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
     <script src="@Assets["Components/Account/Shared/PasskeySubmit.razor.js"]" type="module"></script>
 </body>
 

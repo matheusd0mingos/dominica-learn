@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using Dominica.Learn.Infrastructure;
 using Dominica.Learn.Infrastructure.Indice;
+using Dominica.Learn.Web.Anexos;
 using Dominica.Learn.Web.Components;
 using Dominica.Learn.Web.Components.Account;
 using Dominica.Learn.Web.Data;
@@ -21,6 +22,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddMudServices();
 builder.Services.AddScoped<IEditorDeTexto, EditorCodeMirror>();
+builder.Services.AddScoped<IRenderizadorDoCliente, RenderizadorDoCliente>();
 
 // —— IDENTIDADE ——————————————————————————————————————————————————————————————————————
 // Banco SEPARADO do índice de propósito: identidade não é conhecimento do usuário e não pode ser
@@ -38,6 +40,11 @@ builder.Services.AddAuthentication(o =>
     })
     .AddIdentityCookies();
 
+// Explícito porque o endpoint de anexos usa RequireAuthorization(): as páginas Blazor se protegem pelo
+// AuthorizeRouteView, que não passa pelo middleware — sem isto, a proteção do endpoint não teria política
+// para aplicar.
+builder.Services.AddAuthorization();
+
 builder.Services.AddDbContext<ApplicationDbContext>(o => o.UseNpgsql(conexaoIdentidade));
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
@@ -46,7 +53,16 @@ builder.Services.AddIdentityCore<ApplicationUser>(o =>
         // Em uso familiar (eu, meu irmão, amigos) não há servidor de e-mail, e exigir confirmação
         // deixaria todo mundo trancado do lado de fora. É configurável para o dia em que abrir ao público.
         o.SignIn.RequireConfirmedAccount = builder.Configuration.GetValue("Identidade:ExigirEmailConfirmado", false);
-        o.Password.RequiredLength = 12;   // frase-senha em vez de teatro de caracteres especiais
+        // FRASE-SENHA EM VEZ DE TEATRO DE CARACTERES ESPECIAIS. Só aumentar RequiredLength não basta: as
+        // outras regras do Identity continuam ligadas por padrão, e juntas recusam "uma frase senha longa"
+        // — que é mais forte que "Senha@123" e é a que alguém consegue lembrar todo dia. Comprimento é o
+        // que de fato custa a um ataque; classe de caractere só empurra o usuário para o post-it.
+        o.Password.RequiredLength = 12;
+        o.Password.RequireUppercase = false;
+        o.Password.RequireLowercase = false;
+        o.Password.RequireDigit = false;
+        o.Password.RequireNonAlphanumeric = false;
+        o.Password.RequiredUniqueChars = 4;   // barra "aaaaaaaaaaaa", que passa por comprimento
         o.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
     })
     .AddEntityFrameworkStores<ApplicationDbContext>()
@@ -124,6 +140,7 @@ app.UseAntiforgery();
 app.UseRateLimiter();
 
 app.MapHealthChecks("/saude");
+app.MapearAnexos();               // /anexos/** — autenticado, lista de permissão, sem sair da raiz
 app.MapStaticAssets();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.MapAdditionalIdentityEndpoints();

@@ -58,3 +58,11 @@ h1:focus {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+/* O alternador de tema vem do componente de provedores, que é incluído no topo de cada página
+   interativa; ancorá-lo no canto o coloca onde ele estaria se o layout pudesse ser interativo. */
+.tema-alternador {
+    position: fixed;
+    top: .5rem;
+    right: 1rem;
+    z-index: 1200;
+}

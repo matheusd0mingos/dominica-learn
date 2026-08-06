@@ -1,0 +1,39 @@
+@* Os provedores do MudBlazor, mais o alternador de tema.
+
+   POR QUE ISTO NÃO ESTÁ NO MainLayout, que seria o lugar óbvio:
+
+   O MainLayout é ESTÁTICO (SSR) — ele envolve também as páginas do Identity, que são formulários HTML
+   comuns, e um layout com render mode não recebe @Body, que não é serializável. As páginas do vault, ao
+   contrário, são InteractiveServer.
+
+   Diálogo, snackbar e popover só se materializam no MESMO escopo interativo de quem os abre. Com os
+   provedores no layout estático, `Dialogos.ShowAsync(...)` executa, não lança nada, e simplesmente não
+   aparece nada na tela — o defeito silencioso que o MudBlazor avisa no log do servidor e mais nenhum
+   lugar. Foi assim que apareceu: o botão "Nota nova" piscava e não abria coisa nenhuma.
+
+   Por isso o componente é incluído por PÁGINA interativa. Custa uma linha por página e é a diferença
+   entre a interface funcionar e não funcionar. *@
+
+<MudThemeProvider @bind-IsDarkMode="_escuro" Theme="_tema" />
+<MudPopoverProvider />
+<MudDialogProvider CloseButton="true" MaxWidth="MaxWidth.Small" FullWidth="true" />
+<MudSnackbarProvider />
+
+@* Estudo acontece de noite. O tema escuro aqui não é enfeite — é a diferença entre conseguir ou não ler
+   a tela às onze horas. *@
+<MudTooltip Text="@(_escuro ? "Tema claro" : "Tema escuro")">
+    <MudIconButton Size="Size.Small" Class="tema-alternador" OnClick="@(() => _escuro = !_escuro)"
+                   Icon="@(_escuro ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" />
+</MudTooltip>
+
+@code {
+    private bool _escuro;
+
+    private readonly MudTheme _tema = new()
+    {
+        Typography = new Typography
+        {
+            Default = new DefaultTypography { FontFamily = ["Inter", "Segoe UI", "Helvetica Neue", "sans-serif"] },
+        },
+    };
+}

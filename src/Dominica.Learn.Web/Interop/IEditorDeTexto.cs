@@ -26,12 +26,53 @@ public sealed class SessaoDeEdicao(IJSObjectReference modulo, string idDoElement
     public Task EscreverAsync(string conteudo) => modulo.InvokeVoidAsync("escrever", idDoElemento, conteudo).AsTask();
     public Task FocarAsync() => modulo.InvokeVoidAsync("focar", idDoElemento).AsTask();
 
+    /// <summary>Insere no cursor — é onde quem anexou um arquivo espera que ele apareça.</summary>
+    public Task InserirAsync(string texto) => modulo.InvokeVoidAsync("inserir", idDoElemento, texto).AsTask();
+
     public async ValueTask DisposeAsync()
     {
         // O editor vive no navegador; se ninguém o destruir, cada troca de nota deixa um CodeMirror órfão
         // segurando memória. Numa sessão de estudo de horas, isso é o navegador engasgando.
         try { await modulo.InvokeVoidAsync("destruir", idDoElemento); }
         catch (JSDisconnectedException) { /* o circuito já caiu: não há navegador para limpar */ }
+    }
+}
+
+/// <summary>
+/// A PORTA DA LEITURA: completa no navegador o que só o navegador desenha — fórmulas, diagramas e realce.
+///
+/// Separada do editor de propósito: escrever e ler são momentos diferentes, e a maioria das aberturas de
+/// nota é leitura. Uma porta só obrigaria a carregar o CodeMirror para quem só quer consultar.
+/// </summary>
+public interface IRenderizadorDoCliente : IAsyncDisposable
+{
+    /// <summary>
+    /// <paramref name="temFormulas"/> e <paramref name="temDiagramas"/> vêm do SERVIDOR, que analisou o
+    /// Markdown. Deixar o cliente descobrir varrendo o DOM significaria carregar 4 MB de biblioteca antes
+    /// de saber se são necessários.
+    /// </summary>
+    Task CompletarAsync(string idDoElemento, bool temFormulas, bool temDiagramas);
+}
+
+public sealed class RenderizadorDoCliente(IJSRuntime js) : IRenderizadorDoCliente
+{
+    private IJSObjectReference? _modulo;
+
+    public async Task CompletarAsync(string idDoElemento, bool temFormulas, bool temDiagramas)
+    {
+        try
+        {
+            _modulo ??= await js.InvokeAsync<IJSObjectReference>("import", "./js/leitura.js");
+            await _modulo.InvokeVoidAsync("completar", idDoElemento, temFormulas, temDiagramas);
+        }
+        catch (JSDisconnectedException) { /* o circuito caiu no meio: não há navegador para desenhar */ }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_modulo is null) return;
+        try { await _modulo.DisposeAsync(); }
+        catch (JSDisconnectedException) { }
     }
 }
 

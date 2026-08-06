@@ -18,9 +18,9 @@ namespace Dominica.Learn.Infrastructure.Vault;
 ///    das ferramentas; gravar CRLF encheria os diffs de linhas fantasma.
 ///
 /// 2. NENHUM CAMINHO SAI DA RAIZ. O <see cref="CaminhoNota"/> já recusa ".." — aqui a conferência é
-///    feita de novo, por caminho absoluto resolvido, porque um link simbólico dentro do vault escaparia
-///    de qualquer validação puramente textual. Defesa em profundidade: a barata é textual, a cara é
-///    esta, e as duas juntas custam microssegundos.
+///    feita de novo, e sobre o caminho com os ELOS SIMBÓLICOS RESOLVIDOS (ver <see cref="CaminhoSeguro"/>),
+///    porque um elo dentro do vault produz um caminho que começa na raiz e ainda assim lê fora dela.
+///    Defesa em profundidade: a barata é textual, a cara é esta, e as duas juntas custam microssegundos.
 /// </summary>
 public sealed class RepositorioDeNotasEmDisco : IRepositorioDeNotas
 {
@@ -34,8 +34,8 @@ public sealed class RepositorioDeNotasEmDisco : IRepositorioDeNotas
     {
         _opcoes = opcoes.Value;
         _log = log;
-        _raiz = Path.GetFullPath(_opcoes.Raiz);
-        Directory.CreateDirectory(_raiz);
+        Directory.CreateDirectory(_opcoes.Raiz);
+        _raiz = CaminhoSeguro.Real(_opcoes.Raiz);
     }
 
     public string Raiz => _raiz;
@@ -181,16 +181,8 @@ public sealed class RepositorioDeNotasEmDisco : IRepositorioDeNotas
         }
     }
 
-    /// <summary>Caminho absoluto, com a garantia de que não escapou da raiz.</summary>
-    private string Absoluto(CaminhoNota caminho)
-    {
-        var combinado = Path.GetFullPath(Path.Combine(_raiz, caminho.Valor.Replace('/', Path.DirectorySeparatorChar)));
-        // A comparação inclui o separador para que "/vault-outro" não passe por estar sob "/vault".
-        var raizComSeparador = _raiz.EndsWith(Path.DirectorySeparatorChar) ? _raiz : _raiz + Path.DirectorySeparatorChar;
-        if (!combinado.StartsWith(raizComSeparador, StringComparison.Ordinal))
-            throw new UnauthorizedAccessException($"O caminho \"{caminho}\" sai da raiz do vault.");
-        return combinado;
-    }
+    /// <summary>Caminho absoluto, com a garantia de que não escapou da raiz — nem por elo simbólico.</summary>
+    private string Absoluto(CaminhoNota caminho) => CaminhoSeguro.Combinar(_raiz, caminho.Valor, caminho.Valor);
 
     /// <summary>
     /// Depois de mover/apagar, remove as pastas que ficaram vazias — até a raiz, sem incluí-la.

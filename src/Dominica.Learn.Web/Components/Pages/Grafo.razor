@@ -1,0 +1,186 @@
+@page "/grafo"
+@page "/grafo/{*caminho}"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Grafo
+@using Dominica.Learn.Domain.Vault
+@using Microsoft.AspNetCore.Authorization
+@using System.Globalization
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ServicoDeConhecimento Conhecimento
+@inject NavigationManager Navegacao
+@inject ISnackbar Avisos
+
+<PageTitle>Grafo · Dominica Learn</PageTitle>
+
+@* Os provedores vivem AQUI, e não no layout: diálogo e snackbar só aparecem no mesmo escopo
+   interativo de quem os abre. Ver ProvedoresDoMud. *@
+<ProvedoresDoMud />
+
+<MudPaper Class="pa-3" Elevation="0" Outlined="true">
+    <div class="d-flex align-center flex-wrap gap-3 mb-3">
+        <MudText Typo="Typo.h6">
+            @(_centro is null ? "Grafo do vault" : $"Em volta de “{_centro.Nome}”")
+        </MudText>
+
+        @if (_centro is not null)
+        {
+            @* O grafo INTEIRO de um vault de anos é bonito de printar e inútil de usar. O padrão é local. *@
+            <MudSlider T="int" Value="_saltos" ValueChanged="AoMudarSaltosAsync" Min="1" Max="4" Step="1"
+                       Style="max-width:180px">Distância: @_saltos salto(s)</MudSlider>
+            <MudButton Size="Size.Small" Variant="Variant.Text" Href="/grafo">Ver o vault inteiro</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack"
+                       Href="@($"/notas/{_centro.Valor}")">Voltar para a nota</MudButton>
+        }
+
+        <MudSpacer />
+        <MudSwitch T="bool" Value="_soOrfas" ValueChanged="AoAlternarOrfas" Color="Color.Warning"
+                   Label="Só as órfãs" />
+    </div>
+
+    @if (_carregando)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (_grafo is null || _grafo.Grafo.Nos.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+            Nada para desenhar ainda. O grafo aparece quando as notas começam a se citar com
+            <code>[[wikilinks]]</code> — é a citação que cria a aresta, não a pasta.
+        </MudAlert>
+    }
+    else
+    {
+        @* SVG INLINE, sem biblioteca de grafo: as posições já vieram calculadas do domínio (LayoutDeForca),
+           então aqui não sobra nenhuma conta — só coordenadas viram atributos. É por isso que o layout é
+           testável e desenha igual em toda máquina. *@
+        <svg viewBox="@Viewbox" width="100%" style="height:64vh; touch-action:none" role="img"
+             aria-label="Grafo de ligações entre as notas do vault">
+            @* Com "só as órfãs" ligado não há aresta a desenhar — órfã é, por definição, a nota de grau
+               zero. Deixar as linhas na tela mostraria ligações entre pontos que sumiram. *@
+            <g stroke="var(--mud-palette-lines-default)">
+                @foreach (var a in _soOrfas ? [] : _grafo.Grafo.Arestas)
+                {
+                    var de = _grafo.Posicoes[a.De];
+                    var para = _grafo.Posicoes[a.Para];
+                    <line x1="@N(de.X)" y1="@N(de.Y)" x2="@N(para.X)" y2="@N(para.Y)"
+                          stroke-width="@N(Math.Min(a.Peso, 5) * 0.8)" stroke-opacity="0.55" />
+                }
+            </g>
+
+            @foreach (var p in _grafo.Posicoes)
+            {
+                var no = _grafo.Grafo.Nos[p.Indice];
+                if (_soOrfas && !no.Orfa) { continue; }
+                var atual = _centro is not null && no.Caminho.Equals(_centro);
+
+                <g class="no-do-grafo" style="cursor:pointer" @onclick="@(() => Ir(no.Caminho))">
+                    <title>@no.Titulo — @no.Grau ligação(ões)@(no.Orfa ? " · órfã" : "")</title>
+                    @* Órfã em laranja não é decoração: nota órfã é conhecimento que você produziu e nunca
+                       mais revisitou, e é a coisa mais útil que este desenho tem a dizer. *@
+                    <circle cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio)"
+                            fill="@(no.Orfa ? "var(--mud-palette-warning)" : "var(--mud-palette-primary)")"
+                            stroke="@(atual ? "var(--mud-palette-text-primary)" : "none")"
+                            stroke-width="@(atual ? "2.5" : "0")" />
+                    @* Rótulo só nos nós que importam: escrever o nome dos 400 pontos de um vault de anos
+                       transforma o grafo numa mancha de texto. *@
+                    @if (atual || no.Grau >= _grauParaRotular || no.Orfa)
+                    {
+                        @* O <g> não é decorativo: o Razor trata "<text>" no início de um bloco de código
+                           como a TAG DE ESCAPE dele (RZ1023). Abrir markup antes faz o <text> do SVG ser
+                           lido como elemento. *@
+                        <g>
+                            <text x="@N(p.X)" y="@N(p.Y + p.Raio + 11)" text-anchor="middle"
+                                  font-size="10" fill="var(--mud-palette-text-secondary)">@Curto(no.Titulo)</text>
+                        </g>
+                    }
+                </g>
+            }
+        </svg>
+
+        <div class="d-flex flex-wrap gap-4 mt-2">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                @_grafo.Grafo.Nos.Count nota(s) · @_grafo.Grafo.Arestas.Count ligação(ões) ·
+                @_orfas órfã(s)
+            </MudText>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                Clique num ponto para abrir a nota. O desenho é determinístico: o mesmo vault sai igual
+                sempre, para que a memória espacial funcione.
+            </MudText>
+        </div>
+
+        @if (_orfas > 0 && !_soOrfas)
+        {
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mt-3">
+                @_orfas nota(s) sem nenhuma ligação. Nota órfã é conhecimento que você escreveu e nunca
+                mais encontrou — ligá-la a algo é o que a traz de volta para a revisão.
+            </MudAlert>
+        }
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public string? Caminho { get; set; }
+
+    private const double Largura = 900;
+    private const double Altura = 620;
+
+    private GrafoPosicionado? _grafo;
+    private CaminhoNota? _centro;
+    private int _saltos = 2;
+    private bool _soOrfas;
+    private bool _carregando = true;
+    private int _orfas;
+    private int _grauParaRotular = 1;
+
+    private static string Viewbox => string.Create(CultureInfo.InvariantCulture, $"0 0 {Largura} {Altura}");
+
+    // O SVG lê número com PONTO decimal. Numa máquina em pt-BR o padrão gravaria "451,3" e o navegador
+    // descartaria o atributo inteiro — o grafo sairia colapsado no canto sem nenhum erro visível.
+    private static string N(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string Curto(string titulo) => titulo.Length <= 22 ? titulo : titulo[..21] + "…";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _centro = null;
+        if (!string.IsNullOrWhiteSpace(Caminho))
+        {
+            if (!CaminhoNota.TentarCriar(Caminho, out var c, out var erro) || c is null)
+            {
+                Avisos.Add(erro ?? "Caminho inválido.", Severity.Error);
+                _carregando = false;
+                return;
+            }
+            _centro = c;
+        }
+        await CarregarAsync();
+    }
+
+    private async Task CarregarAsync()
+    {
+        _carregando = true;
+        _grafo = await Conhecimento.GrafoAsync(_centro, _saltos, Largura, Altura);
+        _orfas = _grafo.Grafo.Orfas.Count();
+
+        // Quantos rótulos cabem depende do tamanho do grafo, não de um número fixo: num grafo de 12 notas
+        // dá para nomear todas; num de 300, só os polos.
+        _grauParaRotular = _grafo.Grafo.Nos.Count switch
+        {
+            <= 25 => 0,
+            <= 80 => 3,
+            _ => 8,
+        };
+        _carregando = false;
+    }
+
+    private async Task AoMudarSaltosAsync(int saltos)
+    {
+        _saltos = saltos;
+        await CarregarAsync();
+    }
+
+    private void AoAlternarOrfas(bool valor) => _soOrfas = valor;
+
+    private void Ir(CaminhoNota caminho) => Navegacao.NavigateTo($"/notas/{caminho.Valor}");
+}

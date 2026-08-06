@@ -3,6 +3,7 @@
 @using Dominica.Learn.Application
 @using Dominica.Learn.Application.CasosDeUso
 @using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Domain.Anexos
 @using Dominica.Learn.Domain.Vault
 @using Dominica.Learn.Web.Interop
 @using Microsoft.JSInterop
@@ -12,11 +13,19 @@
 @inject ServicoDeNotas Servico
 @inject IIndiceDoVault Indice
 @inject IEditorDeTexto Editor
+@inject IRenderizadorDoCliente Leitura
+@inject ServicoDeConhecimento Conhecimento
+@inject ServicoDeAnexos Anexos
 @inject NavigationManager Navegacao
 @inject ISnackbar Avisos
+@inject IDialogService Dialogos
 @implements IAsyncDisposable
 
 <PageTitle>@(_aberta?.Nota.Titulo ?? "Notas") · Dominica Learn</PageTitle>
+
+@* Os provedores vivem AQUI, e não no layout: diálogo e snackbar só aparecem no mesmo escopo
+   interativo de quem os abre. Ver ProvedoresDoMud. *@
+<ProvedoresDoMud />
 
 <MudGrid Spacing="2" Class="pa-2">
 
@@ -29,11 +38,11 @@
                           Variant="Variant.Outlined" Margin="Margin.Dense" />
 
             <MudButton StartIcon="@Icons.Material.Filled.Add" Variant="Variant.Text" Class="mt-2"
-                       OnClick="CriarAsync">Nota nova</MudButton>
+                       OnClick="@(() => CriarAsync())">Nota nova</MudButton>
 
             @if (_acertos.Count > 0)
             {
-                <MudText Typo="Typo.overline" Class="mt-3">Resultados</MudText>
+                <MudText Typo="Typo.overline" Class="mt-3 d-block">Resultados</MudText>
                 <MudList T="string" Dense="true">
                     @foreach (var a in _acertos)
                     {
@@ -46,7 +55,23 @@
             }
             else
             {
-                <MudText Typo="Typo.overline" Class="mt-3">Recentes</MudText>
+                @if (_favoritas.Count > 0)
+                {
+                    @* Favoritas vêm ANTES das recentes: recente é o que você mexeu, favorita é o que você
+                       decidiu que importa — e num vault de estudo de anos as duas listas divergem rápido. *@
+                    <MudText Typo="Typo.overline" Class="mt-3 d-block">Favoritas</MudText>
+                    <MudList T="string" Dense="true">
+                        @foreach (var f in _favoritas)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.Star" IconColor="Color.Warning"
+                                         OnClick="@(() => Ir(f.Caminho))">
+                                <MudText Typo="Typo.body2">@f.Titulo</MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+
+                <MudText Typo="Typo.overline" Class="mt-3 d-block">Recentes</MudText>
                 <MudList T="string" Dense="true">
                     @foreach (var n in _recentes)
                     {
@@ -57,7 +82,7 @@
                     }
                 </MudList>
 
-                <MudText Typo="Typo.overline" Class="mt-3">Etiquetas</MudText>
+                <MudText Typo="Typo.overline" Class="mt-3 d-block">Etiquetas</MudText>
                 <div>
                     @foreach (var e in _etiquetas.Take(30))
                     {
@@ -103,7 +128,50 @@
                     </MudAlert>
                 }
 
-                <div id="@IdDoEditor" style="height:60vh"></div>
+                <div class="d-flex align-center gap-2 mb-2">
+                    @* Value/ValueChanged em vez de @bind-Value: alternar para "Ler" precisa RENDERIZAR, e
+                       o bind só atribuiria o campo. *@
+                    <MudToggleGroup T="bool" Value="_lendo" ValueChanged="AoTrocarModoAsync"
+                                    Size="Size.Small" Color="Color.Primary" CheckMark="false">
+                        <MudToggleItem T="bool" Value="false" Text="Escrever" />
+                        <MudToggleItem T="bool" Value="true" Text="Ler" />
+                    </MudToggleGroup>
+                    <MudTooltip Text="@(_favorita ? "Desfavoritar" : "Favoritar (grava no frontmatter da nota)")">
+                        <MudIconButton Size="Size.Small" OnClick="AlternarFavoritoAsync"
+                                       Icon="@(_favorita ? Icons.Material.Filled.Star : Icons.Material.Outlined.StarBorder)"
+                                       Color="@(_favorita ? Color.Warning : Color.Default)" />
+                    </MudTooltip>
+                    <MudTooltip Text="Ver esta nota no grafo do vault">
+                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Hub"
+                                       Href="@($"/grafo/{_aberta.Nota.Caminho.Valor}")" />
+                    </MudTooltip>
+
+                    @* O anexo entra no VAULT, não num bucket da aplicação: quem abrir a mesma pasta no
+                       Obsidian vê a imagem, porque o `![[…]]` é relativo ao vault e não uma URL daqui. *@
+                    <MudFileUpload @ref="_seletorDeArquivos" T="IReadOnlyList<IBrowserFile>" FilesChanged="AnexarAsync"
+                                   MaximumFileCount="10" Accept="@_extensoesAceitas"
+                                   MaxFileSize="ServicoDeAnexos.TamanhoMaximoPadraoBytes">
+                        <CustomContent Context="seletor">
+                            <MudTooltip Text="Anexar imagem, PDF ou áudio (vai para a pasta Anexos do vault)">
+                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.AttachFile"
+                                               Disabled="_anexando"
+                                               OnClick="@(() => seletor.OpenFilePickerAsync())" />
+                            </MudTooltip>
+                        </CustomContent>
+                    </MudFileUpload>
+
+                    @if (_anexando)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+                    }
+                </div>
+
+                @* O editor NÃO é destruído ao ler: manter os dois no DOM e trocar a visibilidade preserva
+                   posição de cursor e rolagem, e evita recriar o CodeMirror a cada alternância. *@
+                <div id="@IdDoEditor" style="@(_lendo ? "display:none" : "height:56vh")"></div>
+                <div id="@IdDaLeitura" class="nota-lida" style="@(_lendo ? "min-height:56vh" : "display:none")">
+                    @((MarkupString)(_renderizada?.Html ?? string.Empty))
+                </div>
             }
         </MudPaper>
     </MudItem>
@@ -111,18 +179,20 @@
     @* —— O QUE APONTA PARA CÁ —— *@
     <MudItem xs="12" md="3">
         <MudPaper Class="pa-3" Elevation="0" Outlined="true">
-            <MudText Typo="Typo.overline">Aponta para esta nota</MudText>
+            <MudText Typo="Typo.overline" Class="d-block">Aponta para esta nota</MudText>
             @if (_aberta is null || _aberta.Backlinks.Count == 0)
             {
                 <MudText Typo="Typo.body2" Class="mud-text-secondary">Nada ainda.</MudText>
             }
             else
             {
+                @* Uma nota que cita esta cinco vezes é UMA nota que aponta para cá. Listar cinco linhas
+                   iguais não acrescenta informação nenhuma e esconde as outras origens abaixo delas. *@
                 <MudList T="string" Dense="true">
-                    @foreach (var b in _aberta.Backlinks)
+                    @foreach (var origem in _aberta.Backlinks.Select(b => b.Origem).Distinct())
                     {
-                        <MudListItem T="string" OnClick="@(() => Ir(b.Origem))">
-                            <MudText Typo="Typo.body2">@b.Origem.Nome</MudText>
+                        <MudListItem T="string" OnClick="@(() => Ir(origem))">
+                            <MudText Typo="Typo.body2">@origem.Nome</MudText>
                         </MudListItem>
                     }
                 </MudList>
@@ -130,16 +200,19 @@
 
             @if (_aberta is not null)
             {
-                var quebradas = _aberta.Saidas.Where(l => l.Quebrada).ToList();
+                // Distinct pelo ALVO: citar "[[Pregão]]" três vezes na mesma nota é UM assunto por
+                // escrever, não três.
+                var quebradas = _aberta.Saidas.Where(l => l.Quebrada)
+                    .Select(l => l.Alvo).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 @if (quebradas.Count > 0)
                 {
                     @* Ligação quebrada é RECURSO: é a lista do que você decidiu estudar e ainda não estudou. *@
-                    <MudText Typo="Typo.overline" Class="mt-4">Ainda por escrever</MudText>
+                    <MudText Typo="Typo.overline" Class="mt-4 d-block">Ainda por escrever</MudText>
                     <MudList T="string" Dense="true">
                         @foreach (var q in quebradas)
                         {
-                            <MudListItem T="string" OnClick="@(() => CriarAPartirDeAsync(q.Alvo))">
-                                <MudText Typo="Typo.body2">@q.Alvo</MudText>
+                            <MudListItem T="string" OnClick="@(() => CriarAsync(q))">
+                                <MudText Typo="Typo.body2">@q</MudText>
                             </MudListItem>
                         }
                     </MudList>
@@ -151,21 +224,36 @@
 
 @code {
     private const string IdDoEditor = "editor-da-nota";
+    private const string IdDaLeitura = "leitura-da-nota";
 
     [Parameter] public string? Caminho { get; set; }
 
     private NotaAberta? _aberta;
     private SessaoDeEdicao? _sessao;
+    private bool _abrindoEditor;
     private DotNetObjectReference<Notas>? _referencia;
     private ImpressaoDigital? _impressaoCarregada;
 
     private IReadOnlyList<NotaIndexada> _recentes = [];
+    private IReadOnlyList<NotaIndexada> _favoritas = [];
+    private IReadOnlyList<TemplateDisponivel> _templates = [];
     private IReadOnlyList<EtiquetaContada> _etiquetas = [];
     private IReadOnlyList<Acerto> _acertos = [];
     private string _termo = string.Empty;
     private string _estado = string.Empty;
     private bool _conflito;
     private string? _textoPendente;
+    private bool _lendo;
+    private bool _favorita;
+    private bool _anexando;
+    private MudFileUpload<IReadOnlyList<IBrowserFile>>? _seletorDeArquivos;
+
+    // O `accept` do seletor de arquivos vem da MESMA lista que o servidor aplica. Duas listas, uma na
+    // tela e outra no domínio, divergem no primeiro formato novo — e a divergência aparece como "escolhi
+    // o arquivo e nada aconteceu".
+    private static readonly string _extensoesAceitas = string.Join(',', TiposDeAnexo.Extensoes);
+    private NotaRenderizada? _renderizada;
+    private bool _precisaCompletarLeitura;
 
     protected override async Task OnInitializedAsync() => await RecarregarLateraisAsync();
 
@@ -182,13 +270,99 @@
 
     protected override async Task OnAfterRenderAsync(bool primeiraVez)
     {
-        // O editor só pode ser criado DEPOIS que a div existe no DOM — e recriado a cada troca de nota.
-        if (_aberta is null || _sessao is not null) return;
+        if (_aberta is null) return;
 
-        _referencia ??= DotNetObjectReference.Create(this);
-        _sessao = await Editor.AbrirAsync(IdDoEditor, _aberta.Nota.Conteudo,
-            DotNetObjectReference.Create<object>(this));
-        await _sessao.FocarAsync();
+        // O editor só pode ser criado DEPOIS que a div existe no DOM — e recriado a cada troca de nota.
+        //
+        // A trava é SÍNCRONA e vem antes do await de propósito. Sem ela, o Blazor renderiza de novo
+        // enquanto a criação do editor está suspensa no await, entra aqui outra vez, vê `_sessao` ainda
+        // nulo e cria um SEGUNDO CodeMirror na mesma div — a nota aparece duplicada na tela, com dois
+        // editores disputando o mesmo texto. Foi assim que apareceu na primeira vez que rodou.
+        if (_sessao is null && !_abrindoEditor)
+        {
+            _abrindoEditor = true;
+            try
+            {
+                _referencia ??= DotNetObjectReference.Create(this);
+                _sessao = await Editor.AbrirAsync(IdDoEditor, _aberta.Nota.Conteudo,
+                    DotNetObjectReference.Create<object>(this));
+                await _sessao.FocarAsync();
+            }
+            finally
+            {
+                _abrindoEditor = false;
+            }
+        }
+
+        // Fórmulas e diagramas são desenhados DEPOIS do HTML estar na página. O sinalizador evita
+        // reprocessar a cada render do Blazor — o Mermaid redesenharia o diagrama inteiro a cada tecla.
+        if (_precisaCompletarLeitura && _lendo && _renderizada is not null)
+        {
+            _precisaCompletarLeitura = false;
+            await Leitura.CompletarAsync(IdDaLeitura, _renderizada.TemFormulas, _renderizada.TemDiagramas);
+        }
+    }
+
+    private async Task AoTrocarModoAsync(bool lendo)
+    {
+        _lendo = lendo;
+        if (_aberta is null || !_lendo) return;
+        // Renderiza o texto que está NO EDITOR, não o que veio do disco: quem alterna para ler quer ver o
+        // que acabou de escrever, mesmo que o autosave ainda não tenha disparado.
+        var texto = _sessao is null ? _aberta.Nota.Conteudo : await _sessao.LerAsync();
+        _renderizada = await Conhecimento.RenderizarAsync(texto);
+        _precisaCompletarLeitura = true;
+    }
+
+    /// <summary>
+    /// Sobe os arquivos escolhidos para a pasta de anexos do vault e insere a referência no cursor.
+    /// </summary>
+    private async Task AnexarAsync(IReadOnlyList<IBrowserFile>? arquivos)
+    {
+        if (_aberta is null || _sessao is null || arquivos is null || arquivos.Count == 0) return;
+
+        _anexando = true;
+        try
+        {
+            foreach (var arquivo in arquivos)
+            {
+                // maxAllowedSize explícito: o padrão do IBrowserFile é 512 KB e recusa QUALQUER foto de
+                // celular com uma exceção que, sem este parâmetro, apareceria como "erro ao anexar" sem
+                // dizer o motivo.
+                await using var fluxo = arquivo.OpenReadStream(ServicoDeAnexos.TamanhoMaximoPadraoBytes);
+                var r = await Anexos.AnexarAsync(arquivo.Name, fluxo, arquivo.Size);
+                if (!r.Ok)
+                {
+                    Avisos.Add(r.Mensagem ?? $"Não consegui anexar {arquivo.Name}.", Severity.Error);
+                    continue;
+                }
+                await _sessao.InserirAsync(r.Valor!.Markdown + "\n");
+            }
+
+            // Salva já: o anexo está no disco e a referência a ele está só na tela. Esperar o autosave
+            // deixaria uma janela em que fechar a aba perde a ligação entre nota e arquivo.
+            await AoMudarOTexto(await _sessao.LerAsync());
+        }
+        finally
+        {
+            _anexando = false;
+            // Limpa a seleção: o arquivo já foi para o vault e a referência já está na nota. A ficha
+            // "quadro.png ✕" continuar na barra sugeriria que ainda falta alguma coisa acontecer, e
+            // anexar o mesmo arquivo de novo nem dispararia o evento com ele ainda selecionado.
+            if (_seletorDeArquivos is not null) await _seletorDeArquivos.ClearAsync();
+        }
+    }
+
+    private async Task AlternarFavoritoAsync()
+    {
+        if (_aberta is null) return;
+        var r = await Conhecimento.AlternarFavoritoAsync(_aberta.Nota.Caminho);
+        if (!r.Ok) { Avisos.Add(r.Mensagem ?? "Não consegui marcar.", Severity.Error); return; }
+
+        _favorita = r.Valor;
+        // O favorito foi gravado NO ARQUIVO, então o conteúdo do editor está velho — recarrega para que a
+        // próxima gravação não desfaça a marcação por conflito de impressão digital.
+        await AbrirAsync(_aberta.Nota.Caminho);
     }
 
     /// <summary>
@@ -238,6 +412,9 @@
         _impressaoCarregada = _aberta!.Nota.Impressao;
         _conflito = false;
         _estado = string.Empty;
+        _favorita = Dominica.Learn.Domain.Analise.EditorDeFrontmatter.EhFavorita(_aberta.Nota.Analise);
+        _renderizada = null;
+        if (_lendo) await AoTrocarModoAsync(true);
     }
 
     private async Task RecarregarAsync()
@@ -259,26 +436,32 @@
         }
     }
 
-    private async Task CriarAsync()
+    /// <summary>
+    /// Abre o diálogo de criação. <paramref name="nomeSugerido"/> vem preenchido quando a criação nasce de
+    /// uma ligação quebrada — o nome já é o que está escrito no <c>[[link]]</c>.
+    /// </summary>
+    private async Task CriarAsync(string? nomeSugerido = null)
     {
-        var nome = $"Nota {Servico.Agora.ToLocalTime():yyyy-MM-dd HHmm}";
-        await CriarAPartirDeAsync(nome);
-    }
-
-    private async Task CriarAPartirDeAsync(string nome)
-    {
-        if (!CaminhoNota.TentarCriar(nome, out var caminho, out var erro) || caminho is null)
+        var parametros = new DialogParameters<DialogoDeNovaNota>
         {
-            Avisos.Add(erro ?? "Nome inválido.", Severity.Error);
-            return;
-        }
-        var r = await Servico.CriarAsync(caminho, $"# {caminho.Nome}\n\n");
+            { d => d.Templates, _templates },
+            { d => d.NomeInicial, nomeSugerido ?? $"Nota {Servico.Agora.ToLocalTime():yyyy-MM-dd HHmm}" },
+        };
+
+        var dialogo = await Dialogos.ShowAsync<DialogoDeNovaNota>("Nota nova", parametros);
+        var fechou = await dialogo.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not EscolhaDeNovaNota escolha) return;
+
+        var r = escolha.Template is null
+            ? await Servico.CriarAsync(escolha.Destino, $"# {escolha.Destino.Nome}\n\n")
+            : await Conhecimento.CriarDeTemplateAsync(escolha.Template, escolha.Destino);
+
         if (!r.Ok && r.Motivo != MotivoDaFalha.JaExiste)
         {
             Avisos.Add(r.Mensagem ?? "Não consegui criar.", Severity.Error);
             return;
         }
-        Ir(caminho);
+        Ir(escolha.Destino);
     }
 
     private async Task BuscarAsync()
@@ -298,6 +481,8 @@
     {
         _recentes = await Servico.RecentesAsync();
         _etiquetas = await Servico.EtiquetasAsync();
+        _favoritas = await Conhecimento.FavoritasAsync();
+        _templates = await Conhecimento.TemplatesAsync();
     }
 
     private void Ir(CaminhoNota caminho) => Navegacao.NavigateTo($"/notas/{caminho.Valor}");

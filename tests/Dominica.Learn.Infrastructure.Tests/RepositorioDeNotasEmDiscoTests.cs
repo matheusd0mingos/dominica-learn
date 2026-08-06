@@ -142,6 +142,30 @@ public sealed class RepositorioDeNotasEmDiscoTests : IDisposable
     }
 
     [Fact]
+    public async Task Nota_atras_de_elo_simbolico_para_fora_do_vault_nao_e_lida()
+    {
+        // A metade "cara" da defesa em profundidade, e a que a conferência textual NÃO cobre: o caminho
+        // "atalho/segredo.md" não tem "..", não é absoluto e resolve para dentro da raiz por
+        // Path.GetFullPath. O que sai do vault é o destino do elo.
+        var fora = Path.Combine(Path.GetTempPath(), "learn-fora-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(fora);
+        await File.WriteAllTextAsync(Path.Combine(fora, "segredo.md"), "não deveria sair daqui");
+        try
+        {
+            Directory.CreateSymbolicLink(Path.Combine(_raiz, "atalho"), fora);
+
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                _repo.LerAsync(CaminhoNota.De("atalho/segredo.md")));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+                _repo.GravarAsync(CaminhoNota.De("atalho/invadida.md"), "conteúdo"));
+        }
+        finally
+        {
+            Directory.Delete(fora, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Recusa_nota_maior_que_o_limite()
     {
         var repoApertado = new RepositorioDeNotasEmDisco(

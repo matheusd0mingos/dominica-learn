@@ -1,6 +1,7 @@
 using Dominica.Learn.Application.CasosDeUso;
 using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Infrastructure.Indice;
+using Dominica.Learn.Infrastructure.Renderizacao;
 using Dominica.Learn.Infrastructure.Vault;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -40,12 +41,18 @@ public static class RegistroDaInfraestrutura
         servicos.AddDbContext<ContextoDoIndice>(o => o.UseNpgsql(conexao));
 
         servicos.AddSingleton<IRelogio, RelogioDoSistema>();
+        // Singleton: o pipeline do Markdig é imutável e caro de montar; recriá-lo por requisição seria
+        // pagar a construção a cada abertura de nota.
+        servicos.AddSingleton<IRenderizadorDeMarkdown, RenderizadorMarkdig>();
         servicos.AddScoped<IRepositorioDeNotas, RepositorioDeNotasEmDisco>();
+        servicos.AddScoped<IArmazemDeAnexos, ArmazemDeAnexosEmDisco>();
         servicos.AddScoped<IIndiceDoVault, IndiceEmPostgres>();
         servicos.AddScoped<IHistoricoDeNotas, HistoricoEmPostgres>();
 
         servicos.AddScoped<ReconciliarVault>();
         servicos.AddScoped<ServicoDeNotas>();
+        servicos.AddScoped<ServicoDeConhecimento>();
+        servicos.AddScoped<ServicoDeAnexos>();
 
         servicos.AddHostedService<VigiaDoVault>();
 
