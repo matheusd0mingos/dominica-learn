@@ -172,7 +172,31 @@ E confirme que o contêiner do Learn existe:
 
 ### "502 Bad Gateway"
 
-O Caddy **tem** a regra e o contêiner **não** está no ar — que é exatamente o
+**Boa notícia: o Caddy tem a regra.** O que falta é o último salto até o
+contêiner. Duas causas, nesta ordem de probabilidade:
+
+**1. Permissão da pasta do vault.** O contêiner roda sem privilégio, com o uid
+fixo **64198**. Se `VAULT_NO_HOST` pertence ao root — e pertence, porque foi o
+root que a criou ou o próprio Docker ao montar —, o app não consegue escrever e
+**morre no boot**. O contêiner pisca "Running", o proxy responde 502, e nada na
+tela diz que o assunto é permissão. O `deploy.sh` agora ajusta isso sozinho; à
+mão:
+
+```bash
+chown -R 64198:64198 "$(grep '^VAULT_NO_HOST=' .env | cut -d= -f2-)"
+./dc up -d --force-recreate learn
+```
+
+**2. O app caiu por outro motivo** — banco, migração, e-mail do admin ausente.
+O log diz qual:
+
+```bash
+./dc logs learn --tail=40
+```
+
+---
+
+O caso geral: o Caddy **tem** a regra e o contêiner **não** está no ar — que é exatamente o
 estado de quem atualizou o código mas não ligou o overlay. O `.env` manda:
 
 ```bash

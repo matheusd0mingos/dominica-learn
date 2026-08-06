@@ -27,6 +27,14 @@ WORKDIR /app
 # USUÁRIO SEM PRIVILÉGIO. O contêiner monta o vault do usuário — um processo root aqui é root sobre os
 # arquivos dele no host. O uid 64198 é fixo de propósito: o dono do volume no host precisa bater, e um
 # uid sorteado a cada build tornaria a permissão do volume um mistério a cada deploy.
+# O curl é do HEALTHCHECK lá embaixo, e sem ele o health check falha SEMPRE — a imagem
+# mcr.microsoft.com/dotnet/aspnet não traz curl nem wget. O sintoma é um contêiner eternamente
+# "unhealthy" com o app funcionando perfeitamente, que é pior que não ter health check: ensina quem
+# opera a ignorar o sinal. (O Dockerfile da plataforma instala o curl pelo mesmo motivo.)
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --uid 64198 --create-home --shell /usr/sbin/nologin learn \
  && mkdir -p /dados/vault && chown -R learn:learn /dados
 
