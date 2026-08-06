@@ -21,7 +21,7 @@
         </MudText>
         @if (_materia is not null)
         {
-            <MudButton Size="Size.Small" Variant="Variant.Text" Href="/revisar">Todas as matérias</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Text" Href="revisar">Todas as matérias</MudButton>
         }
         <MudSpacer />
         @if (_fila.Count > 0)
@@ -50,7 +50,7 @@
             <MudList T="string" Dense="true">
                 @foreach (var m in _porMateria)
                 {
-                    <MudListItem T="string" Href="@($"/revisar/{Uri.EscapeDataString(m.Materia.Nome)}")"
+                    <MudListItem T="string" Href="@($"revisar/{Uri.EscapeDataString(m.Materia.Nome)}")"
                                  Icon="@(m.Vencidos > 0 ? Icons.Material.Filled.Schedule : Icons.Material.Filled.Done)"
                                  IconColor="@(m.Vencidos > 0 ? Color.Warning : Color.Success)">
                         <MudText Typo="Typo.body2">
@@ -114,7 +114,7 @@
         }
 
         <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-4">
-            <MudLink Href="@($"/notas/{_atual.Nota.Valor}")">Abrir a nota deste cartão</MudLink>
+            <MudLink Href="@($"notas/{_atual.Nota.Valor}")">Abrir a nota deste cartão</MudLink>
             — o agendamento é gravado no próprio arquivo, e o Obsidian lê o mesmo.
         </MudText>
     }

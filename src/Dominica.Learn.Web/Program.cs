@@ -51,6 +51,12 @@ builder.Services.AddAuthentication(o =>
 // para aplicar.
 builder.Services.AddAuthorization();
 
+// —— HOSPEDAGEM ——————————————————————————————————————————————————————————————————————
+// Vazio = raiz do domínio (subdomínio). Preenchido = sob um caminho, atrás do proxy da plataforma.
+var hospedagem = builder.Configuration.GetSection(OpcoesDeHospedagem.Secao).Get<OpcoesDeHospedagem>()
+    ?? new OpcoesDeHospedagem();
+builder.Services.AddSingleton(hospedagem);
+
 // —— ADMINISTRAÇÃO ——————————————————————————————————————————————————————————————————
 // O admin mestre é a MESMA PESSOA da Dominica, com CONTA daqui: o Learn não consulta o emissor de
 // identidade da plataforma para funcionar. Ver OpcoesDeAdministracao.
@@ -92,6 +98,11 @@ builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSe
 // —— COOKIE ——————————————————————————————————————————————————————————————————————————
 builder.Services.ConfigureApplicationCookie(o =>
 {
+    // Nome e caminho PRÓPRIOS: sob um sub-caminho o Learn divide domínio com a plataforma, e dois apps
+    // com cookie de mesmo nome se derrubam. O sintoma seria "fui deslogado sozinho" — que ninguém liga
+    // à causa. O Path restringe o envio ao que é do Learn, o que também é menos cookie viajando à toa.
+    o.Cookie.Name = hospedagem.NomeDoCookie;
+    o.Cookie.Path = hospedagem.BaseHref;
     o.Cookie.HttpOnly = true;                                   // fora do alcance de qualquer script
     o.Cookie.SameSite = SameSiteMode.Strict;                    // CSRF: o cookie não viaja em requisição de terceiro
     o.Cookie.SecurePolicy = CookieSecurePolicy.Always;          // só por HTTPS — o proxy reverso termina TLS
@@ -151,9 +162,28 @@ else
     app.UseHsts();
 }
 
+// PathBase ANTES de tudo: daqui para baixo o app enxerga "/notas" mesmo quando a URL é
+// "/private/dominica-learn/notas". As rotas das páginas continuam escritas sem o prefixo.
+// —— O PIPELINE, NA ORDEM, E POR INTEIRO ————————————————————————————————————————————
+//
+// Está todo explícito de propósito. O WebApplication insere roteamento, autenticação e autorização
+// sozinho quando não são declarados — e a posição que ele escolhe deixa de servir assim que
+// UsePathBase entra em jogo. Foram dois defeitos seguidos por causa disso, ambos só visíveis rodando:
+//
+//   1. sem UseRouting explícito, o GET funcionava sob o sub-caminho e o POST do formulário dava 405,
+//      porque a rota era casada com o prefixo ainda no caminho;
+//   2. com UseRouting explícito e o resto implícito, a autorização passou a rodar ANTES do roteamento,
+//      e toda página com [Authorize] quebrava com "no middleware that supports authorization".
+//
+// Declarar os sete na ordem custa sete linhas e tira o palpite da jogada.
+if (hospedagem.CaminhoBase.Length > 0) app.UsePathBase(hospedagem.CaminhoBase);
+
 app.UseHttpsRedirection();
 app.UseCabecalhosDeSeguranca();   // CSP, X-Content-Type-Options, Referrer-Policy — ver Seguranca/
 app.UseStaticFiles();
+app.UseRouting();
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 app.UseRateLimiter();
 

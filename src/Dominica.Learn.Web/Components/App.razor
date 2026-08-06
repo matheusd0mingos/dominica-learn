@@ -1,10 +1,14 @@
+@inject Dominica.Learn.Web.Seguranca.OpcoesDeHospedagem Hospedagem
 ﻿<!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <base href="/" />
+    @* O <base> é o que faz TODO link relativo do app cair dentro do caminho onde ele está servido.
+       Por isso nenhum href do Learn começa com barra: barra inicial ignora o <base> e sai do
+       sub-caminho. Ver OpcoesDeHospedagem. *@
+    <base href="@Hospedagem.BaseHref" />
     <ResourcePreloader />
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
     @* O MudBlazor não funciona só com AddMudServices(): sem esta folha e o script lá embaixo, os

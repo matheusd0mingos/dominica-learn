@@ -46,12 +46,12 @@
             <MudSlider T="int" Value="_saltos" ValueChanged="AoMudarSaltosAsync" Min="1" Max="4" Step="1"
                        Style="max-width:180px">Distância: @_saltos salto(s)</MudSlider>
             <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack"
-                       Href="@($"/notas/{_centro.Valor}")">Voltar para a nota</MudButton>
+                       Href="@($"notas/{_centro.Valor}")">Voltar para a nota</MudButton>
         }
 
         @if (_centro is not null || _filtrada is not null)
         {
-            <MudButton Size="Size.Small" Variant="Variant.Text" Href="/grafo">Ver o vault inteiro</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Text" Href="grafo">Ver o vault inteiro</MudButton>
         }
 
         <MudSpacer />
@@ -165,7 +165,7 @@
                assunto que a pasta separou e a prova cobra junto. *@
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mt-3">
                 @_visao.LigacoesParaFora ligação(ões) desta matéria apontam para fora dela e não estão
-                desenhadas aqui. <MudLink Href="/grafo">Veja o vault inteiro</MudLink> para enxergá-las.
+                desenhadas aqui. <MudLink Href="grafo">Veja o vault inteiro</MudLink> para enxergá-las.
             </MudAlert>
         }
 
@@ -218,7 +218,7 @@
     /// <summary>A rota deste recorte. Null na matéria = o grafo sem filtro.</summary>
     private string RotaDaMateria(Materia? materia)
     {
-        var baseUrl = _centro is null ? "/grafo" : $"/grafo/{_centro.Valor}";
+        var baseUrl = _centro is null ? "grafo" : $"grafo/{_centro.Valor}";
         return materia is null ? baseUrl : $"{baseUrl}?materia={Uri.EscapeDataString(materia.Nome)}";
     }
 

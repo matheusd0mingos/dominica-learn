@@ -65,7 +65,11 @@ public sealed class ServicoDeConhecimento(
     }
 
     /// <summary>
-    /// "foto.png" → "/anexos/Anexos/foto.png", ou null se o arquivo não está no vault.
+    /// "foto.png" → "anexos/Anexos/foto.png", ou null se o arquivo não está no vault.
+    ///
+    /// SEM BARRA INICIAL, de propósito: esta URL vai para dentro de um &lt;img src&gt;, que é HTML puro.
+    /// Com barra inicial ela seria relativa à raiz do domínio e ignoraria o &lt;base&gt; — a imagem
+    /// sumiria de todas as notas no dia em que o Learn fosse servido sob um sub-caminho.
     ///
     /// A consulta é síncrona porque o renderizador é síncrono, e o renderizador é síncrono porque
     /// converter texto em texto não tem por que não ser. O custo real é um <c>File.Exists</c> por embed —
@@ -74,7 +78,7 @@ public sealed class ServicoDeConhecimento(
     private string? UrlDoAnexo(string referencia)
     {
         var caminho = anexos.ResolverAsync(referencia).GetAwaiter().GetResult();
-        return caminho is null ? null : "/anexos/" + string.Join('/', caminho.Valor.Split('/').Select(Uri.EscapeDataString));
+        return caminho is null ? null : "anexos/" + string.Join('/', caminho.Valor.Split('/').Select(Uri.EscapeDataString));
     }
 
     // —— FAVORITOS ————————————————————————————————————————————————————————————————————

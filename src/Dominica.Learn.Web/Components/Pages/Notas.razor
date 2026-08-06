@@ -105,7 +105,7 @@
                                     </MudTooltip>
                                     <MudTooltip Text="@($"Ver o grafo de {m.Materia.Rotulo}")">
                                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Hub"
-                                                       Href="@($"/grafo?materia={Uri.EscapeDataString(m.Materia.Nome)}")" />
+                                                       Href="@($"grafo?materia={Uri.EscapeDataString(m.Materia.Nome)}")" />
                                     </MudTooltip>
                                 }
                             </div>
@@ -185,7 +185,7 @@
                     </MudTooltip>
                     <MudTooltip Text="Ver esta nota no grafo do vault">
                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Hub"
-                                       Href="@($"/grafo/{_aberta.Nota.Caminho.Valor}")" />
+                                       Href="@($"grafo/{_aberta.Nota.Caminho.Valor}")" />
                     </MudTooltip>
 
                     @* O anexo entra no VAULT, não num bucket da aplicação: quem abrir a mesma pasta no
