@@ -14,6 +14,7 @@ public sealed record TemplateDisponivel(CaminhoNota Caminho, string Nome);
 /// <summary>Uma matéria e quantas notas ela tem — o que o painel lateral e a legenda do grafo mostram.</summary>
 public sealed record MateriaContada(Materia Materia, int Notas);
 
+
 /// <summary>
 /// Tudo que a tela do grafo precisa numa consulta só.
 ///
@@ -300,4 +301,16 @@ public sealed class ServicoDeConhecimento(
 
         return new VisaoDoGrafo(LayoutDeForca.Calcular(grafo, largura, altura), materias, materia, paraFora);
     }
+
+    /// <summary>
+    /// Quantas ligações apontam para esta nota. É o que a tela mostra ANTES de confirmar um excluir: a
+    /// pessoa merece saber quantos caminhos vai cortar.
+    ///
+    /// Excluir NÃO apaga esses links, e isso é decisão e não omissão — no Obsidian, link para nota
+    /// inexistente é RECURSO: você escreve o link antes de escrever a nota, e ele fica como lembrete do
+    /// que falta. Apagá-los destruiria texto escrito em OUTRAS notas para registrar uma decisão sobre
+    /// ESTA. O que o produto deve é avisar antes, e é o que este número serve para fazer.
+    /// </summary>
+    public async Task<int> QuantasApontamParaAsync(CaminhoNota caminho, CancellationToken ct = default) =>
+        (await indice.BacklinksAsync(caminho, ct)).Count;
 }

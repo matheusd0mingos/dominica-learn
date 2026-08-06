@@ -1,144 +1,161 @@
-using System.Text;
+using Dominica.Learn.Domain.Analise;
 using Dominica.Learn.Domain.Vault;
 
 namespace Dominica.Learn.Domain.Ligacoes;
 
 /// <summary>
-/// Reescreve, no texto de uma nota, as ligações que apontavam para um caminho antigo.
+/// Reescreve as ligações de uma nota quando OUTRA nota é renomeada ou movida.
 ///
-/// POR QUE ISTO É DOMÍNIO: é uma transformação de texto Markdown regida por regras de negócio (o que
-/// conta como "apontar para esta nota", o que preservar). Não tem disco, não tem banco — entra string,
-/// sai string. Deixá-la na infraestrutura tiraria do teste a única parte difícil: decidir se
-/// "[[Licitações|as regras]]" deve virar "[[Contratos|as regras]]" ou "[[Contratos]]".
+/// POR QUE ISTO É O CORAÇÃO DO RENOMEAR, e não um detalhe dele:
 ///
-/// O QUE ELE PRESERVA, E POR QUÊ:
-///   • o RÓTULO, sempre. "[[Licitações|as regras de 2021]]" vira "[[Contratos|as regras de 2021]]" — o
-///     rótulo é prosa escrita pelo autor no meio de uma frase, e trocá-lo reescreveria o texto dele;
-///   • a SEÇÃO. "[[Licitações#Modalidades]]" continua apontando para a mesma seção;
-///   • a FORMA de escrever o alvo. Quem escreveu o caminho completo continua com caminho completo; quem
-///     escreveu só o nome continua com só o nome. Trocar "[[Licitações]]" por
-///     "[[Concursos/Direito/Contratos]]" encheria o texto de caminho onde havia uma palavra.
+/// Num vault, renomear um arquivo é trivial — o sistema de arquivos faz. O que quebra são os
+/// <c>[[links]]</c> que apontavam para ele, espalhados por notas que o usuário nem lembra que existem.
+/// Um app que renomeia sem consertar os links deixa um rastro de ligações mortas que só aparece meses
+/// depois, quando a pessoa clica e não vai a lugar nenhum. É a forma mais silenciosa de perder
+/// conhecimento: nada some do disco, mas o caminho até ele some.
+///
+/// A REGRA DE REESCRITA É A DO OBSIDIAN, e ela não é "troque o texto todo":
+///
+///   [[Licitações]]           só o nome    → só muda se o NOME mudou
+///   [[Direito/Licitações]]   com a pasta  → muda se a pasta OU o nome mudarem
+///
+/// Manter a forma curta importa porque ela é uma escolha do autor: quem escreveu <c>[[Licitações]]</c>
+/// quis a forma curta, e trocá-la por <c>[[Direito Administrativo/Licitações]]</c> só porque a nota
+/// mudou de pasta polui o texto que a pessoa lê todo dia. Se a forma curta continua resolvendo para a
+/// nota certa, ela fica como está.
+///
+/// A CLASSE É PURA: recebe texto e devolve texto. Não conhece disco, índice nem usuário. Quem sabe
+/// QUAIS notas apontam para a nota movida é o caso de uso, que tem o índice; aqui só se sabe reescrever.
 /// </summary>
 public static class ReescritorDeLigacoes
 {
     /// <summary>
-    /// Devolve o texto com as ligações para <paramref name="de"/> apontando para <paramref name="para"/>.
-    /// Quando nada casa, devolve a MESMA instância — o chamador usa isso para não gravar à toa.
+    /// Devolve o conteúdo com as ligações que apontavam para <paramref name="de"/> apontando para
+    /// <paramref name="para"/>.
+    ///
+    /// Devolve A MESMA INSTÂNCIA quando nada mudou. Isso não é economia de memória: é o sinal que
+    /// permite ao chamador não regravar o arquivo — e não regravar é o que evita acordar o vigia do
+    /// vault, sujar a data de modificação e criar uma revisão falsa em cada nota do vault.
     /// </summary>
-    public static string Reescrever(string conteudo, CaminhoNota de, CaminhoNota para)
+    /// <param name="resolver">
+    /// Opcional. Com ele, só é reescrita a ligação que REALMENTE resolve para a nota movida — o que
+    /// importa quando duas notas têm o mesmo nome em pastas diferentes. Sem ele, casa-se pelas formas
+    /// de escrever o caminho, que é o que dá para fazer sem conhecer o vault.
+    /// </param>
+    public static string Reescrever(
+        string conteudo, CaminhoNota de, CaminhoNota para, Func<string, CaminhoNota?>? resolver = null)
     {
-        if (string.IsNullOrEmpty(conteudo)) return conteudo;
+        ArgumentNullException.ThrowIfNull(conteudo);
+        resolver ??= PelasFormasDeEscrever(de);
 
-        var alvosAntigos = FormasDeEscrever(de);
+        if (de == para) return conteudo;
+
+        var analise = AnalisadorDeNota.Analisar(conteudo, de.Nome);
+
+        // De trás para a frente: recortar pelo índice invalida todas as posições seguintes. Indo do fim
+        // para o começo, cada troca só mexe em texto que já foi visitado.
+        var ligacoes = analise.LigacoesInternas
+            .Where(l => l.Comprimento > 0)
+            .OrderByDescending(l => l.Posicao)
+            .ToList();
+
+        var texto = conteudo;
         var mudou = false;
-        var sb = new StringBuilder(conteudo.Length);
-        var i = 0;
 
-        while (i < conteudo.Length)
+        foreach (var ligacao in ligacoes)
         {
-            // —— [[alvo]] / [[alvo#seção|rótulo]] ————————————————————————————————————————————
-            if (conteudo[i] == '[' && i + 1 < conteudo.Length && conteudo[i + 1] == '[')
-            {
-                var fim = conteudo.IndexOf("]]", i + 2, StringComparison.Ordinal);
-                if (fim > 0)
-                {
-                    var interno = conteudo[(i + 2)..fim];
-                    var novo = ReescreverWikilink(interno, alvosAntigos, para);
-                    if (novo is not null)
-                    {
-                        sb.Append("[[").Append(novo).Append("]]");
-                        i = fim + 2;
-                        mudou = true;
-                        continue;
-                    }
-                }
-            }
+            if (resolver(ligacao.Alvo) != de) continue;
 
-            // —— [rótulo](alvo.md) ————————————————————————————————————————————————————————
-            if (conteudo[i] == '[')
-            {
-                var fechaRotulo = conteudo.IndexOf(']', i + 1);
-                if (fechaRotulo > 0 && fechaRotulo + 1 < conteudo.Length && conteudo[fechaRotulo + 1] == '(')
-                {
-                    var fimUrl = conteudo.IndexOf(')', fechaRotulo + 2);
-                    if (fimUrl > 0)
-                    {
-                        var url = conteudo[(fechaRotulo + 2)..fimUrl];
-                        var novoUrl = ReescreverUrlMarkdown(url, alvosAntigos, para);
-                        if (novoUrl is not null)
-                        {
-                            sb.Append(conteudo[i..(fechaRotulo + 2)]).Append(novoUrl).Append(')');
-                            i = fimUrl + 1;
-                            mudou = true;
-                            continue;
-                        }
-                    }
-                }
-            }
+            var alvoNovo = AlvoReescrito(ligacao, de, para, resolver);
+            if (alvoNovo is null) continue;
 
-            sb.Append(conteudo[i]);
-            i++;
+            var escrita = Escrever(ligacao, alvoNovo);
+            var fim = ligacao.Posicao + ligacao.Comprimento;
+            if (ligacao.Posicao < 0 || fim > texto.Length) continue;   // texto mudou sob nossos pés
+            if (texto[ligacao.Posicao..fim] == escrita) continue;
+
+            texto = string.Concat(texto.AsSpan(0, ligacao.Posicao), escrita, texto.AsSpan(fim));
+            mudou = true;
         }
 
-        return mudou ? sb.ToString() : conteudo;
+        return mudou ? texto : conteudo;
     }
 
-    private static string? ReescreverWikilink(string interno, HashSet<string> alvosAntigos, CaminhoNota para)
+    /// <summary>Quantas ligações desta nota apontam para o caminho dado.</summary>
+    public static int Contar(string conteudo, CaminhoNota alvo, Func<string, CaminhoNota?>? resolver = null)
     {
-        var rotulo = (string?)null;
-        var corpo = interno;
-        var barra = interno.IndexOf('|');
-        if (barra >= 0) { rotulo = interno[(barra + 1)..]; corpo = interno[..barra]; }
-
-        var secao = (string?)null;
-        var cerquilha = corpo.IndexOf('#');
-        if (cerquilha >= 0) { secao = corpo[(cerquilha + 1)..]; corpo = corpo[..cerquilha]; }
-
-        var alvo = corpo.Trim();
-        if (alvo.Length == 0 || !alvosAntigos.Contains(alvo)) return null;
-
-        // Mantém a "altura" de quem escreveu: nome curto continua curto, caminho continua caminho.
-        var novoAlvo = alvo.Contains('/') ? SemExtensao(para.Valor) : para.Nome;
-        var reconstruido = novoAlvo;
-        if (secao is not null) reconstruido += "#" + secao;
-        if (rotulo is not null) reconstruido += "|" + rotulo;
-        return reconstruido;
+        resolver ??= PelasFormasDeEscrever(alvo);
+        return AnalisadorDeNota.Analisar(conteudo, alvo.Nome).LigacoesInternas.Count(l => resolver(l.Alvo) == alvo);
     }
 
-    private static string? ReescreverUrlMarkdown(string url, HashSet<string> alvosAntigos, CaminhoNota para)
+    /// <summary>
+    /// O resolvedor de pobre, para quando não há vault à mão: reconhece as quatro formas com que
+    /// alguém pode ter escrito um link para esta nota. Não distingue duas notas de mesmo nome em
+    /// pastas diferentes — por isso o resolvedor de verdade é preferível quando existe.
+    /// </summary>
+    private static Func<string, CaminhoNota?> PelasFormasDeEscrever(CaminhoNota nota)
     {
-        var limpa = url.Trim();
-        // link com título — [x](destino "título"): só o destino é reescrito
-        var titulo = string.Empty;
-        var espaco = limpa.IndexOf(' ');
-        if (espaco > 0) { titulo = limpa[espaco..]; limpa = limpa[..espaco]; }
-
-        var secao = (string?)null;
-        var cerquilha = limpa.IndexOf('#');
-        if (cerquilha >= 0) { secao = limpa[(cerquilha + 1)..]; limpa = limpa[..cerquilha]; }
-
-        var semEscape = limpa.Replace("%20", " ", StringComparison.Ordinal);
-        if (!alvosAntigos.Contains(semEscape)) return null;
-
-        var novo = semEscape.Contains('/') ? para.Valor : para.Nome + CaminhoNota.Extensao;
-        // espaço em URL de Markdown precisa voltar escapado, senão o link quebra em qualquer renderizador
-        novo = novo.Replace(" ", "%20", StringComparison.Ordinal);
-        if (secao is not null) novo += "#" + secao;
-        return novo + titulo;
-    }
-
-    /// <summary>Todas as formas com que alguém pode ter escrito um link para esta nota.</summary>
-    private static HashSet<string> FormasDeEscrever(CaminhoNota caminho) =>
-        new(StringComparer.OrdinalIgnoreCase)
+        var formas = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            caminho.Nome,
-            caminho.Nome + CaminhoNota.Extensao,
-            caminho.Valor,
-            SemExtensao(caminho.Valor),
+            nota.Nome, nota.Nome + CaminhoNota.Extensao, nota.Valor, SemExtensao(nota.Valor),
         };
+        return alvo => formas.Contains(alvo.Trim()) ? nota : null;
+    }
 
-    private static string SemExtensao(string valor) =>
-        valor.EndsWith(CaminhoNota.Extensao, StringComparison.OrdinalIgnoreCase)
-            ? valor[..^CaminhoNota.Extensao.Length]
-            : valor;
+    /// <summary>
+    /// O novo texto do alvo, preservando a forma que o autor escolheu. Null quando não é preciso mexer.
+    /// </summary>
+    private static string? AlvoReescrito(
+        Wikilink ligacao, CaminhoNota de, CaminhoNota para, Func<string, CaminhoNota?> resolver)
+    {
+        // A ligação em forma de Markdown — [rótulo](Direito/Licitações.md) — carrega a extensão e o
+        // caminho completo. Ali a forma curta não existe, então o alvo novo é o caminho novo inteiro.
+        if (ligacao.Forma == FormaDaLigacao.Markdown)
+            return para.Valor;
+
+        var escreveuComPasta = ligacao.Alvo.Contains('/');
+
+        if (!escreveuComPasta)
+        {
+            // Forma curta. Se o nome não mudou, a ligação continua resolvendo para a nota certa mesmo
+            // depois da mudança de pasta — e mexer nela seria estragar o texto à toa.
+            if (string.Equals(de.Nome, para.Nome, StringComparison.Ordinal)) return null;
+
+            // O nome mudou. Continua curto SE isso ainda for inequívoco: se já existe outra nota com o
+            // nome novo em outra pasta, a forma curta passaria a apontar para a errada, e aí é preciso
+            // escrever o caminho.
+            var resolvido = resolver(para.Nome);
+            return resolvido is null || resolvido == para ? para.Nome : SemExtensao(para.Valor);
+        }
+
+        return SemExtensao(para.Valor);
+    }
+
+    /// <summary>Remonta a ligação inteira com o alvo novo, mantendo seção, rótulo e forma.</summary>
+    private static string Escrever(Wikilink ligacao, string alvoNovo)
+    {
+        var secao = ligacao.Secao is null ? "" : "#" + ligacao.Secao;
+
+        return ligacao.Forma switch
+        {
+            FormaDaLigacao.Markdown =>
+                $"[{ligacao.Rotulo ?? ligacao.TextoExibido}]({EscaparParaMarkdown(alvoNovo)}{secao})",
+            FormaDaLigacao.Embed =>
+                $"![[{alvoNovo}{secao}{Rotulo(ligacao)}]]",
+            _ =>
+                $"[[{alvoNovo}{secao}{Rotulo(ligacao)}]]",
+        };
+    }
+
+    private static string Rotulo(Wikilink ligacao) => ligacao.Rotulo is null ? "" : "|" + ligacao.Rotulo;
+
+    private static string SemExtensao(string caminho) =>
+        caminho.EndsWith(".md", StringComparison.OrdinalIgnoreCase) ? caminho[..^3] : caminho;
+
+    /// <summary>
+    /// Espaço num destino de link Markdown fecha o parêntese cedo no leitor de Markdown, e o resto do
+    /// caminho vira "título". <c>%20</c> é o que o próprio Obsidian escreve.
+    /// </summary>
+    private static string EscaparParaMarkdown(string caminho) =>
+        caminho.Replace(" ", "%20", StringComparison.Ordinal);
 }
