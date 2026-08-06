@@ -205,9 +205,11 @@ public static class AnalisadorDeNota
                 var ehEmbed = i > 0 && trecho[i - 1] == '!';
                 if (LerAlvo(interno) is { } partes)
                 {
+                    var inicio = ehEmbed ? i - 1 : i;
                     destino.Add(new Wikilink(partes.Alvo,
                         ehEmbed ? FormaDaLigacao.Embed : FormaDaLigacao.Wikilink,
-                        deslocamento + (ehEmbed ? i - 1 : i), partes.Secao, partes.Rotulo));
+                        deslocamento + inicio, partes.Secao, partes.Rotulo,
+                        comprimento: fim + 2 - inicio));
                 }
                 i = fim + 1;
                 continue;
@@ -230,7 +232,7 @@ public static class AnalisadorDeNota
                 {
                     var (alvo, secao) = SepararSecao(Desescapar(url));
                     destino.Add(new Wikilink(alvo, FormaDaLigacao.Markdown, deslocamento + i, secao,
-                        rotulo.Length > 0 ? rotulo : null));
+                        rotulo.Length > 0 ? rotulo : null, comprimento: fimUrl + 1 - i));
                 }
                 i = fimUrl;
             }

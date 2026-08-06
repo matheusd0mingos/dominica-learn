@@ -37,13 +37,26 @@ public sealed record Wikilink
     /// <summary>Índice do caractere onde a ligação começa no conteúdo. Serve para a interface destacar.</summary>
     public int Posicao { get; init; }
 
-    public Wikilink(string alvo, FormaDaLigacao forma, int posicao, string? secao = null, string? rotulo = null)
+    /// <summary>
+    /// Quantos caracteres a ligação ocupa no texto, contando a sintaxe inteira: os colchetes, o "!" do
+    /// embed, a seção e o rótulo.
+    ///
+    /// Existe para que RENOMEAR UMA NOTA possa recortar a ligação com precisão e pôr outra no lugar. Sem
+    /// isto, quem reescreve teria de reencontrar a ligação no texto — ou seja, analisar de novo, num
+    /// segundo parser que um dia discordaria deste. Um vault inteiro de links quebrados é o preço dessa
+    /// discordância, e ele só aparece muito depois.
+    /// </summary>
+    public int Comprimento { get; init; }
+
+    public Wikilink(string alvo, FormaDaLigacao forma, int posicao, string? secao = null,
+        string? rotulo = null, int comprimento = 0)
     {
         Alvo = alvo;
         Forma = forma;
         Posicao = posicao;
         Secao = secao;
         Rotulo = rotulo;
+        Comprimento = comprimento;
     }
 
     /// <summary>O que a interface mostra: o rótulo quando existe, senão o próprio alvo.</summary>

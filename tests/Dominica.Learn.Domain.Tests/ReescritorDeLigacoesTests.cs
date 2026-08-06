@@ -1,107 +1,188 @@
-using Dominica.Learn.Domain.Ligacoes;
 using Dominica.Learn.Domain.Vault;
 
 namespace Dominica.Learn.Domain.Tests;
 
-// Renomear é a operação que mais assusta num vault: se ela quebrar as ligações de entrada, destrói
-// justamente a rede que É o conhecimento. Cada teste aqui trava uma coisa que o reescritor preserva.
+/// <summary>
+/// Renomear sem consertar os links é a forma mais silenciosa de perder conhecimento: nada some do
+/// disco, mas o caminho até ele some. Estes testes existem para que essa regra não se perca numa
+/// refatoração — cada um deles é um jeito de a ligação quebrar sem ninguém notar.
+/// </summary>
 public class ReescritorDeLigacoesTests
 {
-    private static readonly CaminhoNota De = CaminhoNota.De("Direito/Licitações.md");
-    private static readonly CaminhoNota Para = CaminhoNota.De("Direito/Contratos.md");
+    private static CaminhoNota C(string v) => CaminhoNota.De(v);
 
-    private static string Reescrever(string texto) => ReescritorDeLigacoes.Reescrever(texto, De, Para);
-
-    [Fact]
-    public void Reescreve_wikilink_pelo_nome()
+    /// <summary>
+    /// Um vault de mentira: o resolvedor que o caso de uso monta a partir do índice. Aqui ele é uma
+    /// lista, e resolve tanto pelo nome curto quanto pelo caminho — como o Obsidian faz.
+    /// </summary>
+    private static Func<string, CaminhoNota?> Vault(params string[] caminhos)
     {
-        Assert.Equal("ver [[Contratos]] hoje", Reescrever("ver [[Licitações]] hoje"));
+        var notas = caminhos.Select(C).ToList();
+        return alvo =>
+        {
+            var limpo = alvo.EndsWith(".md", StringComparison.OrdinalIgnoreCase) ? alvo[..^3] : alvo;
+            return notas.FirstOrDefault(n => n.Valor.Equals(limpo + ".md", StringComparison.Ordinal))
+                ?? notas.FirstOrDefault(n => n.Nome.Equals(limpo, StringComparison.Ordinal));
+        };
     }
 
     [Fact]
-    public void Reescreve_wikilink_pelo_caminho()
+    public void MudarDePastaNaoMexeNoLinkCurto()
     {
-        Assert.Equal("[[Direito/Contratos]]", Reescrever("[[Direito/Licitações]]"));
+        // A forma curta continua resolvendo para a nota certa — mexer nela poluiria o texto à toa.
+        var texto = "Ver [[Licitações]] antes da prova.";
+        var vault = Vault("Direito/Licitações.md");
+
+        var saida = ReescritorDeLigacoes.Reescrever(
+            texto, C("Direito/Licitações.md"), C("Direito Administrativo/Licitações.md"), vault);
+
+        Assert.Same(texto, saida);   // MESMA instância: o chamador não regrava o arquivo
     }
 
     [Fact]
-    public void Preserva_o_rotulo()
+    public void MudarONomeReescreveOLinkCurto()
     {
-        // O rótulo é prosa do autor no meio de uma frase. Trocá-lo seria reescrever o texto dele.
-        Assert.Equal("[[Contratos|as regras de 2021]]", Reescrever("[[Licitações|as regras de 2021]]"));
+        var vault = Vault("Direito/Licitações.md");
+
+        var saida = ReescritorDeLigacoes.Reescrever(
+            "Ver [[Licitações]] antes da prova.",
+            C("Direito/Licitações.md"), C("Direito/Licitações e contratos.md"), vault);
+
+        Assert.Equal("Ver [[Licitações e contratos]] antes da prova.", saida);
     }
 
     [Fact]
-    public void Preserva_a_secao()
+    public void LinkEscritoComPastaAcompanhaAPasta()
     {
-        Assert.Equal("[[Contratos#Modalidades]]", Reescrever("[[Licitações#Modalidades]]"));
-        Assert.Equal("[[Contratos#Modalidades|veja]]", Reescrever("[[Licitações#Modalidades|veja]]"));
+        var vault = Vault("Direito/Licitações.md");
+
+        var saida = ReescritorDeLigacoes.Reescrever(
+            "Ver [[Direito/Licitações]].",
+            C("Direito/Licitações.md"), C("Direito Administrativo/Licitações.md"), vault);
+
+        Assert.Equal("Ver [[Direito Administrativo/Licitações]].", saida);
     }
 
     [Fact]
-    public void Preserva_a_altura_de_quem_escreveu()
+    public void SecaoERotuloSobrevivem()
     {
-        // Quem escreveu só o nome continua com só o nome; trocar por caminho completo encheria o texto
-        // de barras onde havia uma palavra.
-        var alvoLongo = CaminhoNota.De("Concursos/Direito/Administrativo/Contratos.md");
-        Assert.Equal("[[Contratos]]", ReescritorDeLigacoes.Reescrever("[[Licitações]]", De, alvoLongo));
-        Assert.Equal("[[Concursos/Direito/Administrativo/Contratos]]",
-            ReescritorDeLigacoes.Reescrever("[[Direito/Licitações]]", De, alvoLongo));
+        var vault = Vault("Direito/Licitações.md");
+
+        var saida = ReescritorDeLigacoes.Reescrever(
+            "Ver [[Licitações#Modalidades|as modalidades]].",
+            C("Direito/Licitações.md"), C("Direito/Certames.md"), vault);
+
+        Assert.Equal("Ver [[Certames#Modalidades|as modalidades]].", saida);
     }
 
     [Fact]
-    public void Reescreve_embed()
+    public void EmbedContinuaEmbed()
     {
-        Assert.Equal("![[Contratos]]", Reescrever("![[Licitações]]"));
+        var vault = Vault("Direito/Licitações.md");
+
+        var saida = ReescritorDeLigacoes.Reescrever(
+            "![[Licitações]]", C("Direito/Licitações.md"), C("Direito/Certames.md"), vault);
+
+        // Sem o "!", o conteúdo deixaria de ser embutido e viraria só um link — a nota mudaria de cara.
+        Assert.Equal("![[Certames]]", saida);
     }
 
     [Fact]
-    public void Reescreve_link_markdown_preservando_o_rotulo()
+    public void LinkMarkdownMantemOFormatoEEscapaOEspaco()
     {
-        Assert.Equal("veja [as regras](Direito/Contratos.md)", Reescrever("veja [as regras](Direito/Licitações.md)"));
+        var vault = Vault("Direito/Licitações.md");
+
+        var saida = ReescritorDeLigacoes.Reescrever(
+            "Ver [as licitações](Direito/Licitações.md).",
+            C("Direito/Licitações.md"), C("Direito Administrativo/Licitações.md"), vault);
+
+        // Espaço cru fecharia o parêntese cedo e o resto do caminho viraria "título" do link.
+        Assert.Equal("Ver [as licitações](Direito%20Administrativo/Licitações.md).", saida);
     }
 
     [Fact]
-    public void Escapa_espaco_em_link_markdown()
+    public void VariasLigacoesNaMesmaNotaSaoTodasReescritas()
     {
-        var alvoComEspaco = CaminhoNota.De("Direito/Novos Contratos.md");
-        Assert.Equal("[x](Direito/Novos%20Contratos.md)",
-            ReescritorDeLigacoes.Reescrever("[x](Direito/Licitações.md)", De, alvoComEspaco));
+        var vault = Vault("Direito/Licitações.md");
+
+        var saida = ReescritorDeLigacoes.Reescrever(
+            "[[Licitações]] e depois [[Licitações#Fases]] e ainda [[Licitações|elas]].",
+            C("Direito/Licitações.md"), C("Direito/Certames.md"), vault);
+
+        Assert.Equal("[[Certames]] e depois [[Certames#Fases]] e ainda [[Certames|elas]].", saida);
+        Assert.DoesNotContain("Licitações", saida);
     }
 
     [Fact]
-    public void Nao_toca_em_ligacao_para_outra_nota()
+    public void LigacaoParaOUTRANotaNaoEhTocada()
     {
-        const string texto = "[[Outra]] e [[Direito/Princípios]] e [externo](https://x.com)";
-        Assert.Same(texto, Reescrever(texto));
+        var vault = Vault("Direito/Licitações.md", "Direito/Contratos.md");
+
+        var texto = "[[Contratos]] continua igual, [[Licitações]] muda.";
+        var saida = ReescritorDeLigacoes.Reescrever(
+            texto, C("Direito/Licitações.md"), C("Direito/Certames.md"), vault);
+
+        Assert.Equal("[[Contratos]] continua igual, [[Certames]] muda.", saida);
     }
 
     [Fact]
-    public void Devolve_a_mesma_instancia_quando_nada_muda()
+    public void LinkDentroDeCodigoNaoEhReescrito()
     {
-        // O chamador usa a identidade para decidir se grava. Sem isso, renomear reescreveria (e
-        // arquivaria no histórico) todas as notas do vault, mudadas ou não.
-        const string texto = "nada aqui aponta para lá";
-        Assert.Same(texto, Reescrever(texto));
+        // O analisador ignora o que está entre crases; um exemplo de sintaxe numa nota de estudo não é
+        // uma ligação de verdade e reescrevê-lo estragaria a explicação.
+        var vault = Vault("Direito/Licitações.md");
+
+        var texto = "Escreva `[[Licitações]]` para ligar.";
+        var saida = ReescritorDeLigacoes.Reescrever(
+            texto, C("Direito/Licitações.md"), C("Direito/Certames.md"), vault);
+
+        Assert.Same(texto, saida);
     }
 
     [Fact]
-    public void Reescreve_varias_ocorrencias_na_mesma_nota()
+    public void LinkExternoNaoEhTocado()
     {
-        Assert.Equal("[[Contratos]] e depois [[Contratos|de novo]] e [[Direito/Contratos]]",
-            Reescrever("[[Licitações]] e depois [[Licitações|de novo]] e [[Direito/Licitações]]"));
+        var vault = Vault("Direito/Licitações.md");
+
+        var texto = "Fonte: [lei](https://planalto.gov.br/Licitações).";
+        var saida = ReescritorDeLigacoes.Reescrever(
+            texto, C("Direito/Licitações.md"), C("Direito/Certames.md"), vault);
+
+        Assert.Same(texto, saida);
     }
 
     [Fact]
-    public void Colchete_solto_nao_quebra_o_texto()
+    public void NomeNovoAMBIGUOForcaOCaminhoCompleto()
     {
-        const string texto = "um [ solto e um [[Licitações]] de verdade";
-        Assert.Equal("um [ solto e um [[Contratos]] de verdade", Reescrever(texto));
+        // Já existe OUTRA nota chamada "Certames" em outra pasta. Manter a forma curta faria a ligação
+        // passar a apontar para a nota errada — que é pior que um link quebrado, porque parece certo.
+        var vault = Vault("Direito/Licitações.md", "Português/Certames.md");
+
+        var saida = ReescritorDeLigacoes.Reescrever(
+            "Ver [[Licitações]].", C("Direito/Licitações.md"), C("Direito/Certames.md"), vault);
+
+        Assert.Equal("Ver [[Direito/Certames]].", saida);
     }
 
     [Fact]
-    public void Texto_vazio_nao_quebra()
+    public void ContarDizQuantasLigacoesApontamParaANota()
     {
-        Assert.Equal(string.Empty, Reescrever(string.Empty));
+        var vault = Vault("Direito/Licitações.md");
+
+        var quantas = ReescritorDeLigacoes.Contar(
+            "[[Licitações]], [[Licitações#Fases]] e `[[Licitações]]` em código.",
+            C("Direito/Licitações.md"), vault);
+
+        Assert.Equal(2, quantas);
+    }
+
+    [Fact]
+    public void RenomearParaOMesmoCaminhoNaoMexeEmNada()
+    {
+        var texto = "[[Licitações]]";
+        var saida = ReescritorDeLigacoes.Reescrever(
+            texto, C("Direito/Licitações.md"), C("Direito/Licitações.md"), Vault("Direito/Licitações.md"));
+
+        Assert.Same(texto, saida);
     }
 }
