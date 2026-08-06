@@ -124,14 +124,37 @@ cada uma aponta para um lugar distinto. Confundi-las custa horas.
 *qualquer* caminho que não conheça, renderizando a home. Não dá 404, não dá erro:
 dá a tela errada, com ar de que o deploy deu certo.
 
-Quase sempre a causa é que **o código do Learn não está no servidor**: o
-`Caddyfile` do servidor é o do `git pull`, e se o commit que acrescenta o `handle`
-não está no ramo que a VPS acompanha, ele não existe lá. Confira no servidor:
+São **duas** causas possíveis, e elas dão a mesma tela. Confira as duas, nesta
+ordem, no servidor:
 
 ```bash
 cd novo/plataforma
-grep -c dominica-learn Caddyfile      # 0 = o código não chegou; faça o pull/merge
-docker compose ps learn               # vazio = o contêiner nunca subiu
+
+# 1. o ARQUIVO tem a regra?
+grep -c dominica-learn Caddyfile
+#    0 → o código não chegou. git pull no ramo que a VPS acompanha.
+
+# 2. o CADDY EM MEMÓRIA tem a regra?  (é outra pergunta — leia abaixo)
+docker compose exec caddy caddy fmt /etc/caddy/Caddyfile | grep -c dominica-learn
+docker compose logs caddy --tail=5
+```
+
+A segunda é a traiçoeira. **O `Caddyfile` entra por bind mount**, então mudar o
+arquivo não muda a definição do serviço — e o `docker compose up -d` não recria o
+contêiner. O Caddy segue rodando a configuração que leu quando subiu: o arquivo
+novo está lá dentro e não vale nada. O deploy diz "concluído", tudo fica verde, e
+a rota nova não existe.
+
+O `deploy.sh` agora recarrega o Caddy sozinho ao final. Para forçar à mão:
+
+```bash
+docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+```
+
+E confirme que o contêiner do Learn existe:
+
+```bash
+docker compose ps learn      # vazio = LEARN=off no .env, ou o overlay não entrou
 ```
 
 ### "502 Bad Gateway"
