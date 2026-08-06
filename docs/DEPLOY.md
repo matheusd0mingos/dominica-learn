@@ -151,17 +151,35 @@ pelo Kestrel da API. A tela de login do Learn é renderizada na hora e não tem
 nenhum dos dois. Então `server: Kestrel` + `last-modified` = a requisição foi
 para a `api`, não para o `learn`.
 
-A segunda é a traiçoeira. **O `Caddyfile` entra por bind mount**, então mudar o
-arquivo não muda a definição do serviço — e o `docker compose up -d` não recria o
-contêiner. O Caddy segue rodando a configuração que leu quando subiu: o arquivo
-novo está lá dentro e não vale nada. O deploy diz "concluído", tudo fica verde, e
-a rota nova não existe.
+A segunda é a traiçoeira, e ela custou uma noite. **O `Caddyfile` entra por bind
+mount de UM ARQUIVO**, e o Docker o amarra ao *inode* no momento em que o
+contêiner nasce. Se depois disso o arquivo for **substituído** — e `git pull`,
+`git stash` e `git checkout` substituem, não editam —, o contêiner continua
+enxergando o arquivo **antigo para sempre**, enquanto não for recriado. E o
+`up -d` não o recria, porque a definição do serviço não mudou.
 
-O `deploy.sh` agora recarrega o Caddy sozinho ao final. Para forçar à mão:
+O estrago é total e silencioso, e cada evidência isolada mente:
+
+| você pergunta | responde | e ainda assim |
+|---|---|---|
+| `grep -c dominica-learn Caddyfile` (host) | `2` | o contêiner vê outro arquivo |
+| `caddy reload` | sucesso | recarregou o arquivo VELHO |
+| o app do Learn em 8080 | HTTP 200 | perfeito, e sem ninguém para encaminhar |
+
+A pergunta que não mente é **dentro** do contêiner:
 
 ```bash
-./dc exec caddy caddy reload --config /etc/caddy/Caddyfile
+./dc exec caddy grep -c dominica-learn /etc/caddy/Caddyfile   # 0 = é isto
 ```
+
+E a única cura é recriar:
+
+```bash
+./dc up -d --force-recreate caddy
+```
+
+O `deploy.sh` agora COMPARA o arquivo de dentro com o do disco antes de
+recarregar, e recria o contêiner sozinho quando eles diferem.
 
 E confirme que o contêiner do Learn existe:
 
