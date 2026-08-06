@@ -282,7 +282,9 @@
 
     private void AoAlternarOrfas(bool valor) => _soOrfas = valor;
 
-    private void Ir(CaminhoNota caminho) => Navegacao.NavigateTo($"/notas/{caminho.Valor}");
+    // Rotas.Nota e NÃO $"/notas/{...}": a barra inicial descarta o sub-caminho onde o app é servido,
+    // e a navegação cai em dominio.com/notas/... — 404. Ver Rotas.
+    private void Ir(CaminhoNota caminho) => Navegacao.NavigateTo(Rotas.Nota(caminho));
 
     private static string Viewbox => string.Create(CultureInfo.InvariantCulture, $"0 0 {Largura} {Altura}");
 

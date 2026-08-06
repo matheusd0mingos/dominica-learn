@@ -105,7 +105,7 @@
                                     </MudTooltip>
                                     <MudTooltip Text="@($"Ver o grafo de {m.Materia.Rotulo}")">
                                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Hub"
-                                                       Href="@($"grafo?materia={Uri.EscapeDataString(m.Materia.Nome)}")" />
+                                                       Href="@Rotas.Grafo(m.Materia)" />
                                     </MudTooltip>
                                 }
                             </div>
@@ -566,7 +566,9 @@
         _templates = await Conhecimento.TemplatesAsync();
     }
 
-    private void Ir(CaminhoNota caminho) => Navegacao.NavigateTo($"/notas/{caminho.Valor}");
+    // Rotas.Nota e NÃO $"/notas/{...}": a barra inicial descarta o sub-caminho onde o app é servido,
+    // e a navegação cai em dominio.com/notas/... — 404. Ver Rotas.
+    private void Ir(CaminhoNota caminho) => Navegacao.NavigateTo(Rotas.Nota(caminho));
 
     private async Task FecharEditorAsync()
     {

@@ -295,8 +295,17 @@ código sem saber disso, elas voltam:
    **documento** e ignora o `<base href>` — sairia do sub-caminho e daria 404.
    Todos os links são relativos (`grafo`, `notas/…`), inclusive a URL das imagens
    de anexo. Se você acrescentar um link novo, escreva sem a barra inicial.
-   (`NavigationManager.NavigateTo("/notas")` é exceção: o Blazor já resolve
-   aquilo contra a base.)
+
+   **`NavigationManager.NavigateTo` NÃO é exceção — este documento afirmava que
+   era, e estava errado.** O Blazor resolve com as regras de URI: uma relativa que
+   começa com barra é resolvida contra a raiz do domínio, e o sub-caminho some.
+   `NavigateTo("/notas/x")` sob `/private/dominica-learn` vai para
+   `dominio.com/notas/x` e dá 404. Aconteceu em produção, logo depois de criar uma
+   nota — o usuário criava e era jogado numa página de erro.
+
+   Em desenvolvimento o defeito é invisível, porque sem sub-caminho as duas formas
+   dão no mesmo. Por isso as URLs internas agora saem de `Rotas`, com testes que
+   falham se alguma voltar a nascer com barra.
 
 4. **O cookie tem nome e `Path` próprios.** No mesmo domínio, dois apps com
    cookie de mesmo nome se derrubam, e o sintoma — *"fui deslogado sozinho"* —
