@@ -707,3 +707,42 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
     justify-content: center;
     color: var(--ink-faint);
 }
+
+/* —— O QUADRO DE TINTA ——————————————————————————————————————————————————————————————— */
+
+.tinta-barra {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    margin-bottom: .5rem;
+}
+
+.tinta-cor {
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+}
+
+.tinta-cor-ativa {
+    /* Anel POR FORA, com box-shadow, e não uma borda: borda mudaria o tamanho do círculo e faria as
+       quatro cores dançarem a cada troca. */
+    box-shadow: 0 0 0 2px var(--mud-palette-surface), 0 0 0 4px var(--mud-palette-primary);
+}
+
+.tinta-quadro {
+    /* touch-action: none É O QUE FAZ ESCREVER FUNCIONAR NO TABLET. Sem ele o navegador entende o
+       primeiro traço como rolagem da página: a tela desce e nada é desenhado. É a linha que separa
+       "quadro de tinta" de "quadro que não funciona no aparelho em que ele existe para funcionar". */
+    touch-action: none;
+
+    display: block;
+    width: 100%;
+    height: min(60vh, 520px);
+    background: #fff;          /* branco SEMPRE: o desenho vai para o vault e é lido em qualquer tema */
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 6px;
+    cursor: crosshair;
+}

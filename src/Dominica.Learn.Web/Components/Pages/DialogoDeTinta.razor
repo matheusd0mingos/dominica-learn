@@ -1,0 +1,142 @@
+@using Dominica.Learn.Web.Interop
+@implements IAsyncDisposable
+@inject IQuadroDeTinta Quadro
+@inject ISnackbar Avisos
+
+@* ESCREVER À MÃO, dentro da nota.
+
+   O QUE ELE É E O QUE ELE NÃO É: o desenho vira um PNG na pasta de anexos do vault e um `![[…]]` na
+   nota, exatamente como uma foto colada. Ele NÃO é um modo caderno. Tinta é morta para este produto —
+   não entra na busca, não vira wikilink, não vira aresta no grafo, não vira cartão —, e uma ferramenta
+   cuja tese é "cartão e ligação" não pode oferecer um caminho onde nada disso acontece como se fosse
+   equivalente a escrever. Aqui ele é o esquema ao lado do texto, a conta que você errou, o desenho da
+   malha. Por isso é um botão na barra da nota e não uma aba.
+
+   O TRAÇO NÃO PASSA PELO SERVIDOR. Uma caneta produz mais de cem pontos por segundo; este app já mediu
+   o que uma ida e volta custa. Tudo é desenhado no navegador e só o PNG pronto sobe. Ver
+   IQuadroDeTinta e js/tinta.js. *@
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Escrever à mão</MudText>
+    </TitleContent>
+
+    <DialogContent>
+        <div class="tinta-barra">
+            @foreach (var (nome, cor) in Cores)
+            {
+                <MudTooltip Text="@nome">
+                    <button type="button" class="tinta-cor @(cor == _cor ? "tinta-cor-ativa" : null)"
+                            style="background:@cor" aria-label="@nome"
+                            @onclick="@(() => TrocarCorAsync(cor))"></button>
+                </MudTooltip>
+            }
+
+            <MudSpacer />
+
+            <MudButton Size="Size.Small" Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.Undo" OnClick="DesfazerAsync">Desfazer</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.DeleteSweep" OnClick="LimparAsync">Limpar</MudButton>
+        </div>
+
+        @* touch-action:none no CSS é o que impede o navegador de rolar a página enquanto se escreve —
+           sem isso, no tablet, o primeiro traço vira uma rolagem e nada é desenhado. *@
+        <canvas id="@IdDoCanvas" class="tinta-quadro"></canvas>
+
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
+            Com caneta (Apple Pencil, S Pen), a pressão muda a espessura e a mão apoiada não desenha.
+            Sem caneta, o dedo e o mouse funcionam.
+        </MudText>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialogo.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="_gravando" OnClick="ConcluirAsync">Inserir na nota</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    /// <summary>
+    /// Id CONSTANTE, e ele é seguro aqui pelo mesmo motivo que o do editor não era: o diálogo é criado
+    /// e destruído por um gesto, e não existem dois abertos ao mesmo tempo. Ver o comentário da geração
+    /// em js/editor.js para o caso em que isso NÃO valia.
+    /// </summary>
+    private const string IdDoCanvas = "quadro-de-tinta";
+
+    /// <summary>
+    /// UMA PALETA CURTA, e não um seletor de cor. Escolher entre quatro é um gesto; escolher num
+    /// círculo de matiz é uma tarefa — e ninguém abre um quadro de tinta para escolher cor.
+    /// As quatro são as de anotação: escrever, destacar, corrigir, marcar o que importa.
+    /// </summary>
+    private static readonly (string Nome, string Cor)[] Cores =
+    [
+        ("Marinho", "#0f2340"),
+        ("Vermelho", "#b3261e"),
+        ("Azul", "#1a73c8"),
+        ("Dourado", "#c9a227"),
+    ];
+
+    private string _cor = Cores[0].Cor;
+    private bool _gravando;
+
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        // DEPOIS DO PRIMEIRO DESENHO, e não em OnInitialized: o canvas precisa existir no DOM e já ter
+        // tamanho, porque a resolução dele é calculada a partir do tamanho em tela (ver tinta.js). Antes
+        // disso, getBoundingClientRect devolve zero e o quadro nasce com 0×0 pixels.
+        if (primeiraVez) await Quadro.AbrirAsync(IdDoCanvas, _cor);
+    }
+
+    private async Task TrocarCorAsync(string cor)
+    {
+        _cor = cor;
+        await Quadro.TrocarCorAsync(IdDoCanvas, cor);
+    }
+
+    private async Task DesfazerAsync()
+    {
+        if (!await Quadro.DesfazerAsync(IdDoCanvas))
+            Avisos.Add("Não há traço para desfazer.", Severity.Info);
+    }
+
+    private Task LimparAsync() => Quadro.LimparAsync(IdDoCanvas);
+
+    private async Task ConcluirAsync()
+    {
+        if (_gravando) return;
+
+        // QUADRO EM BRANCO NÃO VIRA ANEXO. Sem esta guarda, "inserir" sem ter desenhado põe um PNG
+        // branco no vault e um `![[…]]` apontando para ele — lixo que a pessoa só descobre depois, e
+        // que ela vai ter de apagar do disco.
+        if (await Quadro.VazioAsync(IdDoCanvas))
+        {
+            Avisos.Add("Desenhe alguma coisa antes.", Severity.Info);
+            return;
+        }
+
+        _gravando = true;
+        try
+        {
+            var png = await Quadro.ParaPngBase64Async(IdDoCanvas);
+            if (string.IsNullOrEmpty(png))
+            {
+                Avisos.Add("Não consegui ler o desenho.", Severity.Warning);
+                return;
+            }
+
+            // O diálogo devolve BYTES, e não grava nada: quem sabe onde anexo mora é o serviço de
+            // anexos, e ele é chamado pela tela da nota — que é quem também sabe onde está o cursor.
+            Dialogo.Close(DialogResult.Ok(Convert.FromBase64String(png)));
+        }
+        finally
+        {
+            _gravando = false;
+        }
+    }
+
+    public async ValueTask DisposeAsync() => await Quadro.DestruirAsync(IdDoCanvas);
+}

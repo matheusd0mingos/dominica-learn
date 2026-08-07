@@ -212,6 +212,14 @@
                                        Href="@($"grafo/{_aberta.Nota.Caminho.Valor}")" />
                     </MudTooltip>
 
+                    @* ESCREVER À MÃO fica ao lado de anexar, e não numa aba: o desenho é um anexo,
+                       feito aqui em vez de vindo de fora. Ver DialogoDeTinta. *@
+                    <MudTooltip Text="Escrever à mão (vira um PNG na pasta Anexos)">
+                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Draw"
+                                       aria-label="Escrever à mão" Disabled="_anexando"
+                                       OnClick="EscreverAMaoAsync" />
+                    </MudTooltip>
+
                     @* O anexo entra no VAULT, não num bucket da aplicação: quem abrir a mesma pasta no
                        Obsidian vê a imagem, porque o `![[…]]` é relativo ao vault e não uma URL daqui. *@
                     <MudFileUpload @ref="_seletorDeArquivos" T="IReadOnlyList<IBrowserFile>" FilesChanged="AnexarAsync"
@@ -532,6 +540,51 @@
         var texto = _sessao is null ? _aberta.Nota.Conteudo : await _sessao.LerAsync();
         _renderizada = await Conhecimento.RenderizarAsync(texto);
         _precisaCompletarLeitura = true;
+    }
+
+    /// <summary>
+    /// Abre o quadro de tinta e, se algo for desenhado, grava o PNG nos anexos e insere o embed.
+    ///
+    /// PASSA PELO MESMO CAMINHO DE ANEXAR, de propósito: mesmo serviço, mesma pasta, mesmo limite,
+    /// mesmo antivírus, mesmo `![[…]]`. Um desenho não é uma categoria nova de coisa — é um anexo que
+    /// nasceu aqui dentro em vez de vir de fora, e tratá-lo como caso especial dobraria as regras a
+    /// manter sem dobrar o que o produto faz.
+    /// </summary>
+    private async Task EscreverAMaoAsync()
+    {
+        if (_sessao is null || _anexando) return;
+
+        var opcoes = new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, CloseOnEscapeKey = false };
+        var dialogo = await Dialogos.ShowAsync<DialogoDeTinta>("Escrever à mão", opcoes);
+        var r = await dialogo.Result;
+        if (r is null || r.Canceled || r.Data is not byte[] png) return;
+
+        _anexando = true;
+        try
+        {
+            // O NOME LEVA DATA E HORA porque desenho não tem nome de arquivo para herdar. Sem isso
+            // seriam "desenho.png", "desenho-1.png", e em duas semanas ninguém sabe qual é qual — e o
+            // `![[…]]` na nota também não diria.
+            var nome = $"desenho-{DateTime.Now:yyyy-MM-dd-HHmmss}.png";
+
+            using var fluxo = new MemoryStream(png);
+            var anexo = await Anexos.AnexarAsync(nome, fluxo, png.Length);
+            if (!anexo.Ok)
+            {
+                Avisos.Add(anexo.Mensagem ?? "Não consegui guardar o desenho.", Severity.Error);
+                return;
+            }
+
+            await _sessao.InserirAsync(anexo.Valor!.Markdown + "\n");
+            // Grava já, pelo mesmo motivo do anexo comum: o arquivo está no disco e a referência a ele
+            // só na tela. Esperar o autosave deixa uma janela em que fechar a aba perde a ligação.
+            await AoMudarOTexto(await _sessao.LerAsync());
+            Avisos.Add("Desenho inserido na nota.", Severity.Success);
+        }
+        finally
+        {
+            _anexando = false;
+        }
     }
 
     /// <summary>
