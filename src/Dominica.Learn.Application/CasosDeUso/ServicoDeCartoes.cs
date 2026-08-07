@@ -84,6 +84,66 @@ public sealed class ServicoDeCartoes(
         return new FilaDeRevisao(comTeto.Take(limite).ToList(), segurados, teto);
     }
 
+    /// <summary>
+    /// A nota onde os cartões nascidos de erro se acumulam, por matéria.
+    ///
+    /// UMA NOTA POR MATÉRIA, e não uma só para o vault inteiro: o erro pertence à matéria, e é lá que
+    /// ele precisa aparecer no grafo, na contagem e na revisão por matéria. Uma nota geral de erros
+    /// viraria um depósito que ninguém relê.
+    /// </summary>
+    public const string NotaDeErros = "Errei na prova";
+
+    /// <summary>
+    /// Grava um cartão nascido de uma questão errada, na nota de erros da matéria — criando-a se preciso.
+    ///
+    /// POR QUE ISTO MERECE UM CAMINHO PRÓPRIO, em vez de "abra a nota certa e use o botão de cartão":
+    ///
+    /// Errar uma questão é o momento de maior valor do estudo inteiro, e é também o momento de menor
+    /// paciência — a pessoa está no meio de um simulado, com trinta questões pela frente. Qualquer
+    /// passo a mais entre "errei isso" e "está gravado" é o passo em que ela desiste, e o erro se perde.
+    /// Por isso o gesto é: escolher a matéria, escrever pergunta e resposta, pronto.
+    ///
+    /// A ETIQUETA VAI NA NOTA, não no cartão: assim "#errei-na-prova" atravessa as matérias no painel de
+    /// etiquetas e responde "onde eu mais erro?" — que é a pergunta que faz o registro valer a pena.
+    /// </summary>
+    public async Task<Resultado<CaminhoNota>> RegistrarErroAsync(
+        Materia materia, string textoDoCartao, CancellationToken ct = default)
+    {
+        if (materia is null || !materia.Existe)
+            return Resultado<CaminhoNota>.Falha(MotivoDaFalha.Invalida, "Escolha a matéria.");
+        if (string.IsNullOrWhiteSpace(textoDoCartao))
+            return Resultado<CaminhoNota>.Falha(MotivoDaFalha.Invalida, "O cartão está vazio.");
+
+        if (!CaminhoNota.TentarCriar($"{materia.Nome}/{NotaDeErros}.md", out var caminho, out var erro) || caminho is null)
+            return Resultado<CaminhoNota>.Falha(MotivoDaFalha.Invalida, erro ?? "Caminho inválido.");
+
+        var nota = await repositorio.LerAsync(caminho, ct);
+
+        if (nota is null)
+        {
+            var inicial = $"# {NotaDeErros} — {materia.Rotulo}\n\n#errei-na-prova\n\n" +
+                          "Cada cartão aqui nasceu de uma questão errada. O que erra não costuma ser o\n" +
+                          "conceito: é a confusão entre dois conceitos parecidos.\n\n" +
+                          textoDoCartao.TrimEnd() + "\n";
+
+            var criada = await notas.CriarAsync(caminho, inicial, ct);
+            return criada.Ok
+                ? Resultado<CaminhoNota>.Sucesso(caminho)
+                : Resultado<CaminhoNota>.Falha(criada.Motivo ?? MotivoDaFalha.Invalida,
+                    criada.Mensagem ?? "Não consegui criar a nota de erros.");
+        }
+
+        // ACRESCENTA NO FIM, com linha em branco antes: colar o cartão no final do parágrafo anterior o
+        // desfaria — o "::" passaria a dividir o texto que já estava lá.
+        var conteudo = nota.Conteudo.TrimEnd() + "\n\n" + textoDoCartao.TrimEnd() + "\n";
+
+        var salva = await notas.SalvarAsync(caminho, conteudo, nota.Impressao, autor: null, ct);
+        return salva.Ok
+            ? Resultado<CaminhoNota>.Sucesso(caminho)
+            : Resultado<CaminhoNota>.Falha(salva.Motivo ?? MotivoDaFalha.Invalida,
+                salva.Mensagem ?? "Não consegui gravar o erro.");
+    }
+
     /// <summary>Quantos cartões cada matéria tem vencidos. É o painel do "por onde começo hoje".</summary>
     public async Task<IReadOnlyList<CartoesDaMateria>> PorMateriaAsync(CancellationToken ct = default)
     {

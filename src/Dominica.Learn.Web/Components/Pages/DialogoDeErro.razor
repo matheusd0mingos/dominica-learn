@@ -1,0 +1,115 @@
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Cartoes
+@using Dominica.Learn.Domain.Vault
+
+@inject ServicoDeCartoes Cartoes
+@inject ServicoDeConhecimento Conhecimento
+@inject ISnackbar Avisos
+
+@* ERREI UMA QUESTÃO → CARTÃO.
+
+   É o passo do ciclo onde mais se aprende, e o de menor paciência: a pessoa está no meio de um simulado,
+   com trinta questões pela frente. Qualquer passo a mais entre "errei isso" e "está gravado" é o passo em
+   que ela desiste, e o erro se perde. Por isso o diálogo é alcançável de qualquer tela e faz uma coisa
+   só: matéria, pergunta, resposta.
+
+   O CARTÃO VAI PARA "Errei na prova" DA MATÉRIA, não para uma nota geral de erros — que viraria um
+   depósito que ninguém relê. Na matéria, ele entra no grafo, na contagem e na revisão daquela matéria. *@
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Errei uma questão</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_materias.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                Crie uma matéria primeiro — o erro precisa morar em algum lugar.
+            </MudText>
+        }
+        else
+        {
+            <MudSelect T="string" @bind-Value="_materia" Label="Matéria" Variant="Variant.Outlined" Dense="true">
+                @foreach (var m in _materias)
+                {
+                    <MudSelectItem T="string" Value="@m.Materia.Nome">@m.Materia.Rotulo</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudTextField @bind-Value="_frente" @bind-Value:after="Recalcular" Label="O que a questão cobrava"
+                          Variant="Variant.Outlined" Class="mt-3" AutoFocus="true" Immediate="true" Lines="2"
+                          Placeholder="Coligada consolida?" />
+
+            <MudTextField @bind-Value="_verso" @bind-Value:after="Recalcular" Label="A resposta certa"
+                          Variant="Variant.Outlined" Class="mt-3" Immediate="true" Lines="3"
+                          Placeholder="Não — coligada equivale (CPC 18); quem consolida é controlada" />
+
+            @* A pergunta boa aqui não é a da prova: é a confusão que fez errar. Dizer isso na tela é o
+               que transforma o registro em estudo, em vez de virar cópia de gabarito. *@
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">
+                Escreva o que <b>confundiu</b>, não o enunciado da questão. O que se erra quase nunca é o
+                conceito — é a distância entre dois conceitos parecidos.
+            </MudText>
+
+            @if (_previa is not null)
+            {
+                <MudText Typo="Typo.overline" Class="mt-3 d-block">Vai para <b>@($"{_materia}/{ServicoDeCartoes.NotaDeErros}.md")</b></MudText>
+                <pre class="cartao-previa">@_previa</pre>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialogo.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="_previa is null || _gravando" OnClick="GravarAsync">Guardar o erro</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    /// <summary>Matéria sugerida — a do cartão que estava na tela, quando o erro nasce da revisão.</summary>
+    [Parameter] public string? MateriaInicial { get; set; }
+
+    private IReadOnlyList<MateriaContada> _materias = [];
+    private string _materia = string.Empty;
+    private string _frente = string.Empty;
+    private string _verso = string.Empty;
+    private string? _previa;
+    private bool _gravando;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _materias = (await Conhecimento.MateriasAsync()).Where(m => m.Materia.Existe).ToList();
+        _materia = MateriaInicial ?? _materias.FirstOrDefault()?.Materia.Nome ?? string.Empty;
+    }
+
+    private void Recalcular() =>
+        _previa = RedatorDeCartao.TentarEscrever(_frente, _verso, nosDoisSentidos: false, out var t, out _)
+            ? t?.TrimEnd('\n')
+            : null;
+
+    private async Task GravarAsync()
+    {
+        if (_previa is null || _gravando) return;
+
+        _gravando = true;
+        try
+        {
+            var r = await Cartoes.RegistrarErroAsync(Materia.De(_materia), _previa + "\n");
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui guardar.", Severity.Error);
+                return;
+            }
+
+            // Devolve o CAMINHO, não só "ok": quem fechou o diálogo precisa poder ir ver onde o erro foi
+            // parar. Guardar algo e não dizer onde é a forma mais rápida de a pessoa parar de confiar.
+            Dialogo.Close(DialogResult.Ok(r.Valor!));
+        }
+        finally
+        {
+            _gravando = false;
+        }
+    }
+}

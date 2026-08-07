@@ -240,6 +240,8 @@
                              aria-label="Mais ações desta nota">
                         <MudMenuItem Icon="@Icons.Material.Filled.DriveFileRenameOutline"
                                      OnClick="RenomearAsync">Renomear ou mover…</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.ReportProblem"
+                                     OnClick="RegistrarErroAsync">Errei uma questão…</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Filled.DeleteOutline" IconColor="Color.Error"
                                      OnClick="ExcluirAsync">Excluir…</MudMenuItem>
                     </MudMenu>
@@ -526,6 +528,20 @@
         // Recarrega a nota inteira, e não só a lista: a marca foi gravada NO ARQUIVO, e o editor na tela
         // está com o texto de antes — a próxima digitação gravaria por cima e desfaria a suspensão.
         await AbrirAsync(_aberta.Nota.Caminho);
+    }
+
+    /// <summary>O mesmo registro de erro da tela de revisão, alcançável de onde se está escrevendo.</summary>
+    private async Task RegistrarErroAsync()
+    {
+        var sugerida = _aberta is null ? null : Materia.De(_aberta.Nota.Caminho).Nome;
+        var parametros = new DialogParameters<DialogoDeErro> { { d => d.MateriaInicial, sugerida } };
+
+        var d = await Dialogos.ShowAsync<DialogoDeErro>("Errei uma questão", parametros);
+        var r = await d.Result;
+        if (r is null || r.Canceled || r.Data is not CaminhoNota onde) return;
+
+        Avisos.Add($"Guardado em {onde.Nome}.", Severity.Success);
+        await RecarregarLateraisAsync();
     }
 
     private async Task VirarLacunaAsync()

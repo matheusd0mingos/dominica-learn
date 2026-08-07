@@ -11,6 +11,7 @@
 @inject IPreferenciasDoUsuario Preferencias
 @inject NavigationManager Navegacao
 @inject ISnackbar Avisos
+@inject IDialogService Dialogos
 
 <PageTitle>Revisar · Dominica Learn</PageTitle>
 
@@ -66,6 +67,13 @@
                        StartIcon="@Icons.Material.Filled.PauseCircleOutline"
                        OnClick="SuspenderAtualAsync">Suspender</MudButton>
         }
+
+        @* "Errei uma questão" fica AQUI porque é aqui que se está quando o erro dói. Também está no menu
+           da tela de notas — o gesto precisa ser alcançável de onde a pessoa estiver, e não exigir que
+           ela ache a nota certa antes. *@
+        <MudButton Size="Size.Small" Variant="Variant.Text"
+                   StartIcon="@Icons.Material.Filled.ReportProblem"
+                   OnClick="RegistrarErroAsync">Errei uma questão</MudButton>
 
         <MudSpacer />
         @if (_fila.Count > 0)
@@ -241,6 +249,25 @@
         // Dizer ONDE ele foi parar: um cartão que some sem explicação é indistinguível de um cartão
         // apagado, e a diferença entre as duas coisas é o ponto inteiro da suspensão.
         Avisos.Add($"Suspenso. Ele continua em \"{alvo.Nota.Nome}\", com o histórico guardado.", Severity.Info);
+        await CarregarAsync();
+    }
+
+    /// <summary>
+    /// Abre o registro de erro já com a matéria do cartão que está na tela — que é quase sempre a certa
+    /// quando o erro nasce no meio de uma revisão.
+    /// </summary>
+    private async Task RegistrarErroAsync()
+    {
+        var sugerida = _materia?.Nome ?? (_atual is null ? null : Materia.De(_atual.Nota).Nome);
+        var parametros = new DialogParameters<DialogoDeErro> { { d => d.MateriaInicial, sugerida } };
+
+        var d = await Dialogos.ShowAsync<DialogoDeErro>("Errei uma questão", parametros);
+        var r = await d.Result;
+        if (r is null || r.Canceled || r.Data is not CaminhoNota onde) return;
+
+        // Diz ONDE foi parar, com link. Guardar algo e não dizer onde é a forma mais rápida de a pessoa
+        // parar de confiar no registro.
+        Avisos.Add($"Guardado em {onde.Nome}.", Severity.Success);
         await CarregarAsync();
     }
 
