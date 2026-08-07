@@ -64,6 +64,17 @@ else
                 }
             }
 
+            @* O REGISTRO APARECE AQUI, e não só lá embaixo na tabela. É a diferença entre o painel ter
+               um dado e o painel USAR o dado: a fila de revisão já vem reordenada por isto, e dizer o
+               porquê no lugar onde se decide o que fazer é o que transforma um número numa razão. *@
+            @if (OndeVocePerde.Explicar(_d) is { Length: > 0 } porQue)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mt-3">
+                    <MudIcon Icon="@Icons.Material.Filled.TrendingDown" Size="Size.Small" Class="mr-1" />
+                    @porQue Por isso ela abre a fila de hoje.
+                </MudText>
+            }
+
             <MudDivider Class="my-4" />
 
             <div class="d-flex flex-wrap gap-4">

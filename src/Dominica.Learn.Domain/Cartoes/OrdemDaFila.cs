@@ -1,3 +1,5 @@
+using Dominica.Learn.Domain.Vault;
+
 namespace Dominica.Learn.Domain.Cartoes;
 
 /// <summary>
@@ -27,9 +29,38 @@ namespace Dominica.Learn.Domain.Cartoes;
 /// </summary>
 public static class OrdemDaFila
 {
-    public static IReadOnlyList<Cartao> Intercalar(IEnumerable<Cartao> cartoes, DateOnly hoje)
+    public static IReadOnlyList<Cartao> Intercalar(IEnumerable<Cartao> cartoes, DateOnly hoje) =>
+        Intercalar(cartoes, hoje, prioridadePorMateria: null);
+
+    /// <summary>
+    /// A mesma ordem, com um desempate a mais: entre cartões que vencem no MESMO dia, os da matéria em
+    /// que se está perdendo desempenho vêm primeiro. Ver <c>OndeVocePerde</c>.
+    ///
+    /// ONDE ESSE DESEMPATE ENTRA IMPORTA MAIS QUE O DESEMPATE. Ele vem DEPOIS da data de vencimento e
+    /// ANTES da intercalação:
+    ///
+    ///   - depois da data, porque atraso não se negocia. Um cartão vencido há duas semanas em Português
+    ///     continua vindo antes de um que venceu hoje em Tributário, por pior que esteja Tributário.
+    ///     Reordenar por cima do atraso seria deixar o esquecimento acontecer de propósito.
+    ///   - antes da intercalação, porque é dentro de um mesmo dia que existe escolha para fazer — e é
+    ///     exatamente aí que o registro tem algo a dizer que os cartões não sabem.
+    ///
+    /// A intercalação por nota continua valendo DENTRO de cada matéria, então a sessão não vira um bloco
+    /// de uma nota só. O que muda é qual matéria abre a sessão.
+    ///
+    /// Matéria fora do mapa recebe <c>OndeVocePerde.Neutra</c>: não é promovida nem punida. Não se
+    /// castiga o que não se mediu.
+    /// </summary>
+    public static IReadOnlyList<Cartao> Intercalar(
+        IEnumerable<Cartao> cartoes, DateOnly hoje, IReadOnlyDictionary<Materia, int>? prioridadePorMateria)
     {
         ArgumentNullException.ThrowIfNull(cartoes);
+
+        int Prioridade(Cartao c)
+        {
+            if (prioridadePorMateria is null || prioridadePorMateria.Count == 0) return 0;
+            return prioridadePorMateria.TryGetValue(Materia.De(c.Nota), out var p) ? p : Desempenho.OndeVocePerde.Neutra;
+        }
 
         return cartoes
             // A posição do cartão DENTRO da nota dele. É este número que vira a rodada: todos os
@@ -39,6 +70,7 @@ public static class OrdemDaFila
                 .OrderBy(c => c.Linha)
                 .Select((c, rodada) => (Cartao: c, Rodada: rodada)))
             .OrderBy(x => x.Cartao.AgendamentoOu(hoje).Vence)
+            .ThenBy(x => Prioridade(x.Cartao))
             .ThenBy(x => x.Rodada)
             // Dentro da mesma rodada, a ordem entre notas é fixa pelo caminho — sem isto, a fila
             // dependeria da ordem em que o disco devolveu os arquivos, que não é garantida.

@@ -1,5 +1,6 @@
 using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Domain.Cartoes;
+using Dominica.Learn.Domain.Desempenho;
 using Dominica.Learn.Domain.Painel;
 using Dominica.Learn.Domain.Vault;
 using Microsoft.Extensions.Logging;
@@ -16,7 +17,15 @@ public sealed record CartoesDaMateria(Materia Materia, int Vencidos, int Total);
 /// veria 20 e concluiria que os outros se perderam. Um limite que age em silêncio vira defeito aos olhos
 /// de quem o sofre, mesmo estando certo.
 /// </summary>
-public sealed record FilaDeRevisao(IReadOnlyList<Cartao> Cartoes, int IneditosSegurados, int Teto)
+public sealed record FilaDeRevisao(
+    IReadOnlyList<Cartao> Cartoes,
+    int IneditosSegurados,
+    int Teto,
+    /// <summary>
+    /// Por que esta ordem, quando o registro de estudo teve algo a dizer sobre ela. Nulo quando a ordem
+    /// é a de sempre. Fila reordenada em silêncio é pior que fila não reordenada — ver OndeVocePerde.
+    /// </summary>
+    string? MotivoDaOrdem = null)
 {
     public static readonly FilaDeRevisao Vazia = new([], 0, 0);
 }
@@ -33,6 +42,10 @@ public sealed class ServicoDeCartoes(
     IIndiceDoVault indice,
     ServicoDeNotas notas,
     IPreferenciasDoUsuario preferencias,
+    // O REGISTRO DE ESTUDO ENTRA AQUI, e esta linha é a junção das duas metades do produto: a fila
+    // deixa de ser decidida só pelo que os cartões sabem (atraso, facilidade) e passa a ouvir onde a
+    // pessoa erra QUESTÃO DE PROVA. Ver OndeVocePerde.
+    IRegistroDeEstudo registro,
     IRelogio relogio,
     ILogger<ServicoDeCartoes> log)
 {
@@ -72,7 +85,12 @@ public sealed class ServicoDeCartoes(
         }
 
         var teto = await preferencias.CartoesNovosPorDiaAsync(ct);
-        var ordenada = OrdemDaFila.Intercalar(fila, hoje);
+
+        // O DESEMPENHO SÓ DESEMPATA DENTRO DO MESMO DIA DE VENCIMENTO — nunca por cima do atraso. Ver
+        // OrdemDaFila.Intercalar. Quando a revisão já está filtrada por matéria, não há o que priorizar
+        // entre matérias, e a consulta ao registro seria trabalho jogado fora.
+        var desempenho = materia is null ? await ResumoDoRegistroAsync(ct) : null;
+        var ordenada = OrdemDaFila.Intercalar(fila, hoje, OndeVocePerde.Prioridades(desempenho));
 
         // O TETO VEM DEPOIS DA INTERCALAÇÃO, e não antes: cortando primeiro, os inéditos escolhidos
         // sairiam da ordem por caminho — todos da mesma nota — e a intercalação não teria mais o que
@@ -82,7 +100,11 @@ public sealed class ServicoDeCartoes(
         var segurados = ordenada.Count(TetoDeCartoesNovos.EhInedito)
                         - comTeto.Count(TetoDeCartoesNovos.EhInedito);
 
-        return new FilaDeRevisao(comTeto.Take(limite).ToList(), segurados, teto);
+        // O motivo só é dito quando alguma coisa DE FATO mudou de lugar. Explicar uma reordenação que
+        // não houve é ruído — e ruído numa tela de revisão é o que faz parar de ler os avisos dela.
+        var motivo = ordenada.Count > 1 ? OndeVocePerde.Explicar(desempenho) : null;
+
+        return new FilaDeRevisao(comTeto.Take(limite).ToList(), segurados, teto, motivo);
     }
 
     /// <summary>
@@ -346,6 +368,30 @@ public sealed class ServicoDeCartoes(
     /// Cartão de bloco tem a marca DEPOIS do verso; o de uma linha, na própria linha. Distinguir pelo
     /// separador é mais confiável que pelo tamanho: um cartão de bloco de uma linha só existe.
     /// </summary>
+    /// <summary>
+    /// O desempenho da janela padrão, para decidir a ordem da fila.
+    ///
+    /// ENGOLE A FALHA DE PROPÓSITO. O registro mora noutro banco (ver ContextoDoRegistro): se ele estiver
+    /// fora do ar, a revisão TEM DE CONTINUAR — ela é o coração do produto e depende só dos arquivos.
+    /// Sem esta guarda, um banco de registro indisponível derrubaria a tela de revisar por causa de um
+    /// desempate. O custo do silêncio é a fila voltar à ordem de sempre, que é a ordem correta que ela
+    /// tinha antes deste recurso existir.
+    /// </summary>
+    private async Task<ResumoDeDesempenho?> ResumoDoRegistroAsync(CancellationToken ct)
+    {
+        try
+        {
+            var desde = relogio.Agora - ServicoDeDesempenho.JanelaPadrao;
+            return CalculoDeDesempenho.Montar(
+                await registro.QuestoesAsync(desde, ct), await registro.SessoesAsync(desde, ct));
+        }
+        catch (Exception e)
+        {
+            log.LogWarning(e, "Não consegui ler o registro de estudo; a fila vai na ordem de sempre.");
+            return null;
+        }
+    }
+
     private static bool EhDeBloco(string conteudo, Cartao cartao)
     {
         var linhas = conteudo.Replace("\r\n", "\n").Split('\n');

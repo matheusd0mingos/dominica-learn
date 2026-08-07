@@ -146,6 +146,17 @@
     }
     else
     {
+        @* POR QUE ESTA ORDEM. A fila passou a ouvir o registro de estudo — a matéria em que se perde
+           desempenho vem primeiro, DENTRO de cada dia de vencimento. Uma fila que se reordena em
+           silêncio é pior que uma que não se reordena: a pessoa vê uma matéria que não escolheu e conclui
+           que o sistema está confuso, não que ele está ajudando. Ver OndeVocePerde. *@
+        @if (_motivoDaOrdem is { Length: > 0 } motivo)
+        {
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.TrendingDown" Size="Size.Small" Class="mr-1" />@motivo
+            </MudText>
+        }
+
         <MudPaper Class="pa-6 mb-4" Outlined="true" Style="min-height:36vh">
             <MudText Typo="Typo.caption" Class="mud-text-secondary">
                 @_atual.Nota.Nome · @Materia.De(_atual.Nota).Rotulo
@@ -203,6 +214,9 @@
     private IReadOnlyList<Cartao> _fila = [];
     private int _teto = TetoDeCartoesNovos.Padrao;
     private int _ineditosSegurados;
+
+    /// <summary>Por que esta ordem, quando o registro teve algo a dizer. Ver OndeVocePerde.</summary>
+    private string? _motivoDaOrdem;
     private IReadOnlyList<CartoesDaMateria> _porMateria = [];
     private Cartao? _atual;
     private bool _revelado;
@@ -241,6 +255,7 @@
         _fila = hoje.Cartoes;
         _teto = hoje.Teto;
         _ineditosSegurados = hoje.IneditosSegurados;
+        _motivoDaOrdem = hoje.MotivoDaOrdem;
         _porMateria = await Cartoes.PorMateriaAsync();
         Avancar();
         _carregando = false;
