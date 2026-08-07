@@ -1,5 +1,6 @@
 using Dominica.Learn.Application.CasosDeUso;
 using Dominica.Learn.Application.Portas;
+using Dominica.Learn.Infrastructure.Email;
 using Dominica.Learn.Infrastructure.Indice;
 using Dominica.Learn.Infrastructure.Registro;
 using Dominica.Learn.Infrastructure.Renderizacao;
@@ -7,6 +8,7 @@ using Dominica.Learn.Infrastructure.Vault;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Dominica.Learn.Infrastructure;
 
@@ -67,6 +69,34 @@ public static class RegistroDaInfraestrutura
 
         servicos.AddDbContextFactory<ContextoDoRegistro>(o => o.UseNpgsql(conexaoDoRegistro));
         servicos.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<ContextoDoRegistro>>().CreateDbContext());
+
+        // —— E-MAIL ——————————————————————————————————————————————————————————————————————
+        //
+        // LIGADO PELA PRESENÇA DA CONFIGURAÇÃO, não por uma chave "Email:Ativo". Uma chave dessas
+        // permite o estado sem sentido — ativo sem host — e obriga quem configura a acertar duas coisas
+        // em vez de uma. Preencheu o servidor, manda; não preencheu, não manda e DIZ que não manda.
+        servicos.AddOptions<OpcoesDeEmail>()
+            .Bind(configuracao.GetSection(OpcoesDeEmail.Secao))
+            .ValidateDataAnnotations()
+            // HOST SEM REMETENTE NÃO SOBE. É a configuração pela metade — o servidor recusaria a
+            // mensagem —, e o momento de descobrir isso é o deploy, não a primeira pessoa que clicar
+            // em "esqueci minha senha" seis semanas depois.
+            .Validate(o => string.IsNullOrWhiteSpace(o.Host) || !string.IsNullOrWhiteSpace(o.Remetente),
+                "Email:Host está preenchido mas Email:Remetente não. Sem remetente o servidor recusa a mensagem.")
+            .ValidateOnStart();
+
+        var emailConfigurado = !string.IsNullOrWhiteSpace(configuracao[$"{OpcoesDeEmail.Secao}:Host"]);
+        var ehDesenvolvimento = string.Equals(
+            configuracao["ASPNETCORE_ENVIRONMENT"] ?? configuracao["DOTNET_ENVIRONMENT"],
+            "Development", StringComparison.OrdinalIgnoreCase);
+
+        if (emailConfigurado)
+            servicos.AddSingleton<IEnviadorDeEmail, EmailPorSmtp>();
+        else
+            // O corpo só vai para o log em desenvolvimento: em produção ele carregaria o link de
+            // redefinir senha, que é um token de acesso à conta. Ver EmailQueSoRegistra.
+            servicos.AddSingleton<IEnviadorDeEmail>(sp => new EmailQueSoRegistra(
+                sp.GetRequiredService<ILogger<EmailQueSoRegistra>>(), ehDesenvolvimento));
 
         servicos.AddSingleton<IRelogio, RelogioDoSistema>();
         // Singleton: o pipeline do Markdig é imutável e caro de montar; recriá-lo por requisição seria

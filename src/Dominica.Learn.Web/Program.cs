@@ -97,7 +97,9 @@ builder.Services.AddIdentityCore<ApplicationUser>(o =>
     .AddSignInManager()
     .AddDefaultTokenProviders();
 
-builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
+// O Identity manda e-mail pela porta do app, e o adaptador concreto (SMTP ou log) é escolhido lá na
+// infraestrutura, pela presença da configuração. Ver EmailDoIdentity e RegistroDaInfraestrutura.
+builder.Services.AddSingleton<IEmailSender<ApplicationUser>, EmailDoIdentity>();
 
 // —— COOKIE ——————————————————————————————————————————————————————————————————————————
 builder.Services.ConfigureApplicationCookie(o =>

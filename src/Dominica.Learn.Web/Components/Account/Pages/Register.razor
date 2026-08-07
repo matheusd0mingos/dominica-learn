@@ -202,20 +202,25 @@
         [Display(Name = "Apelido")]
         public string Apelido { get; set; } = "";
 
-        [Required]
-        [EmailAddress]
-        [Display(Name = "Email")]
+        [Required(ErrorMessage = "Diga o seu e-mail.")]
+        [EmailAddress(ErrorMessage = "Isso não parece um e-mail.")]
+        [Display(Name = "E-mail")]
         public string Email { get; set; } = "";
 
-        [Required]
-        [StringLength(100, ErrorMessage = "The {0} must be at least {2} and at max {1} characters long.", MinimumLength = 6)]
+        // DOZE, e não os seis do template. O Identity deste app exige doze (ver Program.cs). Com seis
+        // aqui, o formulário aceitava, mandava para o servidor, e a recusa voltava em inglês — no
+        // primeiro minuto de uso do produto. Validação de formulário que discorda do servidor é pior
+        // que validação nenhuma. Mesmo motivo e mesmo texto em ResetPassword.
+        [Required(ErrorMessage = "Escreva a sua frase secreta.")]
+        [StringLength(128, MinimumLength = 12,
+            ErrorMessage = "A frase precisa de pelo menos 12 caracteres — uma frase inteira, não uma palavra.")]
         [DataType(DataType.Password)]
-        [Display(Name = "Password")]
+        [Display(Name = "Frase secreta")]
         public string Password { get; set; } = "";
 
         [DataType(DataType.Password)]
-        [Display(Name = "Confirm password")]
-        [Compare("Password", ErrorMessage = "The password and confirmation password do not match.")]
+        [Display(Name = "Repita a frase secreta")]
+        [Compare("Password", ErrorMessage = "As duas frases não são iguais.")]
         public string ConfirmPassword { get; set; } = "";
     }
 }

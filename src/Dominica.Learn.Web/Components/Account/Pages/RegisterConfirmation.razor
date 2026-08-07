@@ -1,35 +1,58 @@
-﻿@page "/Account/RegisterConfirmation"
+@page "/Account/RegisterConfirmation"
 
 @using System.Text
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.WebUtilities
+@using Dominica.Learn.Application.Portas
 @using Dominica.Learn.Web.Data
 
 @inject UserManager<ApplicationUser> UserManager
-@inject IEmailSender<ApplicationUser> EmailSender
+@inject IEnviadorDeEmail Enviador
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
 
-<PageTitle>Register confirmation</PageTitle>
+<PageTitle>Conta criada — Dominica Learn</PageTitle>
 
-<h1>Register confirmation</h1>
+@* ESTA TELA TEM DOIS ROSTOS, e qual deles aparece depende de existir servidor de e-mail.
 
-<StatusMessage Message="@statusMessage" />
+   COM ENVIO: diz para conferir a caixa de entrada, que é a verdade.
 
-@if (emailConfirmationLink is not null)
-{
-    <p>
-        This app does not currently have a real email sender registered, see <a href="https://aka.ms/aspaccountconf">these docs</a> for how to configure a real email sender.
-        Normally this would be emailed: <a href="@emailConfirmationLink">Click here to confirm your account</a>
+   SEM ENVIO: mostra o link de confirmação NA PRÓPRIA TELA. Parece estranho e é o certo — sem
+   servidor de e-mail a mensagem não sai, e mandar a pessoa esperar por ela é trancá-la do lado de
+   fora de uma conta que ela acabou de criar. O link aparece só para quem acabou de se cadastrar,
+   nesta navegação; não é uma porta aberta para ninguém.
+
+   Isto veio do template do Blazor, onde a explicação era um link para a documentação da Microsoft.
+   Trocado por português e pela razão de ser. *@
+
+<div class="identidade-cartao">
+    <h1>Conta criada</h1>
+
+    <StatusMessage Message="@statusMessage" />
+
+    @if (linkDeConfirmacao is not null)
+    {
+        <p role="alert">
+            Este servidor não envia e-mails, então a mensagem de confirmação não vai chegar.
+            Confirme por aqui mesmo:
+        </p>
+        <p><a href="@linkDeConfirmacao">Confirmar meu e-mail</a></p>
+    }
+    else
+    {
+        <p role="alert">Confira sua caixa de entrada — mandamos um link para confirmar o e-mail.</p>
+        <p class="text-secondary small">
+            Não chegou em alguns minutos? Veja no spam; o remetente é novo para o seu provedor.
+        </p>
+    }
+
+    <p class="text-secondary small mb-0">
+        <a href="Account/Login">Ir para a entrada</a>
     </p>
-}
-else
-{
-    <p role="alert">Please check your email to confirm your account.</p>
-}
+</div>
 
 @code {
-    private string? emailConfirmationLink;
+    private string? linkDeConfirmacao;
     private string? statusMessage;
 
     [CascadingParameter]
@@ -53,15 +76,14 @@ else
         if (user is null)
         {
             HttpContext.Response.StatusCode = StatusCodes.Status404NotFound;
-            statusMessage = "Error finding user for unspecified email";
+            statusMessage = "Não encontramos uma conta com esse e-mail.";
         }
-        else if (EmailSender is IdentityNoOpEmailSender)
+        else if (!Enviador.Ligado)
         {
-            // Once you add a real email sender, you should remove this code that lets you confirm the account
             var userId = await UserManager.GetUserIdAsync(user);
             var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
             code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
-            emailConfirmationLink = NavigationManager.GetUriWithQueryParameters(
+            linkDeConfirmacao = NavigationManager.GetUriWithQueryParameters(
                 NavigationManager.ToAbsoluteUri("Account/ConfirmEmail").AbsoluteUri,
                 new Dictionary<string, object?> { ["userId"] = userId, ["code"] = code, ["returnUrl"] = ReturnUrl });
         }

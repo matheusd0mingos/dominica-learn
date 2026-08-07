@@ -4,9 +4,11 @@
 @using Microsoft.AspNetCore.Authentication
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.Extensions.Options
+@using Dominica.Learn.Application.Portas
 @using Dominica.Learn.Web.Data
 @using Dominica.Learn.Web.Seguranca
 
+@inject IEnviadorDeEmail Enviador
 @inject UserManager<ApplicationUser> UserManager
 @inject SignInManager<ApplicationUser> SignInManager
 @inject ILogger<Login> Logger
@@ -61,11 +63,26 @@
 
     <hr />
 
-    @* NÃO há "esqueci minha senha" aqui, e a ausência é deliberada. O envio de e-mail deste app é um
-       no-op (ver IdentityNoOpEmailSender): o link existiria, o formulário diria "enviamos um e-mail" e
-       nenhum e-mail sairia. Mandar alguém esperar para sempre é pior que dizer a verdade em uma linha. *@
+    @* O "ESQUECI MINHA FRASE" SÓ APARECE SE O E-MAIL SAI DAQUI, e essa condição é o ponto.
+
+       Sem servidor de e-mail configurado, o link existiria, o formulário diria "enviamos uma mensagem"
+       e nada sairia — mandar alguém esperar para sempre é pior que dizer a verdade em uma linha. Com
+       servidor configurado, esconder o link seria o defeito oposto: obrigar a pessoa a pedir socorro
+       para algo que o app resolve sozinho.
+
+       Quem responde é o enviador, não um comentário aqui. Ver IEnviadorDeEmail.Ligado. *@
     <p class="text-secondary small mb-0">
-        Perdeu o acesso? Fale com quem administra o Learn — a recuperação é feita por lá.
+        @if (Enviador.Ligado)
+        {
+            <a href="@(NavigationManager.GetUriWithQueryParameters("Account/ForgotPassword", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))">
+                Esqueci minha frase secreta
+            </a>
+            <br />
+        }
+        else
+        {
+            <text>Perdeu o acesso? Fale com quem administra o Learn — a recuperação é feita por lá.</text>
+        }
         @if (Admin.Value.CadastroAberto)
         {
             <br />

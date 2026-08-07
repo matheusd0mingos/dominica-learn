@@ -260,6 +260,80 @@ WebSocket: veja *O que acontece quando a conexão cai*, e desconfie de qualquer
 
 ---
 
+## E-mail
+
+O Learn manda três mensagens, todas com um link dentro: confirmar cadastro,
+redefinir a frase secreta, e o código de redefinição. Nada mais.
+
+**Ele usa a mesma caixa de saída da plataforma, com as mesmas variáveis do
+`.env`.** Não há configuração nova a preencher: se `PLATAFORMA_SMTP_HOST` já
+está lá para a Dominica, o Learn passa a mandar e-mail no próximo `deploy.sh`.
+A tradução dos nomes acontece no `docker-compose.learn.yml`, não no código:
+
+| `.env` (plataforma) | o Learn recebe como |
+|---|---|
+| `PLATAFORMA_SMTP_HOST` | `Email__Host` |
+| `PLATAFORMA_SMTP_PORT` | `Email__Porta` |
+| `PLATAFORMA_SMTP_USER` | `Email__Usuario` |
+| `PLATAFORMA_SMTP_PASS` | `Email__Senha` |
+| `PLATAFORMA_SMTP_FROM` | `Email__Remetente` |
+| `PLATAFORMA_SMTP_SSL` | `Email__Ssl` |
+
+### Sem servidor de e-mail o app continua inteiro — e diz que está sem
+
+`Email__Host` vazio é o padrão, e não uma falha. Nesse estado:
+
+* o Login **não** oferece "esqueci minha frase secreta", e diz para falar com
+  quem administra;
+* a tela de recuperação avisa que nenhuma mensagem vai chegar, em vez de mandar
+  a pessoa esperar;
+* quem se cadastra vê o link de confirmação **na própria tela**, e por isso não
+  fica trancado do lado de fora.
+
+Isso é decidido em um lugar só — `IEnviadorDeEmail.Ligado` — e as três telas
+perguntam a ele. Nada disso é texto escrito à mão em cada página, justamente
+para não haver uma tela que envelheça mentindo.
+
+### Testando antes de confiar
+
+Configurado o SMTP, o teste que vale é o ciclo inteiro, e leva um minuto:
+
+1. `/Account/Login` → o link **"Esqueci minha frase secreta"** tem de aparecer.
+   Se não apareceu, o app não enxergou a configuração — confira com
+   `./dc exec learn printenv | grep Email__`.
+2. Peça o link com o seu e-mail e confira a caixa de entrada (e o spam: o
+   remetente é novo para o seu provedor).
+3. Abra o link, troque a frase, entre com a nova.
+
+No log do contêiner, um envio bem-sucedido aparece assim:
+
+```
+E-mail enviado para voce@exemplo.com: Redefinir sua frase secreta — Dominica Learn
+```
+
+O **assunto entra no log, o corpo não** — o corpo carrega o link de redefinir,
+que é um token de acesso à conta.
+
+### Os três erros que custam a tarde
+
+**Porta 465.** Não use. Ela espera TLS implícito, e o `System.Net.Mail` conecta
+em claro e negocia STARTTLS depois. O sintoma é um travamento sem mensagem útil,
+e o palpite natural ("deve ser a senha") leva para o lado errado. Use **587**.
+
+**Senha de login com 2FA ligada.** O servidor responde `authentication failed`
+sem dizer por quê. Precisa ser a **senha de aplicativo**.
+
+**Remetente diferente da caixa autenticada.** Ou o servidor recusa, ou aceita e
+entrega direto no spam de quem recebe. `PLATAFORMA_SMTP_FROM` tem de ser a
+própria caixa ou um alias dela.
+
+Uma quarta, que não chega a custar a tarde porque o contêiner não sobe:
+**`Email__Host` preenchido sem `Email__Remetente`** derruba a inicialização com
+a mensagem dizendo exatamente isso. É de propósito — a metade-configuração
+falharia só no primeiro envio, com alguém já esperando o e-mail.
+
+---
+
 ## O que muda entre sub-caminho e subdomínio
 
 Só uma variável: `Hospedagem__CaminhoBase`.
