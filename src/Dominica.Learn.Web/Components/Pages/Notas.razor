@@ -249,7 +249,12 @@
 
                 @* O editor NÃO é destruído ao ler: manter os dois no DOM e trocar a visibilidade preserva
                    posição de cursor e rolagem, e evita recriar o CodeMirror a cada alternância. *@
-                <div id="@IdDoEditor" style="@(_lendo ? "display:none" : "height:56vh")"></div>
+                @* ALTURA AQUI SÓ COMO PISO, e ela mora no app.css (.col-editor .CodeMirror-scroll).
+                   Era `height:56vh`, fixo — e uma altura fixa transforma a nota longa num visor: o texto
+                   passa a rolar DENTRO da caixa, aparece a barra de rolagem nativa colada na margem
+                   direita (escura, quando o sistema está no escuro) e o cartão para de acompanhar o
+                   conteúdo. Nota de estudo é longa; quem tem de rolar é a página. *@
+                <div id="@IdDoEditor" style="@(_lendo ? "display:none" : null)"></div>
                 <div id="@IdDaLeitura" class="nota-lida" style="@(_lendo ? "min-height:56vh" : "display:none")">
                     @((MarkupString)(_renderizada?.Html ?? string.Empty))
                 </div>

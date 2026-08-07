@@ -105,11 +105,32 @@ export async function criar(id, conteudo, ouvinte) {
 
   const completar = ligarCompletarLigacao(cm, ouvinte)
 
+  // O CodeMirror MEDE UMA VEZ e guarda. Ele mede na criação — quando a fonte monoespaçada pode ainda
+  // não ter carregado e a coluna pode ainda não ter a largura final —, e daí em diante confia no que
+  // mediu. Uma medida velha não erra só o desenho: erra o MAPA DE CLIQUE, e clicar no meio de uma
+  // palavra põe o cursor noutro lugar. É o defeito que se sente como "o editor está estranho" e que
+  // ninguém consegue descrever.
+  //
+  // Duas medidas, então: uma no quadro seguinte (a largura já é a de verdade) e outra sempre que a
+  // largura mudar de fato — girar o telefone, arrastar a janela, abrir uma coluna ao lado.
+  const remedir = () => cm.refresh()
+  requestAnimationFrame(remedir)
+
+  // SÓ A LARGURA. Com `height: auto` no CSS, o refresh muda a ALTURA do editor — observar altura aqui
+  // faria o observador disparar a si mesmo, para sempre.
+  let larguraConhecida = alvo.getBoundingClientRect().width
+  const observador = new ResizeObserver(() => {
+    const agora = alvo.getBoundingClientRect().width
+    if (Math.abs(agora - larguraConhecida) < 1) return
+    larguraConhecida = agora
+    remedir()
+  })
+  observador.observe(alvo)
+
   editores.set(id, {
     cm,
-    limpar: () => { clearTimeout(temporizador); completar.limpar() },
+    limpar: () => { clearTimeout(temporizador); completar.limpar(); observador.disconnect() },
   })
-  cm.refresh()
 }
 
 // ——————————————————————————————————————————————————————————————————————————————————————————

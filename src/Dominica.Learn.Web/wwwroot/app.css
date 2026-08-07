@@ -349,6 +349,32 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
     border-left: 3px solid var(--ouro);
 }
 
+/* ── O TAMANHO DO EDITOR ──────────────────────────────────────────────────────
+   O codemirror.css traz `.CodeMirror { height: 300px }` — uma altura FIXA, escolhida por ele para
+   servir de exemplo na documentação. Enquanto ninguém a sobrescrevesse, toda nota era editada por
+   uma fresta de 300px dentro de um cartão de 530: a partir da vigésima linha o texto passava a rolar
+   DENTRO da caixa, e aparecia a barra de rolagem nativa do navegador colada na margem direita —
+   escura, quando o sistema está no escuro, porque a barra nativa segue o `color-scheme` e não o
+   tema da página. É a faixa escura que parecia um elemento a mais na tela e era uma barra de rolagem.
+
+   O estrago maior não era o visual. Uma nota de estudo é longa por natureza, e revisá-la por uma
+   janelinha que rola sozinha enquanto se digita é o que faz "não consigo editar direito".
+
+   `height: auto` devolve o comportamento certo: o editor CRESCE com a nota, quem rola é a página, e
+   não existe mais rolagem dentro de rolagem. O `min-height` é para a nota curta não virar uma tira
+   de duas linhas — a área de escrita precisa parecer uma folha, e um alvo de clique grande é o que
+   permite clicar "no fim do texto" sem mirar. */
+.col-editor .CodeMirror {
+    height: auto;
+}
+
+/* Só o mínimo, e MAIS NADA aqui. O codemirror.css combina `margin-bottom: -50px` no scroll com um
+   `padding-bottom` de mesmo tamanho para esconder a barra nativa; mexer num dos dois desfaz o par e
+   sobra rolagem interna — 42px dela, medidos, na primeira tentativa deste conserto. */
+.col-editor .CodeMirror-scroll {
+    min-height: 55vh;
+}
+
 /* A lista do autocompletar de [[ ]].
 
    Ela mora no <body> e não dentro do editor — de dentro, o overflow do CodeMirror a recortaria. O
