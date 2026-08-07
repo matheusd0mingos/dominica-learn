@@ -273,4 +273,79 @@ public class PainelTests
 
         Assert.DoesNotContain(r.Agora, s => s.Tipo == TipoDeSugestao.Revisar);
     }
+
+    // —— MATÉRIA DE REFERÊNCIA ————————————————————————————————————————————————————————
+    //
+    // O painel cobra cartões de toda matéria escrita, e essa opinião está certa para estudo. Para a
+    // pasta de trabalho — anotação de reunião, procedimento, o que se consulta — ela está errada TODO
+    // DIA. E como a cobrança é ordenada por quem tem mais notas, a pasta de trabalho ganha a sugestão
+    // principal para sempre, empurrando para baixo a revisão que a pessoa abriu o painel para ver.
+    //
+    // O painel que cobra todo dia uma coisa que a pessoa decidiu não fazer é o painel que ela aprende a
+    // ignorar — e aí ele para de funcionar também para o que importa.
+
+    private static HashSet<Materia> Referencias(params string[] nomes) =>
+        nomes.Select(Materia.De).ToHashSet();
+
+    [Fact]
+    public void Materia_de_referencia_nao_e_cobrada_por_cartoes()
+    {
+        var r = PainelDeEstudo.Montar([], Notas(("Trabalho", 40)), [], Hoje, teto: 20, Referencias("Trabalho"));
+
+        Assert.DoesNotContain(r.Agora, s => s.Tipo == TipoDeSugestao.FazerCartoes);
+        Assert.DoesNotContain(r.Atencoes, a => a.Tipo == TipoDeAtencao.MateriaSemCartoes);
+    }
+
+    [Fact]
+    public void Sem_a_marca_ela_continua_sendo_cobrada()
+    {
+        // O contraponto do teste acima: sem ele, a marca poderia estar desligando a cobrança de todo
+        // mundo e os dois testes passariam.
+        var r = PainelDeEstudo.Montar([], Notas(("Trabalho", 40)), [], Hoje, teto: 20);
+
+        Assert.Contains(r.Agora, s => s.Tipo == TipoDeSugestao.FazerCartoes);
+        Assert.Contains(r.Atencoes, a => a.Tipo == TipoDeAtencao.MateriaSemCartoes);
+    }
+
+    [Fact]
+    public void A_referencia_nao_cala_as_outras_materias()
+    {
+        // O DEFEITO QUE ESTE TESTE PEGA: marcar Trabalho e, junto, perder a cobrança de Português.
+        // Trabalho tem mais notas, então ele é quem ganharia a única vaga da sugestão — se a exclusão
+        // fosse feita DEPOIS de escolher, Português nunca apareceria.
+        var r = PainelDeEstudo.Montar([], Notas(("Trabalho", 40), ("Português", 3)), [], Hoje,
+            teto: 20, Referencias("Trabalho"));
+
+        var sugestao = Assert.Single(r.Agora, s => s.Tipo == TipoDeSugestao.FazerCartoes);
+        Assert.Equal("Português", sugestao.Materia.Nome);
+        Assert.Equal("Português", Assert.Single(r.Atencoes, a => a.Tipo == TipoDeAtencao.MateriaSemCartoes).Titulo);
+    }
+
+    [Fact]
+    public void A_materia_de_referencia_continua_existindo_em_tudo_o_mais()
+    {
+        // A marca silencia UMA cobrança. Ela não esconde a matéria: as notas continuam contadas, a
+        // matéria continua na tabela, e some do grafo, da busca e do registro de horas coisa nenhuma.
+        // Uma marca que sumisse com a matéria seria usada sem querer e custaria notas de vista.
+        var r = PainelDeEstudo.Montar([], Notas(("Trabalho", 40)), [], Hoje, teto: 20, Referencias("Trabalho"));
+
+        var t = Achar(r, "Trabalho");
+        Assert.Equal(40, t.Notas);
+        Assert.True(t.Referencia);
+        Assert.Equal(40, r.TotalDeNotas);
+    }
+
+    [Fact]
+    public void Referencia_com_cartoes_continua_entrando_na_revisao()
+    {
+        // Se a pessoa fez cartões numa matéria de referência, eles são cartões como quaisquer outros:
+        // a marca diz "não me cobre", não "ignore o que eu já fiz".
+        var r = PainelDeEstudo.Montar(
+            [Com("Trabalho/a.md", 6, 250, -1)], Notas(("Trabalho", 5)), [], Hoje,
+            teto: 20, Referencias("Trabalho"));
+
+        Assert.Equal(1, r.RevisoesVencidas);
+        Assert.Contains(r.Agora, s => s.Tipo == TipoDeSugestao.Revisar && s.Materia.Nome == "Trabalho");
+    }
+
 }

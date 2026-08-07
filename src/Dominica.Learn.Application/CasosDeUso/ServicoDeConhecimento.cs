@@ -198,6 +198,83 @@ public sealed class ServicoDeConhecimento(
     }
 
     /// <summary>
+    /// O caminho é a nota-índice — o "mapa" — da própria matéria: "Trabalho/Trabalho.md".
+    ///
+    /// É a nota que REPRESENTA a matéria, e por isso é onde moram as decisões sobre ela. Hoje há uma:
+    /// se a matéria é material de consulta. Ver <see cref="AlternarReferenciaAsync"/>.
+    /// </summary>
+    public static bool EhNotaIndiceDaMateria(CaminhoNota caminho)
+    {
+        var materia = Materia.De(caminho);
+        // UM segmento: Segmentos é a PASTA, sem o arquivo. "Trabalho/Trabalho.md" tem um; a raiz tem
+        // zero (e nota solta não tem matéria); "Trabalho/Sub/Trabalho.md" tem dois — mesmo nome, uma
+        // pasta abaixo, e não é o mapa de matéria nenhuma.
+        return materia.Existe
+            && caminho.Segmentos.Count == 1
+            && string.Equals(caminho.Nome, materia.Nome, StringComparison.Ordinal);
+    }
+
+    // —— MATÉRIA DE REFERÊNCIA ————————————————————————————————————————————————————————
+    /// <summary>
+    /// Liga e desliga a cobrança de cartões numa matéria, escrevendo no frontmatter da nota-índice dela.
+    ///
+    /// POR QUE ISTO EXISTE: o painel cobra cartões de toda matéria que tem nota e não tem cartão, e essa
+    /// opinião está certa para material de estudo. Para uma pasta de trabalho — anotação de reunião,
+    /// procedimento, referência que se consulta — ela está errada todo dia, e a matéria com mais notas é
+    /// justamente a que ganha a sugestão principal. Ver EditorDeFrontmatter.CampoReferencia.
+    ///
+    /// CRIA A NOTA-ÍNDICE SE NÃO HOUVER. A marca precisa de um arquivo onde morar, e uma matéria criada
+    /// direto no disco (por quem arrastou uma pasta para o vault) não tem esse arquivo. Criar o mapa da
+    /// matéria é bom por si só — é a mesma nota que a criação pela tela já geraria.
+    /// </summary>
+    public async Task<Resultado<bool>> AlternarReferenciaAsync(Materia materia, CancellationToken ct = default)
+    {
+        if (!materia.Existe)
+            return Resultado<bool>.Invalida("Nota sem matéria não pode ser marcada como referência.");
+
+        if (!CaminhoNota.TentarCriar($"{materia.Nome}/{materia.Nome}{CaminhoNota.Extensao}",
+                out var caminho, out var erro) || caminho is null)
+            return Resultado<bool>.Invalida(erro ?? "Nome de matéria inválido.");
+
+        var nota = await repositorio.LerAsync(caminho, ct);
+        if (nota is null)
+        {
+            var criada = await notas.CriarAsync(caminho, ConteudoDaNotaIndice(materia), ct);
+            if (!criada.Ok)
+                return Resultado<bool>.Falha(criada.Motivo ?? MotivoDaFalha.Invalida,
+                    criada.Mensagem ?? "Não consegui criar o mapa da matéria.");
+            nota = criada.Valor;
+        }
+
+        if (nota is null) return Resultado<bool>.NaoEncontrada($"O mapa da matéria \"{materia.Rotulo}\"");
+
+        var novoEstado = !EditorDeFrontmatter.EhReferencia(nota.Analise);
+        var conteudo = EditorDeFrontmatter.DefinirReferencia(nota.Conteudo, novoEstado);
+
+        var salva = await notas.SalvarAsync(caminho, conteudo, nota.Impressao, autor: null, ct);
+        if (!salva.Ok)
+            return Resultado<bool>.Falha(salva.Motivo ?? MotivoDaFalha.Invalida,
+                salva.Mensagem ?? "Não consegui marcar.");
+
+        log.LogInformation("Matéria {Materia} agora é referência: {Estado}.", materia.Rotulo, novoEstado);
+        return Resultado<bool>.Sucesso(novoEstado);
+    }
+
+    /// <summary>As matérias marcadas como material de consulta. Vazio é o normal.</summary>
+    public async Task<IReadOnlySet<Materia>> ReferenciasAsync(CancellationToken ct = default)
+    {
+        var marcadas = new HashSet<Materia>();
+        foreach (var caminho in await indice.TodosOsCaminhosAsync(ct))
+        {
+            if (!EhNotaIndiceDaMateria(caminho)) continue;
+            var nota = await repositorio.LerAsync(caminho, ct);
+            if (nota is not null && EditorDeFrontmatter.EhReferencia(nota.Analise))
+                marcadas.Add(Materia.De(caminho));
+        }
+        return marcadas;
+    }
+
+    /// <summary>
     /// O mapa de conteúdo que nasce com a matéria. Markdown comum — abre igual no Obsidian.
     ///
     /// Público porque é função pura do nome e vale testar sozinha: foi aqui que a citação de

@@ -97,4 +97,50 @@ public class EditorDeFrontmatterTests
         const string original = "---\ntitle: X\n---\n\ncorpo";
         Assert.Equal(original, EditorDeFrontmatter.DefinirCampo(original, "inexistente", null));
     }
+
+    // —— MATÉRIA DE REFERÊNCIA ————————————————————————————————————————————————————————
+    [Fact]
+    public void Referencia_entra_e_sai_sem_tocar_no_resto()
+    {
+        var original = "---\ntags: [materia]\n---\n# Trabalho\n\nMapa desta matéria.\n";
+
+        var marcada = EditorDeFrontmatter.DefinirReferencia(original, true);
+        Assert.Contains("referencia: true", marcada);
+        Assert.Contains("tags: [materia]", marcada);
+        Assert.Contains("Mapa desta matéria.", marcada);
+        Assert.True(EditorDeFrontmatter.EhReferencia(AnalisadorDeNota.Analisar(marcada, "Trabalho")));
+
+        // Desmarcar REMOVE o campo em vez de gravar "false": quem desmarcou não quer carregar a
+        // lembrança disso no topo do arquivo para sempre. Mesmo critério do favorito.
+        var desmarcada = EditorDeFrontmatter.DefinirReferencia(marcada, false);
+        Assert.DoesNotContain("referencia", desmarcada);
+        Assert.Contains("tags: [materia]", desmarcada);
+        Assert.False(EditorDeFrontmatter.EhReferencia(AnalisadorDeNota.Analisar(desmarcada, "Trabalho")));
+    }
+
+    [Fact]
+    public void Referencia_e_favorito_nao_se_atropelam()
+    {
+        // Os dois campos moram no mesmo bloco. Um que apagasse o outro seria descoberto tarde, e pelo
+        // pior caminho: "meu favorito sumiu quando marquei referência".
+        var nota = EditorDeFrontmatter.DefinirFavorito("# Trabalho\n", true);
+        nota = EditorDeFrontmatter.DefinirReferencia(nota, true);
+
+        var analise = AnalisadorDeNota.Analisar(nota, "Trabalho");
+        Assert.True(EditorDeFrontmatter.EhFavorita(analise));
+        Assert.True(EditorDeFrontmatter.EhReferencia(analise));
+
+        var semReferencia = AnalisadorDeNota.Analisar(EditorDeFrontmatter.DefinirReferencia(nota, false), "Trabalho");
+        Assert.True(EditorDeFrontmatter.EhFavorita(semReferencia));
+        Assert.False(EditorDeFrontmatter.EhReferencia(semReferencia));
+    }
+
+    [Fact]
+    public void Nota_sem_frontmatter_ganha_bloco_ao_ser_marcada()
+    {
+        var marcada = EditorDeFrontmatter.DefinirReferencia("# Trabalho\n\nTexto.\n", true);
+        Assert.StartsWith("---\nreferencia: true\n---\n", marcada.Replace("\r\n", "\n"));
+        Assert.Contains("Texto.", marcada);
+    }
+
 }

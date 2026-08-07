@@ -8,6 +8,7 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 
+@inject ServicoDeConhecimento Conhecimento
 @inject ServicoDeCartoes Cartoes
 @inject ServicoDeDesempenho Desempenho
 @inject IDialogService Dialogos
@@ -143,6 +144,20 @@ else
                     <div class="atencao atencao-@a.Tipo.ToString().ToLowerInvariant()">
                         <MudText Typo="Typo.body2"><b>@a.Titulo</b></MudText>
                         <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">@a.Motivo</MudText>
+
+                        @* A SAÍDA FICA ONDE A COBRANÇA ACONTECE. Este item é o painel dizendo "faça
+                           cartões aqui", e para uma pasta de trabalho a resposta é "não vou" — todo dia,
+                           para sempre. Escondê-la numa tela de configuração seria a mesma coisa que não
+                           ter: quem está incomodado está OLHANDO para este parágrafo, não procurando
+                           ajustes. Ver EditorDeFrontmatter.CampoReferencia. *@
+                        @if (a.Tipo == TipoDeAtencao.MateriaSemCartoes)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Class="mt-1 pa-0"
+                                       Disabled="@(_marcando == a.Titulo)"
+                                       OnClick="@(() => AlternarReferenciaAsync(Materia.De(a.Titulo)))">
+                                Não vou fazer cartões aqui
+                            </MudButton>
+                        }
                     </div>
                 }
             }
@@ -312,7 +327,22 @@ else
                         @foreach (var m in _r.Materias)
                         {
                             <tr>
-                                <td><b>@m.Materia.Rotulo</b></td>
+                                <td>
+                                    <b>@m.Materia.Rotulo</b>
+                                    @* ONDE SE DESFAZ. Marcada como referência, a matéria some de "onde
+                                       prestar atenção" — e com ela sumiria o botão que a marcou. Sem
+                                       este selo, a decisão seria irreversível pela tela, e só quem
+                                       soubesse editar o frontmatter no Obsidian conseguiria voltar
+                                       atrás. Esta tabela lista TODAS as matérias, então é o lugar. *@
+                                    @if (m.Referencia)
+                                    {
+                                        <MudTooltip Text="Material de consulta: o painel não pede cartões daqui. Clique para voltar a pedir.">
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0"
+                                                     Disabled="@(_marcando == m.Materia.Nome)"
+                                                     OnClick="@(() => AlternarReferenciaAsync(m.Materia))">referência</MudChip>
+                                        </MudTooltip>
+                                    }
+                                </td>
                                 <td class="numero">@m.Notas</td>
                                 <td class="numero">@(m.Cartoes == 0 ? "—" : m.Cartoes.ToString())</td>
                                 <td class="numero">@(m.Vencidos == 0 ? "—" : m.Vencidos.ToString())</td>
@@ -346,6 +376,9 @@ else
     private IReadOnlyList<LancamentoRegistrado> _ultimos = [];
     private bool _apagando;
 
+    /// <summary>Nome da matéria sendo marcada agora. Trava só o botão dela, não a tela inteira.</summary>
+    private string? _marcando;
+
     protected override async Task OnInitializedAsync() => await CarregarAsync();
 
     private async Task CarregarAsync()
@@ -353,6 +386,40 @@ else
         _r = await Cartoes.PainelAsync();
         _d = await Desempenho.ResumoAsync();
         _ultimos = await Desempenho.UltimosAsync();
+    }
+
+    /// <summary>
+    /// Marca (ou desmarca) a matéria como material de consulta, e RECARREGA o painel — a sugestão do
+    /// topo e a lista de atenção mudam juntas, e uma tela onde metade obedeceu ao clique e a outra
+    /// metade não é pior que uma tela que ignorou o clique.
+    ///
+    /// A MENSAGEM DIZ ONDE A DECISÃO FOI PARAR. Isto grava um campo no .md da matéria, não uma linha num
+    /// banco: quem abre o vault no Obsidian vai ver "referencia: true" no topo do arquivo, e precisa
+    /// saber que foi este botão que pôs aquilo lá.
+    /// </summary>
+    private async Task AlternarReferenciaAsync(Materia materia)
+    {
+        if (_marcando is not null) return;
+
+        _marcando = materia.Nome;
+        try
+        {
+            var r = await Conhecimento.AlternarReferenciaAsync(materia);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui marcar.", Severity.Warning);
+                return;
+            }
+
+            await CarregarAsync();
+            Avisos.Add(r.Valor
+                ? $"{materia.Rotulo} agora é referência — não vou mais pedir cartões. Está escrito no mapa da matéria."
+                : $"{materia.Rotulo} volta a ser matéria de estudo.", Severity.Success);
+        }
+        finally
+        {
+            _marcando = null;
+        }
     }
 
     /// <summary>

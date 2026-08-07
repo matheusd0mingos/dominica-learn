@@ -20,7 +20,12 @@ public sealed record MateriaNoPainel(
     /// Média da facilidade dos cartões JÁ RESPONDIDOS, em porcentagem (250 = 2,5×). Zero quando nenhum
     /// cartão foi respondido ainda — e aí não há sinal nenhum, que é diferente de "está fácil".
     /// </summary>
-    int Facilidade);
+    int Facilidade,
+    /// <summary>
+    /// Material de consulta, não de memorização — declarado pelo usuário na nota-índice da matéria.
+    /// O painel não cobra cartões daqui. Ver <see cref="Analise.EditorDeFrontmatter.CampoReferencia"/>.
+    /// </summary>
+    bool Referencia = false);
 
 /// <summary>O que merece atenção, e por quê. O texto é a metade que importa.</summary>
 public sealed record Atencao(TipoDeAtencao Tipo, string Titulo, string Motivo);
@@ -123,12 +128,18 @@ public static class PainelDeEstudo
     /// <summary>Quantas sugestões o "o que agora" mostra. Mais que isto deixa de ser prioridade.</summary>
     public const int MaximoDeSugestoes = 3;
 
+    /// <param name="referencias">
+    /// Matérias que o usuário declarou como material de consulta. Chega como conjunto, e não como uma
+    /// consulta feita aqui dentro, porque esta classe é PURA — é o que permite provar as regras de
+    /// prioridade sem subir nada. Vazio é o normal.
+    /// </param>
     public static RetratoDoEstudo Montar(
         IReadOnlyList<Cartao> cartoes,
         IReadOnlyDictionary<Materia, int> notasPorMateria,
         IReadOnlyList<string> porEscrever,
         DateOnly hoje,
-        int teto)
+        int teto,
+        IReadOnlySet<Materia>? referencias = null)
     {
         ArgumentNullException.ThrowIfNull(cartoes);
         ArgumentNullException.ThrowIfNull(notasPorMateria);
@@ -155,7 +166,8 @@ public static class PainelDeEstudo
                     seus.Count(c => c.Agendamento is { } a && a.Vencido(hoje)),
                     seus.Count(TetoDeCartoesNovos.EhInedito),
                     seus.Count(c => c.Agendamento is { } a && a.IntervaloEmDias >= IntervaloDeMaduro),
-                    respondidos.Count == 0 ? 0 : (int)Math.Round(respondidos.Average(c => c.Agendamento!.Facilidade)));
+                    respondidos.Count == 0 ? 0 : (int)Math.Round(respondidos.Average(c => c.Agendamento!.Facilidade)),
+                    referencias?.Contains(m) == true);
             })
             // Mais vencidos primeiro: é a ordem em que a pessoa vai agir.
             .OrderByDescending(m => m.Vencidos)
@@ -230,8 +242,12 @@ public static class PainelDeEstudo
                 "Os cartões desta matéria estão ficando mais difíceis a cada revisão — é onde uma hora rende mais.",
                 custando.Materia, TipoDeSugestao.Revisar));
 
+        // MATÉRIA DE REFERÊNCIA NÃO ENTRA AQUI, e a ordenação por "quem tem mais notas" é o motivo de
+        // isso importar tanto: uma pasta de trabalho com quarenta anotações ganharia esta sugestão todo
+        // santo dia, empurrando para baixo a revisão que a pessoa abriu o painel para ver. Ver
+        // EditorDeFrontmatter.CampoReferencia.
         var semCartoes = materias
-            .Where(m => m.Cartoes == 0 && m.Notas > 0)
+            .Where(m => m.Cartoes == 0 && m.Notas > 0 && !m.Referencia)
             .OrderByDescending(m => m.Notas)
             .FirstOrDefault();
         if (semCartoes is not null && sugestoes.Count < MaximoDeSugestoes)
@@ -286,7 +302,9 @@ public static class PainelDeEstudo
             lista.Add(new Atencao(TipoDeAtencao.CartaoProblema, Cartoes.CartaoProblema.Resumir(c.Frente),
                 CartaoProblema.Diagnostico(c)!));
 
-        foreach (var m in materias.Where(m => m.Cartoes == 0 && m.Notas > 0))
+        // Mesma exclusão da sugestão, e aqui ela pesa ainda mais: esta lista não tem teto, então uma
+        // matéria de consulta ficaria nela PARA SEMPRE. Ver EditorDeFrontmatter.CampoReferencia.
+        foreach (var m in materias.Where(m => m.Cartoes == 0 && m.Notas > 0 && !m.Referencia))
             lista.Add(new Atencao(TipoDeAtencao.MateriaSemCartoes, m.Materia.Rotulo,
                 $"{m.Notas} nota(s), nenhum cartão. Escrever fixa menos do que parece; sem cartão, nada volta."));
 

@@ -1,4 +1,5 @@
 using Dominica.Learn.Application.Portas;
+using Dominica.Learn.Domain.Analise;
 using Dominica.Learn.Domain.Cartoes;
 using Dominica.Learn.Domain.Desempenho;
 using Dominica.Learn.Domain.Painel;
@@ -218,6 +219,7 @@ public sealed class ServicoDeCartoes(
         var hoje = Hoje;
         var cartoes = new List<Cartao>();
         var notasPorMateria = new Dictionary<Materia, int>();
+        var referencias = new HashSet<Materia>();
 
         foreach (var caminho in await CaminhosAsync(materia: null, ct))
         {
@@ -227,6 +229,15 @@ public sealed class ServicoDeCartoes(
             var m = Materia.De(caminho);
             notasPorMateria[m] = notasPorMateria.GetValueOrDefault(m) + 1;
             cartoes.AddRange(AnalisadorDeCartoes.Analisar(caminho, nota.Conteudo));
+
+            // A MARCA DE REFERÊNCIA SÓ VALE NA NOTA-ÍNDICE DA MATÉRIA — "Trabalho/Trabalho.md". Aceitá-la
+            // em qualquer nota faria uma anotação solta desligar a cobrança da matéria inteira, e a
+            // pessoa nunca descobriria qual arquivo fez isso.
+            //
+            // Não custa leitura nenhuma: este laço já abriu todas as notas para procurar cartões.
+            if (m.Existe && ServicoDeConhecimento.EhNotaIndiceDaMateria(caminho)
+                && EditorDeFrontmatter.EhReferencia(nota.Analise))
+                referencias.Add(m);
         }
 
         // Distinct pelo ALVO: citar "[[Pregão]]" em cinco notas é UM assunto por escrever, não cinco.
@@ -237,7 +248,7 @@ public sealed class ServicoDeCartoes(
                     porEscrever.Add(l.Alvo);
 
         var teto = await preferencias.CartoesNovosPorDiaAsync(ct);
-        return PainelDeEstudo.Montar(cartoes, notasPorMateria, porEscrever, hoje, teto);
+        return PainelDeEstudo.Montar(cartoes, notasPorMateria, porEscrever, hoje, teto, referencias);
     }
 
     /// <summary>Quantos cartões cada matéria tem vencidos. É o painel do "por onde começo hoje".</summary>

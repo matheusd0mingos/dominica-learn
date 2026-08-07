@@ -137,4 +137,29 @@ public class MateriasDoVaultTests
         var materias = await Montar("Solta.md").MateriasAsync();
         Assert.Equal("Sem matéria", Assert.Single(materias).Materia.Rotulo);
     }
+
+    // —— NOTA-ÍNDICE DA MATÉRIA ——————————————————————————————————————————————————————
+    //
+    // A marca de "material de consulta" mora no frontmatter DESTA nota, e só dela. Aceitá-la em qualquer
+    // arquivo faria uma anotação solta desligar a cobrança da matéria inteira — e a pessoa nunca
+    // descobriria qual arquivo fez isso.
+
+    [Theory]
+    [InlineData("Trabalho/Trabalho.md", true)]
+    [InlineData("Direito tributário/Direito tributário.md", true)]
+    [InlineData("Trabalho/Reunião.md", false)]                    // outra nota da mesma matéria
+    [InlineData("Trabalho/Sub/Trabalho.md", false)]               // mesmo nome, uma pasta abaixo
+    [InlineData("Trabalho.md", false)]                            // solta na raiz: não tem matéria
+    public void Reconhece_a_nota_indice_da_materia(string caminho, bool esperado) =>
+        Assert.Equal(esperado, ServicoDeConhecimento.EhNotaIndiceDaMateria(CaminhoNota.De(caminho)));
+
+    [Fact]
+    public void A_nota_indice_que_nasce_com_a_materia_e_reconhecida_como_tal()
+    {
+        // Amarra as duas pontas: se um dia o nome do arquivo criado mudar, este teste cai junto — em vez
+        // de a matéria nova simplesmente parar de poder ser marcada, em silêncio.
+        Assert.True(ServicoDeConhecimento.EhNotaIndiceDaMateria(CaminhoNota.De("Português/Português.md")));
+        Assert.Contains("tags: [materia]", ServicoDeConhecimento.ConteudoDaNotaIndice(Materia.De("Português")));
+    }
+
 }

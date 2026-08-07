@@ -102,6 +102,35 @@ public static class EditorDeFrontmatter
         string.Equals(analise.Frontmatter.Texto(CampoFavorito), "true", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// MATÉRIA DE REFERÊNCIA: material que existe para ser consultado, não memorizado.
+    ///
+    /// O painel deste produto tem uma opinião forte e ela está certa na maior parte do tempo — notas sem
+    /// cartão não voltam, e ele cobra por isso. Mas há material que NÃO se quer memorizar: anotação de
+    /// trabalho, ata de reunião, procedimento que se consulta quando precisa. Sem uma forma de dizer
+    /// isso, a pasta com mais notas ganha a sugestão principal do painel para sempre — e um painel que
+    /// cobra todo dia uma coisa que a pessoa decidiu não fazer é um painel que ela aprende a ignorar.
+    /// Aí ele para de funcionar também para o que importa.
+    ///
+    /// A MARCA VIVE NA NOTA-ÍNDICE DA MATÉRIA — "Trabalho/Trabalho.md" —, e não numa tabela. Mesma regra
+    /// do favorito, e pelo mesmo motivo: é decisão do usuário, tem de sobreviver a um "reindexar do zero"
+    /// e tem de ser visível e editável no Obsidian Desktop, sem passar por aqui.
+    ///
+    /// O QUE ELA NÃO FAZ: nada some. A matéria continua na busca, no grafo, na lista de notas e no
+    /// registro de horas. O único efeito é o painel parar de pedir cartões. Uma marca que escondesse a
+    /// matéria seria outra coisa — e seria pior, porque a pessoa a usaria sem querer e perderia notas de
+    /// vista.
+    /// </summary>
+    public const string CampoReferencia = "referencia";
+
+    public static string DefinirReferencia(string conteudo, bool referencia) =>
+        // Mesmo critério do favorito: remove em vez de gravar "false". Quem desmarcou não quer carregar a
+        // lembrança disso no topo do arquivo.
+        DefinirCampo(conteudo, CampoReferencia, referencia ? "true" : null);
+
+    public static bool EhReferencia(AnaliseDaNota analise) =>
+        string.Equals(analise.Frontmatter.Texto(CampoReferencia), "true", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Aspas só quando o valor tem algo que confundiria o leitor de YAML. Aspas em tudo funcionaria, mas
     /// deixaria o frontmatter feio de ler no Obsidian — e ele é para ser lido por humanos.
     /// </summary>
