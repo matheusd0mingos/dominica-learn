@@ -207,7 +207,21 @@ public static class LayoutDeForca
     }
 
     /// <summary>Nó mais ligado é maior — a raiz faz crescer sem que um hub de 200 links vire um disco.</summary>
-    private static double RaioDe(int grau) => Arredondar(4 + Math.Sqrt(grau) * 2.5);
+    /// <summary>
+    /// O raio do ponto, pelo grau — quantas ligações a nota tem.
+    ///
+    /// OS NÚMEROS SUBIRAM depois de ver o grafo de um vault pequeno: com base 4, uma nota recém-ligada
+    /// e uma nota órfã ficavam do mesmo tamanho aos olhos, e quem acabava de criar a primeira ligação
+    /// da vida via a tela igualzinha à de antes. Um recurso que não dá retorno visível é um recurso que
+    /// a pessoa conclui que não funcionou — e foi exatamente essa a conclusão que chegou aqui.
+    ///
+    /// Base 6, passo 3.5: grau 0 fica em 6, grau 1 em 9.5, grau 4 em 13. A diferença entre "ninguém
+    /// aponta para isto" e "já tem uma ligação" passou a ser vista sem procurar.
+    ///
+    /// CONTINUA RAIZ QUADRADA, e não linear: num vault de anos a nota-índice de uma matéria chega a
+    /// dezenas de ligações, e crescimento linear a transformaria num disco cobrindo o resto do mapa.
+    /// </summary>
+    private static double RaioDe(int grau) => Arredondar(6 + Math.Sqrt(grau) * 3.5);
 
     private static double Arredondar(double v) => Math.Round(v, 2, MidpointRounding.AwayFromZero);
 

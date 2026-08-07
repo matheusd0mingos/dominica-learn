@@ -101,7 +101,11 @@
                     var de = _visao.Posicionado.Posicoes[a.De];
                     var para = _visao.Posicionado.Posicoes[a.Para];
                     <line x1="@N(de.X)" y1="@N(de.Y)" x2="@N(para.X)" y2="@N(para.Y)"
-                          stroke-width="@N(Math.Min(a.Peso, 5) * 0.8)" stroke-opacity="0.55" />
+                          @* A LINHA É O RECURSO, e ela estava com 0,8 px e 55% de opacidade — quase
+                             invisível. Numa tela onde ligar duas notas é o gesto mais valioso do
+                             produto, o resultado do gesto precisa saltar aos olhos: quem ligou pela
+                             primeira vez tem de VER que ligou. Piso de 1,6 px, e o peso soma daí. *@
+                          stroke-width="@N(1.6 + Math.Min(a.Peso, 5) * 0.9)" stroke-opacity="0.75" />
                 }
             </g>
 
