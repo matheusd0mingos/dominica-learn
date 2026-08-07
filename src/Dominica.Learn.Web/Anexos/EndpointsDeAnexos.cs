@@ -1,5 +1,7 @@
 using Dominica.Learn.Application.CasosDeUso;
 using Dominica.Learn.Domain.Anexos;
+using Dominica.Learn.Application.Portas;
+using Dominica.Learn.Web.Seguranca;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Dominica.Learn.Web.Anexos;
@@ -22,8 +24,22 @@ public static class EndpointsDeAnexos
         var grupo = rotas.MapGroup("/anexos").RequireAuthorization();
 
         grupo.MapGet("/{**caminho}", async (
-            string caminho, [FromServices] ServicoDeAnexos servico, CancellationToken ct) =>
+            HttpContext ctx,
+            string caminho,
+            [FromServices] EscopoDoUsuario escopo,
+            [FromServices] ApelidoDeQuemEntrou apelidos,
+            [FromServices] ServicoDeAnexos servico,
+            CancellationToken ct) =>
         {
+            // DE QUEM É E DE QUAL VAULT, declarado aqui. Isto é um endpoint HTTP: não há circuito do
+            // Blazor para perguntar, e o adaptador padrão pergunta ao provedor de estado do circuito.
+            // Sem estas duas linhas o anexo não é encontrado — a nota mostra a moldura de imagem
+            // quebrada e nada mais, que foi exatamente o que aconteceu com o primeiro desenho.
+            //
+            // É o mesmo mecanismo que o download do pacote já usava (ver RotaDoPacote); eu o apliquei
+            // lá e não aqui, e o vault tornou o esquecimento visível.
+            escopo.Definir(await apelidos.DeAsync(ctx.User), await apelidos.VaultDeAsync(ctx.User));
+
             if (!CaminhoDeAnexo.TentarCriar(Uri.UnescapeDataString(caminho), out var alvo, out _) || alvo is null)
                 return Results.NotFound();
 
