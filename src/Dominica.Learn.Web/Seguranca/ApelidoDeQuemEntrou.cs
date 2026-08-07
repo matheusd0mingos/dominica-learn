@@ -3,6 +3,7 @@ using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Domain.Vault;
 using Dominica.Learn.Web.Data;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Dominica.Learn.Web.Seguranca;
 
@@ -18,12 +19,27 @@ namespace Dominica.Learn.Web.Seguranca;
 /// A regra dura mora aqui: sem apelido válido no cadastro, ninguém tem vault. Deduzir um a partir do
 /// e-mail levaria duas pessoas para a mesma pasta em silêncio.
 /// </summary>
-public sealed class ApelidoDeQuemEntrou(UserManager<ApplicationUser> usuarios)
+/// <remarks>
+/// ESCOPO PRÓPRIO POR CONSULTA, e não o UserManager do circuito. O ApplicationDbContext é registrado
+/// com AddDbContext — um por circuito, vivo por horas — e duas leituras sobrepostas nele fazem o EF
+/// lançar "a second operation was started on this context instance". A exceção sobe pela renderização
+/// e MATA O CIRCUITO: a tela fica desenhada e para de responder.
+///
+/// Isso não era possível enquanto só o apelido era perguntado, uma vez por escopo. Passou a ser no dia
+/// em que o VAULT entrou na fronteira: ele é consultado em toda operação de arquivo e de índice, e a
+/// barra do topo o pergunta ao mesmo tempo que a página. Aconteceu na primeira tela depois do deploy.
+///
+/// É a mesma correção que o índice e o registro já tinham recebido (ver IndiceEmPostgres.AbrirAsync) e
+/// o mesmo caminho que o IdentityRevalidatingAuthenticationStateProvider já usava aqui do lado.
+/// </remarks>
+public sealed class ApelidoDeQuemEntrou(IServiceScopeFactory escopos)
 {
     public async Task<ApelidoDoUsuario> DeAsync(ClaimsPrincipal quem)
     {
         if (quem.Identity?.IsAuthenticated != true) throw new SemUsuarioAutenticadoException();
 
+        await using var escopo = escopos.CreateAsyncScope();
+        var usuarios = escopo.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var usuario = await usuarios.GetUserAsync(quem) ?? throw new SemUsuarioAutenticadoException();
 
         // Conta criada antes do apelido existir, ou registro que passou por um caminho que não o exigiu.
@@ -48,6 +64,9 @@ public sealed class ApelidoDeQuemEntrou(UserManager<ApplicationUser> usuarios)
     public async Task<NomeDoVault> VaultDeAsync(ClaimsPrincipal quem)
     {
         if (quem.Identity?.IsAuthenticated != true) throw new SemUsuarioAutenticadoException();
+
+        await using var escopo = escopos.CreateAsyncScope();
+        var usuarios = escopo.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
         var usuario = await usuarios.GetUserAsync(quem);
         return NomeDoVault.Conhecido(usuario?.VaultAtual) ?? NomeDoVault.Padrao;
     }
