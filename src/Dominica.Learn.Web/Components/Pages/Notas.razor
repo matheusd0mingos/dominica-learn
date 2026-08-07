@@ -32,9 +32,17 @@
    Sem isto elas só são pedidas lá na frente, DEPOIS de o circuito subir e o interop rodar — e aí a
    pessoa espera em série o que podia ter vindo em paralelo. `preload` não executa nada: apenas põe o
    arquivo no cache do navegador para quando o `criar` precisar dele. Só nesta página, porque só aqui
-   existe editor: quem abre o painel ou a revisão não paga por isto. *@
+   existe editor: quem abre o painel ou a revisão não paga por isto.
+
+   O CSS NÃO É PRELOAD, É STYLESHEET DE VERDADE — e essa diferença de uma palavra custou caro.
+   O editor.js injetava o <link rel="stylesheet"> por conta própria e, antes de injetar, perguntava ao
+   <head> se já não havia um link com aquele href. O preload que estava aqui respondia "há" — e o
+   estilo nunca era aplicado. Preload BAIXA, não APLICA.
+   Declarar a folha aqui, direto, é melhor que o preload em todos os aspectos: baixa igualmente cedo,
+   aplica sozinha, e tira do JavaScript uma decisão que ele não precisava tomar. Quem carrega estilo é
+   a página; o editor.js só carrega script. Ver a nota sobre o mapa `pedidos` em js/editor.js. *@
 <HeadContent>
-    <link rel="preload" as="style" href="lib/codemirror/codemirror.css" />
+    <link rel="stylesheet" href="lib/codemirror/codemirror.css" />
     <link rel="preload" as="script" href="lib/codemirror/codemirror.js" />
     <link rel="preload" as="script" href="lib/codemirror/xml.js" />
     <link rel="preload" as="script" href="lib/codemirror/markdown.js" />

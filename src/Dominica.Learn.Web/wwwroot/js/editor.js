@@ -41,12 +41,12 @@ function carregarCodeMirror() {
     // ainda não existe. Medido: 3,5 s até o editor aparecer, com 300 ms de latência.
     //
     // As dependências são reais e continuam respeitadas: o modo markdown usa o xml para destacar HTML
-    // embutido, e os dois modos precisam do codemirror.js. O que NÃO era real é a fila: o CSS não
-    // depende de nada, e o continuelist não depende do xml. Três rodadas em vez de cinco.
-    await Promise.all([
-      css('lib/codemirror/codemirror.css'),
-      script('lib/codemirror/codemirror.js'),
-    ])
+    // embutido, e os dois modos precisam do codemirror.js. O que NÃO era real é a fila: o continuelist
+    // não depende do xml. Três rodadas em vez de cinco.
+    //
+    // O CSS NÃO ESTÁ AQUI de propósito: quem declara a folha é a tela, em Notas.razor. Se o estilo
+    // chegar depois de o editor nascer, o `cm.refresh()` lá embaixo remede — é para isso que ele existe.
+    await script('lib/codemirror/codemirror.js')
     await script('lib/codemirror/xml.js')
     await Promise.all([
       script('lib/codemirror/markdown.js'),
@@ -60,56 +60,37 @@ function carregarCodeMirror() {
 // carregamento. Pedir duas vezes devolve a mesma promessa, e ninguém baixa nada duas vezes.
 //
 // A versão anterior perguntava ao DOM (`document.querySelector('link[href=...]')`), e foi assim que
-// nasceu o pior defeito que este editor já teve. A tela das notas declara, no <head>, um
-// <link rel="preload" as="style" href=".../codemirror.css"> para o navegador ir buscando o arquivo
-// antes de o editor pedir. Preload BAIXA, mas NÃO APLICA — é um adiantamento de download, não uma
-// folha de estilo. O seletor encontrava esse preload, concluía "já está aí", e o
-// <link rel="stylesheet"> de verdade nunca era acrescentado.
+// nasceu o pior defeito que este editor já teve. A tela das notas declarava, no <head>, um
+// <link rel="preload" as="style" href=".../codemirror.css">. Preload BAIXA, mas NÃO APLICA. O seletor
+// encontrava esse preload, concluía "já está aí", e o <link rel="stylesheet"> de verdade nunca era
+// acrescentado — o CodeMirror rodava sem estilo nenhum, com um bloco escuro de 50 px na direita, o
+// .CodeMirror-measure visível cuspindo o "xxxxxxxxxx" que ele usa para medir a fonte, e o teclado sem
+// mover o cursor. Não parecia falta de CSS. Parecia editor quebrado.
 //
-// O que aparecia na tela não parecia problema de CSS: o CodeMirror pintava o texto sem estilo nenhum,
-// a borda direita de 50 px do .CodeMirror-sizer virava um bloco escuro, o .CodeMirror-measure — que o
-// codemirror.css esconde com visibility:hidden — ficava visível com o "xxxxxxxxxx" que ele usa para
-// medir a fonte, e as setas do teclado não moviam nada. Parecia editor quebrado. Era folha faltando.
+// Duas coisas mudaram por causa disso, e as duas importam:
 //
-// Dava para consertar acrescentando `[rel="stylesheet"]` ao seletor. Não é o que está feito aqui, de
-// propósito: isso deixaria de pé a ideia errada — a de que o <head> é o registro de quem já carregou o
-// quê. Ele não é. O <head> é de todo mundo, e qualquer <link> ou <script> que alguém acrescente ali
-// amanhã, por qualquer outro motivo, volta a poder responder por este código. A memória própria não
-// tem esse buraco.
+// 1. O <head> DEIXOU DE SER O REGISTRO de quem já carregou o quê. Ele nunca foi bom nesse papel: é de
+//    todo mundo, e qualquer link ou script que alguém acrescente ali amanhã, por qualquer motivo,
+//    volta a poder responder por este código. Este mapa não tem esse buraco.
+//
+// 2. ESTE ARQUIVO NÃO CARREGA MAIS CSS. Quem declara a folha do CodeMirror é a própria tela, em
+//    Notas.razor, com um <link rel="stylesheet"> comum. É menos código aqui e uma decisão a menos no
+//    JavaScript — e o defeito acima passa a ser impossível, não só improvável.
 const pedidos = new Map()
 
-function buscar(url, montar) {
-  let p = pedidos.get(url)
+function script(src) {
+  let p = pedidos.get(src)
   if (!p) {
-    p = new Promise((ok, erro) => montar(ok, erro))
-    pedidos.set(url, p)
+    p = new Promise((ok, erro) => {
+      const s = document.createElement('script')
+      s.src = src
+      s.onload = ok
+      s.onerror = () => erro(new Error(`falhou ao carregar ${src}`))
+      document.head.appendChild(s)
+    })
+    pedidos.set(src, p)
   }
   return p
-}
-
-function script(src) {
-  return buscar(src, (ok, erro) => {
-    const s = document.createElement('script')
-    s.src = src
-    s.onload = ok
-    s.onerror = () => erro(new Error(`falhou ao carregar ${src}`))
-    document.head.appendChild(s)
-  })
-}
-
-function css(href) {
-  return buscar(href, (ok) => {
-    const l = document.createElement('link')
-    l.rel = 'stylesheet'
-    l.href = href
-    l.onload = ok
-    // SEGUIR SEM O ESTILO É RUIM — sem o codemirror.css o editor fica no estado descrito acima,
-    // inutilizável. Ainda assim resolvemos, porque travar é pior: o erro aparece no console e o resto
-    // da tela continua viva, em vez de a promessa nunca completar e a tela ficar em "abrindo o
-    // editor…" para sempre.
-    l.onerror = ok
-    document.head.appendChild(l)
-  })
 }
 
 // A GERAÇÃO DO EDITOR — e ela existe por causa de um defeito que só aparece com latência de rede.
