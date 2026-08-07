@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Infrastructure;
 using Dominica.Learn.Infrastructure.Indice;
+using Dominica.Learn.Infrastructure.Registro;
 using Dominica.Learn.Web.Anexos;
 using Dominica.Learn.Web.Components;
 using Dominica.Learn.Web.Components.Account;
@@ -153,6 +154,7 @@ using (var escopo = app.Services.CreateScope())
 {
     await escopo.ServiceProvider.GetRequiredService<ContextoDoIndice>().Database.MigrateAsync();
     await escopo.ServiceProvider.GetRequiredService<ApplicationDbContext>().Database.MigrateAsync();
+    await escopo.ServiceProvider.GetRequiredService<ContextoDoRegistro>().Database.MigrateAsync();
 }
 
 if (app.Environment.IsDevelopment())

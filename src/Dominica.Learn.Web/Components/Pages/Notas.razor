@@ -257,11 +257,18 @@
         </MudPaper>
     </MudItem>
 
-    @* —— O QUE APONTA PARA CÁ —— *@
+    @* —— O QUE APONTA PARA CÁ ——
+
+       A COLUNA INTEIRA SÓ EXISTE COM UMA NOTA ABERTA. Antes ela renderizava sempre, e só o conteúdo era
+       condicional — o resultado era um cartão dizendo "Aponta para esta nota / Nada ainda" quando não há
+       nota nenhuma. No desktop passava por decoração; no celular, onde as colunas empilham, era uma tela
+       inteira de nada entre o editor e a navegação. *@
+    @if (_aberta is not null)
+    {
     <MudItem xs="12" md="3" Class="col-contexto">
         <MudPaper Class="pa-3" Elevation="0" Outlined="true">
             <MudText Typo="Typo.overline" Class="d-block">Aponta para esta nota</MudText>
-            @if (_aberta is null || _aberta.Backlinks.Count == 0)
+            @if (_aberta.Backlinks.Count == 0)
             {
                 <MudText Typo="Typo.body2" Class="mud-text-secondary">Nada ainda.</MudText>
             }
@@ -376,6 +383,7 @@
             }
         </MudPaper>
     </MudItem>
+    }
 </MudGrid>
 
 @code {

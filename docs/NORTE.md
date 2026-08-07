@@ -53,9 +53,13 @@ Sessões de estudo, questões resolvidas, simulados.
 questões às 14h32" numa nota), e não é reconstruível a partir de nada: uma série temporal perdida está
 perdida.
 
-Isso obriga a uma consequência que precisa estar escrita: **o backup passa a ter de levá-lo junto.**
-Hoje o `.zip` exporta só os arquivos. No dia em que existir registro de desempenho, o pacote precisa
-incluí-lo — em CSV ou JSON, dentro do zip — ou a promessa "o vault é seu" vira meia verdade.
+Isso obriga a uma consequência que precisa estar escrita: **o backup tem de levá-lo junto.** Um `.zip`
+que exportasse só os arquivos deixaria metade do que a pessoa construiu no servidor, e a promessa "o
+vault é seu" viraria meia verdade.
+
+*Feito:* o pacote traz `Registro de estudo/questoes.csv` e `sessoes.csv`. CSV com ponto e vírgula e BOM,
+porque o backup existe para ser aberto — não para estar tecnicamente certo e abrir tudo numa coluna só
+no Excel em português.
 
 ### 3. Derivado → Postgres, descartável
 
@@ -437,12 +441,17 @@ disciplina, mapa do edital com os estados derivados.
 
 **Termina quando:** o app responde "quanto falta para concluir o edital" com um número em que se confia.
 
-### Fase 3 — O desempenho
+### Fase 3 — O desempenho *(feita antes da 2, por decisão)*
 
-Registro de lotes de questões e de sessões. Os cinco indicadores. Acerto por disciplina alimentando o
-estado "baixo desempenho" no mapa.
+Registro de lotes de questões e de sessões, no painel. Acerto por matéria, horas por matéria, e a
+matéria onde mais se perde.
 
-**Termina quando:** o app responde "onde estou perdendo desempenho" apontando disciplina e tópico.
+Veio antes do edital de propósito: ela não depende dele para existir, e troca o proxy (facilidade dos
+cartões) por dado real. Falta ligar o acerto ao estado "baixo desempenho" do mapa, que depende da
+Fase 2.
+
+**Termina quando:** o app responde "onde estou perdendo desempenho" apontando a matéria. *(pronto — o
+tópico depende do edital.)*
 
 ### Fase 4 — O "o que agora"
 

@@ -1,5 +1,6 @@
 @page "/painel"
 @using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Desempenho
 @using Dominica.Learn.Domain.Painel
 @using Dominica.Learn.Domain.Vault
 @using Microsoft.AspNetCore.Authorization
@@ -7,6 +8,8 @@
 @rendermode InteractiveServer
 
 @inject ServicoDeCartoes Cartoes
+@inject ServicoDeDesempenho Desempenho
+@inject IDialogService Dialogos
 @inject NavigationManager Navegacao
 
 <PageTitle>Painel · Dominica Learn</PageTitle>
@@ -19,10 +22,12 @@
    justificar essa resposta — porque uma sugestão sem motivo é uma ordem, e ordem sem explicação deixa de
    ser obedecida na primeira vez que a pessoa discorda.
 
-   O QUE ESTE PAINEL NÃO MOSTRA, e é deliberado: horas estudadas, questões resolvidas, percentual de
-   acerto, progresso do edital, curva de evolução. Nada disso é calculável hoje — não existe registro de
-   desempenho nem edital — e um número inventado num painel de decisão diária muda a decisão para pior.
-   Ver PainelDeEstudo, no domínio, para o que dá para responder só com os arquivos. *@
+   HORAS E ACERTO VÊM DO REGISTRO, e só aparecem depois que existe registro. Antes disso a seção nem é
+   desenhada — uma tabela de zeros ensina a ignorar a tela. Progresso do edital continua de fora porque
+   edital ainda não existe; quando existir, entra aqui.
+
+   A JANELA É DE QUATRO SEMANAS: é o horizonte em que uma mudança de rotina já apareceu e um mês ruim
+   antigo já saiu. Ver ServicoDeDesempenho.JanelaPadrao. *@
 
 @if (_r is null)
 {
@@ -93,11 +98,17 @@ else
                 </div>
             </div>
 
-            @if (_r.ParaHoje > 0)
-            {
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4"
-                           StartIcon="@Icons.Material.Filled.PlayArrow" Href="revisar">Começar a revisão</MudButton>
-            }
+            <div class="d-flex flex-wrap gap-2 mt-4">
+                @if (_r.ParaHoje > 0)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.PlayArrow" Href="revisar">Começar a revisão</MudButton>
+                }
+                @* REGISTRAR FICA NO PAINEL, junto do resto: é aqui que a pessoa chega depois de estudar,
+                   e o registro que exige procurar onde fica é o registro que não é feito. *@
+                <MudButton Variant="Variant.Outlined"
+                           StartIcon="@Icons.Material.Filled.PostAdd" OnClick="RegistrarAsync">Registrar estudo</MudButton>
+            </div>
         </MudPaper>
     </MudItem>
 
@@ -121,6 +132,102 @@ else
                         <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">@a.Motivo</MudText>
                     </div>
                 }
+            }
+        </MudPaper>
+    </MudItem>
+
+    @* —— DESEMPENHO —— *@
+    <MudItem xs="12">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
+            <div class="d-flex align-center justify-space-between flex-wrap gap-2">
+                <MudText Typo="Typo.h6">Nas últimas 4 semanas</MudText>
+                <MudButton Size="Size.Small" Variant="Variant.Text"
+                           StartIcon="@Icons.Material.Filled.PostAdd" OnClick="RegistrarAsync">Registrar</MudButton>
+            </div>
+
+            @if (_d is null || (_d.Questoes == 0 && _d.Horas == TimeSpan.Zero))
+            {
+                @* NADA DE TABELA DE ZEROS. Uma tela cheia de "0%" e "0h" no primeiro dia ensina a pessoa
+                   a ignorar a seção — e ela nunca mais volta a olhar. *@
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Você ainda não registrou horas nem questões. Depois de estudar, use <b>Registrar</b> —
+                    é o que faz o painel deixar de adivinhar por facilidade dos cartões e passar a dizer
+                    <b>onde você erra de verdade</b>.
+                </MudText>
+            }
+            else
+            {
+                <div class="d-flex flex-wrap gap-4 mt-2">
+                    <div>
+                        <MudText Typo="Typo.h4">@_d.Horas.TotalHours.ToString("0.#")h</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">estudadas</MudText>
+                    </div>
+                    @if (_d.Questoes > 0)
+                    {
+                        <div>
+                            <MudText Typo="Typo.h4">@_d.Questoes</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">questões</MudText>
+                        </div>
+                        <div>
+                            <MudText Typo="Typo.h4">@_d.Percentual.ToString("0.#")%</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">de acerto</MudText>
+                        </div>
+                    }
+                </div>
+
+                @if (_d.Pior is { } pior)
+                {
+                    @* A RESPOSTA A "ONDE ESTOU PERDENDO", que é a pergunta que só o registro consegue
+                       responder. Só aparece com amostra suficiente — ver DesempenhoDaMateria. *@
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-3">
+                        Onde você mais perde: <b>@pior.Materia.Rotulo</b> —
+                        @pior.Percentual.ToString("0.#")% em @pior.Questoes questões.
+                    </MudAlert>
+                }
+
+                <div class="tabela-rolante mt-3">
+                <MudSimpleTable Dense="true" Hover="true">
+                    <thead>
+                        <tr>
+                            <th>Matéria</th>
+                            <th class="numero">Horas</th>
+                            <th class="numero">Questões</th>
+                            <th class="numero">Acerto</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var m in _d.Materias)
+                        {
+                            <tr>
+                                <td><b>@m.Materia.Rotulo</b></td>
+                                <td class="numero">@(m.Horas == TimeSpan.Zero ? "—" : m.Horas.TotalHours.ToString("0.#") + "h")</td>
+                                <td class="numero">@(m.Questoes == 0 ? "—" : m.Questoes.ToString())</td>
+                                @* Sem amostra o percentual sai entre parênteses e apagado: ele existe e
+                                   não sustenta conclusão nenhuma, e essa diferença precisa ser visível. *@
+                                <td class="numero @(m.TemAmostraSuficiente && m.Percentual < 60 ? "atrito" : null)">
+                                    @if (m.Questoes == 0)
+                                    {
+                                        <text>—</text>
+                                    }
+                                    else if (m.TemAmostraSuficiente)
+                                    {
+                                        <text>@m.Percentual.ToString("0.#")%</text>
+                                    }
+                                    else
+                                    {
+                                        <span class="mud-text-secondary">(@m.Percentual.ToString("0.#")%)</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                </div>
+
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">
+                    Percentual entre parênteses tem menos de @DesempenhoDaMateria.MinimoParaConcluir
+                    questões — o número existe e ainda não conclui nada.
+                </MudText>
             }
         </MudPaper>
     </MudItem>
@@ -185,8 +292,29 @@ else
 
 @code {
     private RetratoDoEstudo? _r;
+    private ResumoDeDesempenho? _d;
 
-    protected override async Task OnInitializedAsync() => _r = await Cartoes.PainelAsync();
+    protected override async Task OnInitializedAsync() => await CarregarAsync();
+
+    private async Task CarregarAsync()
+    {
+        _r = await Cartoes.PainelAsync();
+        _d = await Desempenho.ResumoAsync();
+    }
+
+    private async Task RegistrarAsync()
+    {
+        var parametros = new DialogParameters<DialogoDeRegistro>
+        {
+            { d => d.MateriaInicial, _r?.Materias.FirstOrDefault()?.Materia.Nome },
+        };
+
+        var d = await Dialogos.ShowAsync<DialogoDeRegistro>("Registrar estudo", parametros);
+        var r = await d.Result;
+        if (r is null || r.Canceled) return;
+
+        await CarregarAsync();
+    }
 
     /// <summary>
     /// Cada sugestão leva ao lugar onde ela se resolve. Um painel que só informa obriga a pessoa a

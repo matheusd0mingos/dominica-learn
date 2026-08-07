@@ -1,0 +1,144 @@
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Desempenho
+@using Dominica.Learn.Domain.Vault
+
+@inject ServicoDeDesempenho Desempenho
+@inject ServicoDeConhecimento Conhecimento
+@inject ISnackbar Avisos
+
+@* REGISTRAR O QUE FOI FEITO: questões resolvidas e tempo estudado.
+
+   UM DIÁLOGO SÓ PARA AS DUAS COISAS, e não dois. Quem acabou de fazer um bloco de questões quase sempre
+   quer registrar as duas juntas — "40 questões de tributário, 50 minutos" —, e separar isso em duas
+   telas dobra o atrito no momento em que a paciência já acabou. Os dois lados são opcionais: dá para
+   registrar só leitura (tempo, sem questões) ou só um lote não cronometrado (questões, sem tempo).
+
+   POR QUE LOTE E NÃO QUESTÃO A QUESTÃO: ver LoteDeQuestoes. Registrar quarenta formulários é o desenho
+   que parece completo e é o que ninguém preenche. *@
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Registrar estudo</MudText>
+    </TitleContent>
+    <DialogContent>
+        @if (_materias.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                Crie uma matéria primeiro — o registro precisa saber onde você estudou.
+            </MudText>
+        }
+        else
+        {
+            <MudSelect T="string" @bind-Value="_materia" Label="Matéria" Variant="Variant.Outlined" Dense="true">
+                @foreach (var m in _materias)
+                {
+                    <MudSelectItem T="string" Value="@m.Materia.Nome">@m.Materia.Rotulo</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudText Typo="Typo.overline" Class="mt-4 d-block">Questões</MudText>
+            <div class="d-flex gap-2">
+                <MudNumericField @bind-Value="_total" @bind-Value:after="StateHasChanged" Label="Fiz"
+                                 Variant="Variant.Outlined" Min="0" Max="9999" Immediate="true" />
+                <MudNumericField @bind-Value="_acertos" @bind-Value:after="StateHasChanged" Label="Acertei"
+                                 Variant="Variant.Outlined" Min="0" Max="9999" Immediate="true" />
+            </div>
+
+            @* O PERCENTUAL APARECE ENQUANTO SE DIGITA. É o número que a pessoa quer ver, e mostrá-lo aqui
+               poupa a conta de cabeça que ela faria de qualquer jeito. *@
+            @if (_total > 0 && _acertos <= _total)
+            {
+                <MudText Typo="Typo.body2" Class="mt-1">
+                    <b>@((_acertos * 100.0 / _total).ToString("0.#"))%</b> de acerto
+                    @if (_total < DesempenhoDaMateria.MinimoParaConcluir)
+                    {
+                        <span class="mud-text-secondary">
+                            — poucas questões para concluir alguma coisa, mas somam com as próximas.
+                        </span>
+                    }
+                </MudText>
+            }
+            else if (_total > 0 && _acertos > _total)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                    Acertos não podem passar do total.
+                </MudAlert>
+            }
+
+            <MudTextField @bind-Value="_fonte" Label="De onde" Variant="Variant.Outlined" Class="mt-3"
+                          Placeholder="QConcursos, prova de 2019, livro…" />
+
+            <MudText Typo="Typo.overline" Class="mt-4 d-block">Tempo</MudText>
+            <MudNumericField @bind-Value="_minutos" Label="Minutos estudados" Variant="Variant.Outlined"
+                             Min="0" Max="720" />
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                Conta a leitura também, não só as questões. Deixe zero se não quiser registrar tempo.
+            </MudText>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialogo.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="!PodeGravar || _gravando" OnClick="GravarAsync">Registrar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    /// <summary>Matéria sugerida pela tela de onde o registro foi chamado.</summary>
+    [Parameter] public string? MateriaInicial { get; set; }
+
+    private IReadOnlyList<MateriaContada> _materias = [];
+    private string _materia = string.Empty;
+    private int _total;
+    private int _acertos;
+    private int _minutos;
+    private string _fonte = string.Empty;
+    private bool _gravando;
+
+    /// <summary>
+    /// Precisa haver ALGUMA COISA para registrar — questões ou tempo. Sem esta guarda, "Registrar" com
+    /// tudo zerado gravaria dois nada e a pessoa acharia que registrou.
+    /// </summary>
+    private bool PodeGravar =>
+        _materia.Length > 0 && (_total > 0 || _minutos > 0) && _acertos <= _total;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _materias = (await Conhecimento.MateriasAsync()).Where(m => m.Materia.Existe).ToList();
+        _materia = MateriaInicial ?? _materias.FirstOrDefault()?.Materia.Nome ?? string.Empty;
+    }
+
+    private async Task GravarAsync()
+    {
+        if (!PodeGravar || _gravando) return;
+
+        _gravando = true;
+        try
+        {
+            var materia = Materia.De(_materia);
+
+            // AS DUAS GRAVAÇÕES SÃO INDEPENDENTES de propósito: um lote não cronometrado e uma leitura
+            // sem questões são os dois casos mais comuns, e obrigar os dois juntos faria a pessoa
+            // inventar um número para preencher o campo — que é pior que não ter o dado.
+            if (_total > 0)
+            {
+                var r = await Desempenho.RegistrarQuestoesAsync(materia, _total, _acertos, TimeSpan.Zero, _fonte);
+                if (!r.Ok) { Avisos.Add(r.Mensagem ?? "Não consegui registrar.", Severity.Error); return; }
+            }
+
+            if (_minutos > 0)
+            {
+                var r = await Desempenho.RegistrarSessaoAsync(materia, TimeSpan.FromMinutes(_minutos), null);
+                if (!r.Ok) { Avisos.Add(r.Mensagem ?? "Não consegui registrar o tempo.", Severity.Error); return; }
+            }
+
+            Dialogo.Close(DialogResult.Ok(_materia));
+        }
+        finally
+        {
+            _gravando = false;
+        }
+    }
+}

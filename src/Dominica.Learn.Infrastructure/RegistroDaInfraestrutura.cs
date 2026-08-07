@@ -1,6 +1,7 @@
 using Dominica.Learn.Application.CasosDeUso;
 using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Infrastructure.Indice;
+using Dominica.Learn.Infrastructure.Registro;
 using Dominica.Learn.Infrastructure.Renderizacao;
 using Dominica.Learn.Infrastructure.Vault;
 using Microsoft.EntityFrameworkCore;
@@ -40,6 +41,20 @@ public static class RegistroDaInfraestrutura
 
         servicos.AddDbContext<ContextoDoIndice>(o => o.UseNpgsql(conexao));
 
+        // O REGISTRO TEM BANCO PRÓPRIO, e a razão está no nome dele. O índice é descartável — a
+        // documentação manda apagá-lo e reindexar quando algo está estranho. Horas estudadas e questões
+        // resolvidas não são reconstruíveis a partir de nada; apagadas, acabaram. Bancos separados põem
+        // essa diferença onde ninguém precisa lembrar dela.
+        //
+        // Cai no banco de identidade quando não há cadeia própria: identidade também é durável, e é
+        // melhor conviver com identidade do que estrear no banco que a documentação manda apagar.
+        var conexaoDoRegistro = configuracao.GetConnectionString("Registro")
+            ?? configuracao.GetConnectionString("Identidade")
+            ?? throw new InvalidOperationException(
+                "Falta a cadeia de conexão \"Registro\" (ou, na falta dela, \"Identidade\").");
+
+        servicos.AddDbContext<ContextoDoRegistro>(o => o.UseNpgsql(conexaoDoRegistro));
+
         servicos.AddSingleton<IRelogio, RelogioDoSistema>();
         // Singleton: o pipeline do Markdig é imutável e caro de montar; recriá-lo por requisição seria
         // pagar a construção a cada abertura de nota.
@@ -52,12 +67,14 @@ public static class RegistroDaInfraestrutura
         servicos.AddScoped<IEmpacotadorDoVault, EmpacotadorEmZip>();
         servicos.AddScoped<IIndiceDoVault, IndiceEmPostgres>();
         servicos.AddScoped<IHistoricoDeNotas, HistoricoEmPostgres>();
+        servicos.AddScoped<IRegistroDeEstudo, RegistroEmPostgres>();
 
         servicos.AddScoped<ReconciliarVault>();
         servicos.AddScoped<ServicoDeNotas>();
         servicos.AddScoped<ServicoDeConhecimento>();
         servicos.AddScoped<ServicoDeAnexos>();
         servicos.AddScoped<ServicoDeCartoes>();
+        servicos.AddScoped<ServicoDeDesempenho>();
 
         servicos.AddHostedService<VigiaDoVault>();
 
