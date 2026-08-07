@@ -81,4 +81,63 @@ public sealed class RegistroEmPostgres(ContextoDoRegistro db, IUsuarioAtual usua
                 sessoes.Add(sessao);
         return sessoes;
     }
+
+    public async Task<IReadOnlyList<LancamentoRegistrado>> UltimosAsync(
+        int limite, CancellationToken ct = default)
+    {
+        await EuAsync(ct);
+
+        // DUAS CONSULTAS E UMA JUNÇÃO NA MEMÓRIA, e não um UNION no banco. São duas tabelas com colunas
+        // diferentes; uni-las em SQL exigiria projetar as duas para um formato comum e escrever o texto da
+        // descrição dentro da consulta — que é onde ele nunca mais seria encontrado por quem for mudá-lo.
+        // O `limite` é pequeno (uma tela), então o custo é uma lista de dezenas de itens.
+        var lotes = await db.Lotes.AsNoTracking()
+            .OrderByDescending(l => l.Em).Take(limite).ToListAsync(ct);
+        var sessoes = await db.Sessoes.AsNoTracking()
+            .OrderByDescending(s => s.Inicio).Take(limite).ToListAsync(ct);
+
+        return lotes
+            .Select(l => new LancamentoRegistrado(
+                TipoDeLancamento.Questoes, l.Id, l.Em, Materia.De(l.Materia), DescreverLote(l)))
+            .Concat(sessoes.Select(s => new LancamentoRegistrado(
+                TipoDeLancamento.Tempo, s.Id, s.Inicio, Materia.De(s.Materia), DescreverSessao(s))))
+            .OrderByDescending(x => x.Em)
+            .Take(limite)
+            .ToList();
+    }
+
+    public async Task<bool> ApagarAsync(TipoDeLancamento tipo, int id, CancellationToken ct = default)
+    {
+        await EuAsync(ct);
+
+        // O filtro global por usuário AINDA VALE aqui, e é ele que faz o `id` de outra pessoa
+        // simplesmente não ser encontrado. Sem ele, um identificador chutado apagaria o registro alheio —
+        // que é o tipo de furo que não aparece em teste nenhum feito com um usuário só.
+        if (tipo == TipoDeLancamento.Questoes)
+        {
+            var l = await db.Lotes.FirstOrDefaultAsync(x => x.Id == id, ct);
+            if (l is null) return false;
+            db.Lotes.Remove(l);
+        }
+        else
+        {
+            var s = await db.Sessoes.FirstOrDefaultAsync(x => x.Id == id, ct);
+            if (s is null) return false;
+            db.Sessoes.Remove(s);
+        }
+
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    private static string DescreverLote(LoteNoRegistro l) =>
+        l.Total > 0
+            ? $"{l.Total} questões · {(l.Acertos * 100.0 / l.Total):0.#}% de acerto"
+            : $"{l.Total} questões";
+
+    private static string DescreverSessao(SessaoNoRegistro s)
+    {
+        var minutos = s.Segundos / 60;
+        return minutos < 60 ? $"{minutos} min" : $"{minutos / 60}h{minutos % 60:00}";
+    }
 }

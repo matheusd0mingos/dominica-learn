@@ -261,6 +261,54 @@ public sealed class ServicoDeCartoes(
     }
 
     /// <summary>
+    /// Desfaz a última resposta, devolvendo o cartão ao agendamento que ele tinha antes.
+    ///
+    /// POR QUE ISTO PRECISA EXISTIR: responder é a única ação irreversível do ciclo diário, e ela é feita
+    /// no celular, com o polegar, em sequência. Tocar "Fácil" num cartão que se errou o tira da frente
+    /// por semanas — e o estrago não aparece hoje, aparece na prova. Sem desfazer, a saída da pessoa é
+    /// abrir o .md e editar a marca à mão, o que ninguém faz; o que se faz é conviver com o erro.
+    ///
+    /// <paramref name="anterior"/> NULO NÃO É "sem informação": é a informação de que o cartão era
+    /// INÉDITO. Nesse caso desfazer APAGA a marca, em vez de escrever alguma. Reagendar um inédito para
+    /// amanhã seria inventar um terceiro estado que nunca existiu — e o cartão deixaria de contar como
+    /// novo para o teto diário, para sempre. Ver EscritorDeAgendamento.Remover.
+    ///
+    /// RELÊ DO DISCO, como o responder: entre responder e desfazer podem ter passado segundos em que o
+    /// arquivo mudou (o Obsidian aberto do outro lado, por exemplo). Desfazer pela posição antiga
+    /// mexeria no cartão vizinho, em silêncio.
+    /// </summary>
+    public async Task<Resultado<int>> DesfazerRespostaAsync(
+        CaminhoNota caminho, int linha, Agendamento? anterior, CancellationToken ct = default)
+    {
+        var nota = await repositorio.LerAsync(caminho, ct);
+        if (nota is null) return Resultado<int>.NaoEncontrada($"A nota \"{caminho}\"");
+
+        var cartao = AnalisadorDeCartoes.Analisar(caminho, nota.Conteudo).FirstOrDefault(c => c.Linha == linha);
+        if (cartao is null)
+            return Resultado<int>.NaoEncontrada($"O cartão na linha {linha + 1} de \"{caminho}\"");
+
+        var conteudo = anterior is null
+            ? EscritorDeAgendamento.Remover(nota.Conteudo, cartao)
+            : EhDeBloco(nota.Conteudo, cartao)
+                ? EscritorDeAgendamento.AplicarEmBloco(nota.Conteudo, cartao, anterior)
+                : EscritorDeAgendamento.Aplicar(nota.Conteudo, cartao.Linha, anterior);
+
+        // Já estava assim — não gravar é o que impede o vigia de acordar à toa.
+        if (ReferenceEquals(conteudo, nota.Conteudo)) return Resultado<int>.Sucesso(0);
+
+        var salva = await notas.SalvarAsync(caminho, conteudo, nota.Impressao, autor: null, ct);
+        if (!salva.Ok)
+            return Resultado<int>.Falha(
+                salva.Motivo ?? MotivoDaFalha.Invalida,
+                salva.Motivo == MotivoDaFalha.Conflito
+                    ? "A nota mudou depois que você respondeu. Não desfiz, para não gravar por cima."
+                    : salva.Mensagem ?? "Não consegui desfazer.");
+
+        log.LogInformation("Resposta desfeita em {Nota}:{Linha}.", caminho, cartao.Linha + 1);
+        return Resultado<int>.Sucesso(1);
+    }
+
+    /// <summary>
     /// Suspende ou devolve um cartão à fila.
     ///
     /// SUSPENDER NÃO É APAGAR, e a diferença aparece no agendamento: ele fica intacto no arquivo, então

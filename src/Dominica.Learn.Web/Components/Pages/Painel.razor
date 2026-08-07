@@ -1,5 +1,6 @@
 @page "/painel"
 @using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Application.Portas
 @using Dominica.Learn.Domain.Desempenho
 @using Dominica.Learn.Domain.Painel
 @using Dominica.Learn.Domain.Vault
@@ -11,6 +12,7 @@
 @inject ServicoDeDesempenho Desempenho
 @inject IDialogService Dialogos
 @inject NavigationManager Navegacao
+@inject ISnackbar Avisos
 
 <PageTitle>Painel · Dominica Learn</PageTitle>
 
@@ -228,6 +230,43 @@ else
                     Percentual entre parênteses tem menos de @DesempenhoDaMateria.MinimoParaConcluir
                     questões — o número existe e ainda não conclui nada.
                 </MudText>
+
+                @* O QUE FOI REGISTRADO, ao lado do botão que registra.
+
+                   Um número que entra e não sai é um número em que ninguém confia: quem digita 300 no
+                   lugar de 30 e descobre que não há conserto não corrige — para de registrar, e o painel
+                   volta a adivinhar. A lista fica AQUI, encostada no gesto, e não numa tela de histórico
+                   que ninguém abre; e é curta de propósito, porque ela existe para conferir o que se
+                   acabou de fazer, não para navegar o passado. *@
+                @if (_ultimos.Count > 0)
+                {
+                    <MudExpansionPanels Elevation="0" Class="mt-3">
+                        <MudExpansionPanel Text="@($"Últimos lançamentos ({_ultimos.Count})")" Dense="true">
+                            @foreach (var l in _ultimos)
+                            {
+                                <div class="lancamento">
+                                    <div>
+                                        <MudText Typo="Typo.body2">
+                                            <b>@l.Materia.Rotulo</b> — @l.Descricao
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                            @l.Em.ToLocalTime().ToString("dd/MM 'às' HH:mm")
+                                        </MudText>
+                                    </div>
+                                    @* Sem confirmação: apagar UM lançamento é reversível pelo próprio
+                                       gesto que o criou — registrar de novo leva dez segundos. Um diálogo
+                                       de "tem certeza?" aqui cobraria mais atenção do que o erro custa. *@
+                                    <MudTooltip Text="Apagar este lançamento">
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline"
+                                                       aria-label="@($"Apagar {l.Descricao} de {l.Materia.Rotulo}")"
+                                                       Disabled="_apagando"
+                                                       OnClick="@(() => ApagarAsync(l))" />
+                                    </MudTooltip>
+                                </div>
+                            }
+                        </MudExpansionPanel>
+                    </MudExpansionPanels>
+                }
             }
         </MudPaper>
     </MudItem>
@@ -293,6 +332,8 @@ else
 @code {
     private RetratoDoEstudo? _r;
     private ResumoDeDesempenho? _d;
+    private IReadOnlyList<LancamentoRegistrado> _ultimos = [];
+    private bool _apagando;
 
     protected override async Task OnInitializedAsync() => await CarregarAsync();
 
@@ -300,6 +341,37 @@ else
     {
         _r = await Cartoes.PainelAsync();
         _d = await Desempenho.ResumoAsync();
+        _ultimos = await Desempenho.UltimosAsync();
+    }
+
+    /// <summary>
+    /// Apaga um lançamento e RECARREGA os números. Sem o recarregamento, a linha some da lista e o
+    /// percentual acima continua contando com ela — duas informações da mesma tela discordando, que é a
+    /// forma mais rápida de a pessoa parar de confiar no painel.
+    /// </summary>
+    private async Task ApagarAsync(LancamentoRegistrado l)
+    {
+        if (_apagando) return;
+
+        _apagando = true;
+        try
+        {
+            var r = await Desempenho.ApagarLancamentoAsync(l.Tipo, l.Id);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui apagar.", Severity.Warning);
+                return;
+            }
+
+            await CarregarAsync();
+            // DIZ O QUE SUMIU. "Apagado." sozinho deixa a dúvida de qual dos lançamentos foi — e a dúvida
+            // custa mais que a mensagem.
+            Avisos.Add($"Apaguei: {l.Materia.Rotulo} — {l.Descricao}.", Severity.Success);
+        }
+        finally
+        {
+            _apagando = false;
+        }
     }
 
     private async Task RegistrarAsync()

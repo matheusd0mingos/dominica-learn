@@ -1,4 +1,5 @@
 using Dominica.Learn.Domain.Desempenho;
+using Dominica.Learn.Domain.Vault;
 
 namespace Dominica.Learn.Application.Portas;
 
@@ -28,4 +29,42 @@ public interface IRegistroDeEstudo
     Task<IReadOnlyList<LoteDeQuestoes>> QuestoesAsync(DateTimeOffset desde, CancellationToken ct = default);
 
     Task<IReadOnlyList<SessaoDeEstudo>> SessoesAsync(DateTimeOffset desde, CancellationToken ct = default);
+
+    /// <summary>
+    /// Os últimos lançamentos, COM A IDENTIDADE de cada um — que é o que permite apagar o errado.
+    ///
+    /// POR QUE UM MÉTODO À PARTE, e não devolver a identidade em <see cref="QuestoesAsync"/>: quem calcula
+    /// desempenho não deve poder apagar nada, e passar o identificador junto seria oferecer a chave a
+    /// quem só precisa somar. São dois usos com poderes diferentes, e a assinatura diz qual é qual.
+    /// </summary>
+    Task<IReadOnlyList<LancamentoRegistrado>> UltimosAsync(int limite, CancellationToken ct = default);
+
+    /// <summary>
+    /// Apaga um lançamento. Devolve <c>false</c> quando ele não existe — ou não é de quem pediu.
+    ///
+    /// APAGAR, E NÃO EDITAR, é a operação que existe aqui. Um lote é imutável por construção (ver
+    /// <see cref="LoteDeQuestoes"/>): "editar" seria apagar e gravar outro, e nomear isso de edição
+    /// esconderia que o instante do registro muda junto. Apagar e registrar de novo faz a mesma coisa,
+    /// diz a verdade sobre o que aconteceu, e é uma operação a menos para manter correta.
+    /// </summary>
+    Task<bool> ApagarAsync(TipoDeLancamento tipo, int id, CancellationToken ct = default);
 }
+
+/// <summary>Qual das duas tabelas do registro — as duas são apagáveis pelo mesmo gesto.</summary>
+public enum TipoDeLancamento
+{
+    Questoes,
+    Tempo,
+}
+
+/// <summary>
+/// Um lançamento como ele aparece na lista de "o que eu registrei" — já pronto para a tela, e com o
+/// identificador que o botão de apagar precisa.
+/// </summary>
+public sealed record LancamentoRegistrado(
+    TipoDeLancamento Tipo,
+    int Id,
+    DateTimeOffset Em,
+    Materia Materia,
+    /// <summary>"40 questões · 65% de acerto" ou "50 min". O texto que descreve o lançamento.</summary>
+    string Descricao);

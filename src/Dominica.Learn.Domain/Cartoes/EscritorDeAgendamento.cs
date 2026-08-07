@@ -98,4 +98,50 @@ public static class EscritorDeAgendamento
         if (crlf) resultado = resultado.Replace("\n", "\r\n", StringComparison.Ordinal);
         return string.Equals(resultado, conteudo, StringComparison.Ordinal) ? conteudo : resultado;
     }
+
+    /// <summary>
+    /// Tira a marca de agendamento do cartão — deixando o texto do cartão exatamente como estava.
+    ///
+    /// EXISTE PARA O DESFAZER, e para um caso só dele: o cartão que nunca tinha sido revisado. Responder
+    /// a um cartão inédito ESCREVE a primeira marca; desfazer não pode escrever "volta amanhã", tem de
+    /// devolvê-lo ao estado em que não havia marca nenhuma — senão o cartão sai da fila de inéditos e
+    /// nada o traz de volta. Repor "algum" agendamento seria um desfazer que não desfaz.
+    ///
+    /// Cobre as duas posições que o <see cref="Aplicar"/> escreve: no fim da própria linha do cartão e
+    /// numa linha só dela, logo abaixo. No segundo caso a linha inteira SAI — deixá-la vazia mudaria o
+    /// espaçamento do arquivo, e a promessa desta classe é que nada além da marca muda.
+    /// </summary>
+    public static string Remover(string conteudo, Cartao cartao)
+    {
+        if (string.IsNullOrEmpty(conteudo)) return conteudo;
+
+        var crlf = conteudo.Contains("\r\n", StringComparison.Ordinal);
+        var linhas = conteudo.Replace("\r\n", "\n").Split('\n').ToList();
+
+        // Onde procurar: a linha do cartão e a linha logo depois do que ele ocupa. Um cartão de uma linha
+        // ocupa uma; um de bloco ocupa até o verso, e a marca dele fica na última.
+        var candidatas = new[] { cartao.Linha, cartao.Linha + cartao.LinhasOcupadas - 1 }.Distinct();
+
+        foreach (var i in candidatas)
+        {
+            if (i < 0 || i >= linhas.Count) continue;
+
+            if (linhas[i].TrimStart().StartsWith(MarcaDeAgendamento.Prefixo, StringComparison.Ordinal))
+            {
+                // Linha exclusiva da marca: some inteira.
+                linhas.RemoveAt(i);
+                break;
+            }
+
+            if (linhas[i].Contains(MarcaDeAgendamento.Prefixo, StringComparison.Ordinal))
+            {
+                linhas[i] = MarcaDeAgendamento.Remover(linhas[i]);
+                break;
+            }
+        }
+
+        var resultado = string.Join('\n', linhas);
+        if (crlf) resultado = resultado.Replace("\n", "\r\n", StringComparison.Ordinal);
+        return string.Equals(resultado, conteudo, StringComparison.Ordinal) ? conteudo : resultado;
+    }
 }

@@ -617,3 +617,16 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
 .tabela-rolante {
     overflow-x: auto;
 }
+
+/* Uma linha da lista de lançamentos do registro. O botão de apagar fica na ponta oposta ao texto: perto
+   demais do que se lê, ele é apertado sem querer justamente na tela que existe para desfazer erros. */
+.lancamento {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--linha);
+}
+
+.lancamento:last-child { border-bottom: none; }

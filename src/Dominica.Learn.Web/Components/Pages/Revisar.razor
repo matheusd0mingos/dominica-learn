@@ -75,6 +75,18 @@
                    StartIcon="@Icons.Material.Filled.ReportProblem"
                    OnClick="RegistrarErroAsync">Errei uma questão</MudButton>
 
+        @* DESFAZER — responder era a única ação irreversível deste ciclo, e é feita com o polegar, em
+           sequência. Aparece SÓ depois de responder, e diz QUAL cartão vai voltar: "desfazer" sozinho,
+           depois de trinta cartões, é um botão que ninguém tem coragem de apertar. *@
+        @if (_desfazivel is { } desfazer)
+        {
+            <MudTooltip Text="@($"Volta \"{Resumir(desfazer.Frente)}\" ao agendamento que tinha")">
+                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Secondary"
+                           StartIcon="@Icons.Material.Filled.Undo"
+                           Disabled="_gravando" OnClick="DesfazerAsync">Desfazer</MudButton>
+            </MudTooltip>
+        }
+
         <MudSpacer />
         @if (_fila.Count > 0)
         {
@@ -198,6 +210,20 @@
     private bool _gravando;
     private int _revisados;
 
+    /// <summary>
+    /// A última resposta, e só ela.
+    ///
+    /// UMA SÓ, E NÃO UMA PILHA, de propósito. O erro que este recurso conserta é o clique errado que se
+    /// percebe NO INSTANTE seguinte — "toquei Fácil e era Errei". Desfazer cinco respostas atrás não é
+    /// esse erro: é reescrever um histórico que já foi usado para agendar outros cartões, e o resultado
+    /// seria uma fila que ninguém consegue explicar. Uma só cobre o caso real e não abre essa porta.
+    ///
+    /// <c>Agendamento</c> nulo aqui é informação, não ausência dela: quer dizer que o cartão era inédito.
+    /// </summary>
+    private sealed record Desfazivel(CaminhoNota Nota, int Linha, Agendamento? Agendamento, string Frente);
+
+    private Desfazivel? _desfazivel;
+
     /// <summary>O que cada botão faria, calculado com o MESMO agendador que vai gravar.</summary>
     private string _previsao = string.Empty;
 
@@ -271,6 +297,54 @@
         await CarregarAsync();
     }
 
+    /// <summary>
+    /// Devolve o último cartão respondido ao agendamento que ele tinha, e o põe de volta na frente.
+    ///
+    /// AS DUAS COISAS, e não só a primeira: consertar o arquivo e deixar o cartão fora da fila seria
+    /// desfazer pela metade — a pessoa desfez porque quer responder de novo, agora certo. Por isso a fila
+    /// é RECARREGADA do zero em vez de reinserir o cartão na lista que está na memória: só assim ele volta
+    /// com o agendamento restaurado, e não com a cópia velha que a tela tinha.
+    /// </summary>
+    private async Task DesfazerAsync()
+    {
+        if (_desfazivel is not { } d || _gravando) return;
+
+        _gravando = true;
+        try
+        {
+            var r = await Cartoes.DesfazerRespostaAsync(d.Nota, d.Linha, d.Agendamento);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui desfazer.", Severity.Warning);
+                return;
+            }
+
+            _desfazivel = null;
+            if (_revisados > 0) _revisados--;
+
+            await CarregarAsync();
+
+            // Põe o cartão desfeito na frente. Ele já está na fila — a resposta foi desfeita, então ele
+            // voltou a vencer —, e é dele que a pessoa quer tratar agora.
+            _fila = [.. _fila.Where(c => c.Nota.Equals(d.Nota) && c.Linha == d.Linha),
+                     .. _fila.Where(c => !(c.Nota.Equals(d.Nota) && c.Linha == d.Linha))];
+            Avancar();
+
+            Avisos.Add("Desfeito. O cartão voltou como estava.", Severity.Success);
+        }
+        finally
+        {
+            _gravando = false;
+        }
+    }
+
+    /// <summary>A frente do cartão em uma linha, para caber num aviso sem virar parágrafo.</summary>
+    private static string Resumir(string frente)
+    {
+        var limpa = frente.Replace('\n', ' ').Trim();
+        return limpa.Length <= 48 ? limpa : limpa[..47].TrimEnd() + "…";
+    }
+
     private void Avancar()
     {
         _atual = _fila.FirstOrDefault();
@@ -305,6 +379,11 @@
         _gravando = true;
         try
         {
+            // GUARDA O ESTADO ANTERIOR ANTES DE GRAVAR. Depois de gravar, ele não existe em lugar nenhum
+            // — a marca no .md foi por cima. `Agendamento` nulo é a informação de que o cartão era
+            // inédito, e desfazer precisa dela para APAGAR a marca em vez de escrever outra.
+            var desfazivel = new Desfazivel(_atual.Nota, _atual.Linha, _atual.Agendamento, _atual.Frente);
+
             var r = await Cartoes.ResponderAsync(_atual.Nota, _atual.Linha, resposta);
             if (!r.Ok)
             {
@@ -315,6 +394,7 @@
                 return;
             }
 
+            _desfazivel = desfazivel;
             _revisados++;
 
             // "Errei" devolve o cartão para a fila de hoje, e ele tem de voltar a aparecer NESTA sessão —

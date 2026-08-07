@@ -62,6 +62,35 @@ public sealed class ServicoDeDesempenho(
             await registro.SessoesAsync(desde, ct));
     }
 
+    /// <summary>Quantos lançamentos a tela mostra. Uma tela, não um histórico — ver <see cref="UltimosAsync"/>.</summary>
+    public const int UltimosPadrao = 12;
+
+    /// <summary>
+    /// O que foi registrado por último, para conferir e apagar.
+    ///
+    /// ISTO É O QUE FAZ O REGISTRO SER USADO. Um número que entra e não sai é um número em que ninguém
+    /// confia: quem digita "300" no lugar de "30" e descobre que não há conserto não corrige o erro —
+    /// para de registrar. A lista curta ao lado do botão de registrar é o que devolve a reversibilidade
+    /// ao gesto, e é por isso que ela fica junto do gesto, e não numa tela de histórico que ninguém abre.
+    /// </summary>
+    public Task<IReadOnlyList<LancamentoRegistrado>> UltimosAsync(
+        int limite = UltimosPadrao, CancellationToken ct = default) => registro.UltimosAsync(limite, ct);
+
+    /// <summary>
+    /// Apaga um lançamento. Corrigir é apagar e registrar de novo — ver <see cref="IRegistroDeEstudo.ApagarAsync"/>.
+    /// </summary>
+    public async Task<Resultado<int>> ApagarLancamentoAsync(
+        TipoDeLancamento tipo, int id, CancellationToken ct = default)
+    {
+        if (!await registro.ApagarAsync(tipo, id, ct))
+            // NÃO ENCONTRADO, e não "erro": o lançamento pode ter sido apagado noutra aba. Dizer que
+            // falhou faria a pessoa tentar de novo o que já está feito.
+            return Resultado<int>.NaoEncontrada("O lançamento");
+
+        log.LogInformation("Lançamento de {Tipo} apagado ({Id}).", tipo, id);
+        return Resultado<int>.Sucesso(1);
+    }
+
     private static string Explicar(ProblemaDoLote? p) => p switch
     {
         ProblemaDoLote.SemMateria => "Escolha a matéria — é ela que responde onde você está perdendo.",
