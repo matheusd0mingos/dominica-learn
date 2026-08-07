@@ -416,6 +416,45 @@
     private string _estado = string.Empty;
     private bool _conflito;
     private string? _textoPendente;
+
+    /// <summary>
+    /// O conteúdo como ele está NO DISCO, até onde esta tela sabe. É a referência para decidir se há o
+    /// que gravar ao trocar de nota — comparar com <c>_textoPendente</c> não serviria: ele só existe
+    /// depois que o autosave rodou, e o caso que se perdia é o que nunca rodou.
+    /// </summary>
+    private string? _textoNoDisco;
+
+    /// <summary>
+    /// UMA OPERAÇÃO DE BANCO POR VEZ, nesta tela.
+    ///
+    /// O DbContext do índice é ESCOPADO — no Blazor Server, isso quer dizer um por circuito, ou seja, um
+    /// para a aba inteira. Duas operações sobrepostas nele não devolvem dado errado: o EF lança "a second
+    /// operation was started on this context instance", a exceção sobe pela renderização e O CIRCUITO
+    /// MORRE. A tela continua desenhada, o autosave nunca mais chega ao servidor, e o que foi digitado
+    /// depois disso some sem aviso.
+    ///
+    /// Era exatamente o que acontecia ao trocar de nota logo depois de digitar: a busca de menções da
+    /// nota anterior ainda estava correndo (ela era disparada e esquecida, de propósito, para não segurar
+    /// a abertura) quando a abertura da nova nota começou.
+    ///
+    /// A REGRA DE USO É UMA SÓ, E NÃO PODE SER QUEBRADA: este cadeado protege CHAMADAS DE SERVIÇO
+    /// FOLHA — nunca um bloco que chame outro método que também o pegue. Aninhar trava a tela para
+    /// sempre, e o sintoma seria pior que o defeito que ele conserta.
+    ///
+    /// O conserto duradouro é registrar o contexto por FÁBRICA (AddDbContextFactory), que é a receita da
+    /// própria Microsoft para Blazor Server; isto aqui resolve a tela onde o problema aparece hoje.
+    /// </summary>
+    private readonly SemaphoreSlim _umaPorVez = new(1, 1);
+
+    private async Task<T> SozinhoAsync<T>(Func<Task<T>> operacao)
+    {
+        await _umaPorVez.WaitAsync();
+        try { return await operacao(); }
+        finally { _umaPorVez.Release(); }
+    }
+
+    private async Task SozinhoAsync(Func<Task> operacao) =>
+        await SozinhoAsync<object?>(async () => { await operacao(); return null; });
     private bool _lendo;
     private bool _favorita;
     private bool _anexando;
@@ -614,10 +653,11 @@
         if (_aberta is null) return;
         _textoPendente = texto;
 
-        var resultado = await Servico.SalvarAsync(_aberta.Nota.Caminho, texto, _impressaoCarregada);
+        var resultado = await SozinhoAsync(() => Servico.SalvarAsync(_aberta.Nota.Caminho, texto, _impressaoCarregada));
         if (resultado.Ok)
         {
             _impressaoCarregada = resultado.Valor!.Impressao;
+            _textoNoDisco = texto;
             _conflito = false;
             // "salvo" com hora é o que faz o autosave ser CONFIÁVEL em vez de mágico: sem sinal, todo
             // usuário eventualmente aperta Ctrl+S por desconfiança, e desconfiança de autosave vira hábito.
@@ -637,11 +677,59 @@
         StateHasChanged();
     }
 
+    /// <summary>
+    /// Grava o que está no editor AGORA, sem esperar o autosave.
+    ///
+    /// O AUTOSAVE TEM UMA JANELA DE 1,2 SEGUNDO, e essa janela era um buraco: quem digitava e clicava
+    /// noutra nota antes de o temporizador disparar perdia o que escreveu, sem aviso nenhum. Fechar o
+    /// editor cancelava o temporizador — o texto morava só no CodeMirror, e o CodeMirror ia embora com
+    /// ele. Perder texto em silêncio é o pior defeito que um editor pode ter: a pessoa não sabe se
+    /// digitou errado, se o sistema apagou, ou se ficou louca.
+    ///
+    /// Lê do EDITOR e não de <c>_textoPendente</c>: aquele só existe depois que o autosave rodou pelo
+    /// menos uma vez, e o caso que se perde é justamente o que nunca rodou.
+    ///
+    /// Falha de leitura é engolida de propósito: se chegamos aqui com o circuito caindo, não há o que
+    /// gravar e não há tela para avisar.
+    /// </summary>
+    private async Task GravarOQueEstaNoEditorAsync()
+    {
+        if (_aberta is null || _sessao is null || _lendo) return;
+
+        string texto;
+        try { texto = await _sessao.LerAsync(); }
+        catch { return; }
+
+        // Nada mudou desde a última gravação — não gravar é o que impede o vigia do vault de acordar à
+        // toa a cada troca de nota.
+        if (string.Equals(texto, _textoNoDisco, StringComparison.Ordinal)) return;
+
+        var r = await SozinhoAsync(() => Servico.SalvarAsync(_aberta.Nota.Caminho, texto, _impressaoCarregada));
+        if (r.Ok) { _textoNoDisco = texto; return; }
+
+        // DIZ, e não engole. Trocar de nota apagando o que se escreveu porque houve conflito seria
+        // repetir o mesmo defeito de outra forma.
+        Avisos.Add(
+            r.Motivo == MotivoDaFalha.Conflito
+                ? $"\"{_aberta.Nota.Caminho.Nome}\" mudou por fora; não gravei o que estava no editor."
+                : r.Mensagem ?? $"Não consegui salvar \"{_aberta.Nota.Caminho.Nome}\".",
+            Severity.Warning);
+    }
+
     private async Task AbrirAsync(CaminhoNota caminho)
     {
+        // ANTES DE FECHAR O EDITOR, e não depois: fechar destrói o CodeMirror, e com ele o único lugar
+        // onde o texto recém-digitado existia.
+        await GravarOQueEstaNoEditorAsync();
         await FecharEditorAsync();
 
-        var resultado = await Servico.AbrirAsync(caminho);
+        // ZERADOS AQUI, os dois. `_textoPendente` guardava o texto da nota ANTERIOR e não era limpo na
+        // troca — quem digitasse em A, fosse para B e renomeasse B gravaria o conteúdo de A por cima de
+        // B. Nunca aconteceu comigo porque exige a sequência exata; aconteceria com quem usa.
+        _textoPendente = null;
+        _textoNoDisco = null;
+
+        var resultado = await SozinhoAsync(() => Servico.AbrirAsync(caminho));
         if (!resultado.Ok)
         {
             Avisos.Add(resultado.Mensagem ?? "Nota não encontrada.", Severity.Warning);
@@ -650,6 +738,7 @@
         }
         _aberta = resultado.Valor;
         _impressaoCarregada = _aberta!.Nota.Impressao;
+        _textoNoDisco = _aberta.Nota.Conteudo;
         _conflito = false;
         _estado = string.Empty;
         _favorita = Dominica.Learn.Domain.Analise.EditorDeFrontmatter.EhFavorita(_aberta.Nota.Analise);
@@ -701,7 +790,7 @@
     {
         try
         {
-            var achadas = await Conhecimento.MencoesNaoLigadasAsync(caminho);
+            var achadas = await SozinhoAsync(() => Conhecimento.MencoesNaoLigadasAsync(caminho));
             if (_aberta?.Nota.Caminho != caminho) return;
             _mencoes = achadas;
         }
@@ -889,7 +978,7 @@
     {
         _acertos = string.IsNullOrWhiteSpace(_termo)
             ? []
-            : await Servico.BuscarAsync(new ConsultaDeBusca { Texto = _termo });
+            : await SozinhoAsync(() => Servico.BuscarAsync(new ConsultaDeBusca { Texto = _termo }));
     }
 
     /// <summary>
@@ -917,11 +1006,16 @@
 
     private async Task RecarregarLateraisAsync()
     {
-        _recentes = await Servico.RecentesAsync();
-        _etiquetas = await Servico.EtiquetasAsync();
-        _favoritas = await Conhecimento.FavoritasAsync();
-        _materias = await Conhecimento.MateriasAsync();
-        _templates = await Conhecimento.TemplatesAsync();
+        // Um cadeado para as cinco, e não cinco cadeados: elas são um bloco só de leitura, e soltar o
+        // cadeado entre uma e outra abriria a mesma janela que este arquivo inteiro existe para fechar.
+        await SozinhoAsync(async () =>
+        {
+            _recentes = await Servico.RecentesAsync();
+            _etiquetas = await Servico.EtiquetasAsync();
+            _favoritas = await Conhecimento.FavoritasAsync();
+            _materias = await Conhecimento.MateriasAsync();
+            _templates = await Conhecimento.TemplatesAsync();
+        });
     }
 
     // Rotas.Nota e NÃO $"/notas/{...}": a barra inicial descarta o sub-caminho onde o app é servido,
@@ -935,6 +1029,10 @@
 
     public async ValueTask DisposeAsync()
     {
+        // O MESMO BURACO, na outra saída: sair de /notas para /revisar destrói este componente, e com ele
+        // o editor. É melhor esforço — o circuito pode já estar caindo, e aí não há o que fazer — mas
+        // cobre o caso comum, que é clicar noutra aba do menu logo depois de digitar.
+        await GravarOQueEstaNoEditorAsync();
         await FecharEditorAsync();
         _referencia?.Dispose();
     }
