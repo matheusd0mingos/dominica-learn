@@ -23,9 +23,11 @@ namespace Dominica.Learn.Web.Seguranca;
 public sealed class UsuarioAtualDoCircuito(
     EscopoDoUsuario escopo,
     AuthenticationStateProvider autenticacao,
-    ApelidoDeQuemEntrou apelidos) : IUsuarioAtual
+    ApelidoDeQuemEntrou apelidos,
+    IPreferenciasDoUsuario preferencias) : IUsuarioAtual
 {
     private ApelidoDoUsuario? _resolvido;
+    private NomeDoVault? _vault;
 
     public async Task<ApelidoDoUsuario> ApelidoAsync(CancellationToken ct = default)
     {
@@ -34,5 +36,22 @@ public sealed class UsuarioAtualDoCircuito(
 
         var estado = await autenticacao.GetAuthenticationStateAsync();
         return _resolvido = await apelidos.DeAsync(estado.User);
+    }
+
+    /// <summary>
+    /// MESMA ORDEM DO APELIDO — escopo declarado primeiro, sessão depois — e pelo mesmo motivo: o vigia
+    /// reconcilia vaults sem circuito nenhum e é ele quem sabe em qual está trabalhando.
+    ///
+    /// GUARDA NO ESCOPO DEPOIS DE RESOLVER. O vault é perguntado em toda operação de arquivo e de
+    /// índice; sem isto, cada uma custaria uma consulta à tabela de identidade. Dentro de um circuito o
+    /// vault só muda por navegação, que abre tudo de novo — ver TrocaDeVault.
+    /// </summary>
+    public async Task<NomeDoVault> VaultAsync(CancellationToken ct = default)
+    {
+        if (escopo.VaultDefinido is { } declarado) return declarado;
+        if (_vault is not null) return _vault;
+
+        // Quem nunca escolheu está no padrão — que é para onde a migração levou o que já existia.
+        return _vault = await preferencias.VaultAtualAsync(ct) ?? NomeDoVault.Padrao;
     }
 }

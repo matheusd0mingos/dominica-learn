@@ -47,10 +47,10 @@ public sealed class IsolamentoEntreUsuariosTests : IDisposable
             new(new DbContextOptionsBuilder<ContextoDoIndice>().UseSqlite(conexao).Options);
     }
 
-    private (ContextoDoIndice Db, IndiceEmPostgres Indice) Para(string apelido)
+    private (ContextoDoIndice Db, IndiceEmPostgres Indice) Para(string apelido, string? vault = null)
     {
         var db = Contexto();
-        return (db, new IndiceEmPostgres(new FabricaDeTeste(_conexao), new UsuarioDeTeste(apelido)));
+        return (db, new IndiceEmPostgres(new FabricaDeTeste(_conexao), new UsuarioDeTeste(apelido, vault)));
     }
 
     public void Dispose() => _conexao.Dispose();
@@ -202,4 +202,83 @@ public sealed class IsolamentoEntreUsuariosTests : IDisposable
         Assert.Single(await meu.EstadoAtualAsync());
         Assert.Equal(2, (await seu.EstadoAtualAsync()).Count);
     }
+
+    // —— A FRONTEIRA ENTRE OS VAULTS DA MESMA PESSOA ————————————————————————————————
+    //
+    // A de cima é segurança: o vault do João não pode aparecer para o Matheus. Esta aqui não é — as duas
+    // pontas são da mesma pessoa, e ninguém "invade" nada. Ela protege outra coisa, e mais difícil de
+    // perceber quando falha: o CONHECIMENTO.
+    //
+    // "[[...]]" resolve por nome de arquivo no vault inteiro. Com engenharia e estudo no mesmo índice,
+    // um "[[Aterramento]]" escrito estudando aponta para a nota de trabalho — e ninguém vê isso
+    // acontecer. Vê um backlink estranho meses depois, quando já não dá para saber quando começou.
+    // Vazamento entre vaults próprios não dispara desconfiança nenhuma, e é justamente por isso que ele
+    // precisa de teste.
+
+    [Fact]
+    public async Task Dois_vaults_da_mesma_pessoa_nao_se_enxergam()
+    {
+        var (_, estudo) = Para("matheus", "estudo");
+        var (_, trabalho) = Para("matheus", "trabalho");
+
+        await estudo.IndexarAsync(Nota("Direito/Aterramento.md", "# Aterramento no edital"), []);
+        await trabalho.IndexarAsync(Nota("SPDA/Aterramento.md", "# Malha de aterramento"), []);
+
+        Assert.Equal(["Direito/Aterramento.md"], (await estudo.TodosOsCaminhosAsync()).Select(c => c.Valor));
+        Assert.Equal(["SPDA/Aterramento.md"], (await trabalho.TodosOsCaminhosAsync()).Select(c => c.Valor));
+    }
+
+    [Fact]
+    public async Task O_mesmo_caminho_existe_nos_dois_vaults_sem_um_sobrescrever_o_outro()
+    {
+        // O índice único é (usuário, vault, caminho). Sem o vault ali, esta segunda gravação atualizaria
+        // a linha da primeira — e a nota de estudo passaria a ter o conteúdo da de trabalho, no banco,
+        // sem erro nenhum. No disco os dois arquivos continuariam certos, então a reconciliação seguinte
+        // ficaria brigando com ela mesma para sempre.
+        var (_, estudo) = Para("matheus", "estudo");
+        var (_, trabalho) = Para("matheus", "trabalho");
+
+        await estudo.IndexarAsync(Nota("Notas.md", "# Do estudo"), []);
+        await trabalho.IndexarAsync(Nota("Notas.md", "# Do trabalho"), []);
+
+        Assert.Equal("Do estudo", (await estudo.ObterAsync(CaminhoNota.De("Notas.md")))!.Titulo);
+        Assert.Equal("Do trabalho", (await trabalho.ObterAsync(CaminhoNota.De("Notas.md")))!.Titulo);
+    }
+
+    [Fact]
+    public async Task Apagar_num_vault_nao_apaga_no_outro()
+    {
+        // ExecuteDelete desvia do rastreador e vai direto num DELETE. É onde um filtro faltando não
+        // devolve dado errado: destrói.
+        var (_, estudo) = Para("matheus", "estudo");
+        var (_, trabalho) = Para("matheus", "trabalho");
+
+        await estudo.IndexarAsync(Nota("Notas.md", "# Do estudo"), []);
+        await trabalho.IndexarAsync(Nota("Notas.md", "# Do trabalho"), []);
+
+        await trabalho.RemoverAsync(CaminhoNota.De("Notas.md"));
+
+        Assert.NotNull(await estudo.ObterAsync(CaminhoNota.De("Notas.md")));
+        Assert.Null(await trabalho.ObterAsync(CaminhoNota.De("Notas.md")));
+    }
+
+    [Fact]
+    public async Task As_etiquetas_de_um_vault_nao_aparecem_no_outro()
+    {
+        // Tabela diferente das anteriores, de propósito: o filtro é declarado quatro vezes no
+        // ContextoDoIndice — notas, ligações, etiquetas e revisões —, e um esquecido em qualquer uma
+        // delas passaria despercebido se o teste só olhasse a tabela de notas.
+        //
+        // (A busca por texto ficaria melhor aqui, mas ela usa ILike, que é do Postgres e o Sqlite deste
+        // arsenal não traduz. Ela passa pelo mesmo filtro global destas.)
+        var (_, estudo) = Para("matheus", "estudo");
+        var (_, trabalho) = Para("matheus", "trabalho");
+
+        await estudo.IndexarAsync(Nota("Direito/A.md", "# A\n\n#tributario"), []);
+        await trabalho.IndexarAsync(Nota("SPDA/B.md", "# B\n\n#nbr-5419"), []);
+
+        Assert.Equal("tributario", Assert.Single(await estudo.EtiquetasAsync()).Etiqueta.Valor);
+        Assert.Equal("nbr-5419", Assert.Single(await trabalho.EtiquetasAsync()).Etiqueta.Valor);
+    }
+
 }

@@ -7,6 +7,9 @@ public sealed class LoteNoRegistro
 {
     public int Id { get; set; }
     public string Usuario { get; set; } = string.Empty;
+
+    /// <summary>Em qual vault dessa pessoa o lançamento foi feito. Ver ContextoDoRegistro.VaultAtual.</summary>
+    public string Vault { get; set; } = string.Empty;
     public DateTimeOffset Em { get; set; }
     public string Materia { get; set; } = string.Empty;
     public int Total { get; set; }
@@ -20,6 +23,9 @@ public sealed class SessaoNoRegistro
 {
     public int Id { get; set; }
     public string Usuario { get; set; } = string.Empty;
+
+    /// <summary>Em qual vault dessa pessoa o lançamento foi feito. Ver ContextoDoRegistro.VaultAtual.</summary>
+    public string Vault { get; set; } = string.Empty;
     public DateTimeOffset Inicio { get; set; }
     public string Materia { get; set; } = string.Empty;
     public int Segundos { get; set; }
@@ -42,6 +48,13 @@ public sealed class ContextoDoRegistro(DbContextOptions<ContextoDoRegistro> opco
     /// <summary>De quem é a consulta. Ver o comentário homônimo em ContextoDoIndice.</summary>
     public string UsuarioAtual { get; set; } = string.Empty;
 
+    /// <summary>
+    /// E EM QUAL VAULT DELE. Horas e questões pertencem ao vault em que foram lançadas: o painel do
+    /// trabalho não pode somar as horas de estudo, senão o número que decide a rotina mistura duas
+    /// vidas. O registro que já existia foi para o vault padrão — ver a migração.
+    /// </summary>
+    public string VaultAtual { get; set; } = string.Empty;
+
     public DbSet<LoteNoRegistro> Lotes => Set<LoteNoRegistro>();
     public DbSet<SessaoNoRegistro> Sessoes => Set<SessaoNoRegistro>();
 
@@ -51,21 +64,23 @@ public sealed class ContextoDoRegistro(DbContextOptions<ContextoDoRegistro> opco
         {
             e.ToTable("lotes_de_questoes");
             e.Property(x => x.Usuario).HasMaxLength(32);
+            e.Property(x => x.Vault).HasMaxLength(32);
             e.Property(x => x.Materia).HasMaxLength(256);
             e.Property(x => x.Fonte).HasMaxLength(256);
             // Toda consulta é "meu desempenho no período": o índice cobre exatamente isso.
             e.HasIndex(x => new { x.Usuario, x.Em });
-            e.HasQueryFilter(x => x.Usuario == UsuarioAtual);
+            e.HasQueryFilter(x => x.Usuario == UsuarioAtual && x.Vault == VaultAtual);
         });
 
         b.Entity<SessaoNoRegistro>(e =>
         {
             e.ToTable("sessoes_de_estudo");
             e.Property(x => x.Usuario).HasMaxLength(32);
+            e.Property(x => x.Vault).HasMaxLength(32);
             e.Property(x => x.Materia).HasMaxLength(256);
             e.Property(x => x.Observacao).HasMaxLength(512);
             e.HasIndex(x => new { x.Usuario, x.Inicio });
-            e.HasQueryFilter(x => x.Usuario == UsuarioAtual);
+            e.HasQueryFilter(x => x.Usuario == UsuarioAtual && x.Vault == VaultAtual);
         });
     }
 }

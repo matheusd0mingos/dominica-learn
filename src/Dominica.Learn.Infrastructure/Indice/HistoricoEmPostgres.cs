@@ -37,6 +37,10 @@ public sealed class HistoricoEmPostgres(IDbContextFactory<ContextoDoIndice> fabr
     {
         var db = await fabrica.CreateDbContextAsync(ct);
         db.UsuarioAtual = (await usuario.ApelidoAsync(ct)).Valor;
+        // OS DOIS LADOS, SEMPRE JUNTOS. Preencher um e esquecer o outro não dá erro: dá lista vazia
+        // (porque nenhuma linha real tem vault vazio), e lista vazia parece "não tem nada" em vez de
+        // "perguntei errado". Por isso as duas linhas ficam grudadas, aqui e nos outros adaptadores.
+        db.VaultAtual = (await usuario.VaultAsync(ct)).Valor;
         return db;
     }
 
@@ -53,11 +57,13 @@ public sealed class HistoricoEmPostgres(IDbContextFactory<ContextoDoIndice> fabr
     {
         await using var db = await AbrirAsync(ct);
         var eu = db.UsuarioAtual;
+        var vault = db.VaultAtual;
         if (string.IsNullOrEmpty(conteudo)) return;
 
         db.Revisoes.Add(new RevisaoNoIndice
         {
             Usuario = eu,
+            Vault = vault,
             Caminho = caminho.Valor,
             Conteudo = conteudo,
             Em = relogio.Agora,

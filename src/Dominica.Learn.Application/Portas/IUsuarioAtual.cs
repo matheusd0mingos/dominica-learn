@@ -21,6 +21,22 @@ public interface IUsuarioAtual
 {
     /// <summary>O apelido de quem está autenticado. Lança se não houver ninguém.</summary>
     Task<ApelidoDoUsuario> ApelidoAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// EM QUAL VAULT a pessoa está trabalhando agora — estudo, trabalho, o que ela tiver criado.
+    ///
+    /// A FRONTEIRA VIROU UM PAR. Era só o apelido; agora é (apelido, vault), e todo lugar que filtrava
+    /// por um passou a filtrar pelos dois. O motivo não é organização: é o wikilink. "[[...]]" resolve
+    /// por nome de arquivo no vault inteiro, então um "[[Aterramento]]" escrito estudando podia apontar
+    /// para a nota de engenharia — e ninguém vê isso acontecer, vê um backlink estranho meses depois.
+    /// Ligação errada dentro do conhecimento é o defeito mais caro daqui, porque o conhecimento é o
+    /// produto.
+    ///
+    /// NUNCA LANÇA E NUNCA VOLTA VAZIO: quem nunca escolheu está em <see cref="NomeDoVault.Padrao"/>,
+    /// que é para onde a migração levou o que já existia. Um vault indefinido não tem significado — não
+    /// existe nota fora de vault nenhum.
+    /// </summary>
+    Task<NomeDoVault> VaultAsync(CancellationToken ct = default);
 }
 
 /// <summary>
@@ -37,7 +53,17 @@ public sealed class EscopoDoUsuario
 {
     public ApelidoDoUsuario? Definido { get; private set; }
 
-    public void Definir(ApelidoDoUsuario apelido) => Definido = apelido;
+    /// <summary>
+    /// O vault deste escopo. O vigia reconcilia um VAULT por vez, não um usuário por vez — cada vault
+    /// tem índice próprio, e reconciliar "o usuário" sem dizer qual vault misturaria os dois.
+    /// </summary>
+    public NomeDoVault? VaultDefinido { get; private set; }
+
+    public void Definir(ApelidoDoUsuario apelido, NomeDoVault? vault = null)
+    {
+        Definido = apelido;
+        VaultDefinido = vault;
+    }
 }
 
 /// <summary>Não havia usuário autenticado onde o código pressupôs que houvesse.</summary>

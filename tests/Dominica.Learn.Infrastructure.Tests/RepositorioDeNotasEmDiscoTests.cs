@@ -18,11 +18,13 @@ public sealed class RepositorioDeNotasEmDiscoTests : IDisposable
 
     public RepositorioDeNotasEmDiscoTests()
     {
-        // A raiz COMUM guarda os vaults; o do usuário é a subpasta. Os testes olham a subpasta, que é
+        // A raiz COMUM guarda as pessoas; a pessoa guarda os VAULTS dela. São dois níveis desde que
+        // "trabalho" e "estudo" deixaram de dividir wikilink e grafo — ver NomeDoVault.
+        // Os testes olham a pasta do vault, que é
         // onde as notas de fato ficam — e é essa diferença que separa uma pessoa da outra.
         _raizComum = Path.Combine(Path.GetTempPath(), "learn-teste-" + Guid.NewGuid().ToString("N")[..10]);
         var opcoes = Options.Create(new OpcoesDoVault { Raiz = _raizComum });
-        _raiz = Path.Combine(_raizComum, Apelido);
+        _raiz = Path.Combine(_raizComum, Apelido, NomeDoVault.Padrao.Valor);
         _repo = new RepositorioDeNotasEmDisco(
             opcoes,
             new RaizDoVaultDoUsuario(opcoes, new UsuarioDeTeste(Apelido)),

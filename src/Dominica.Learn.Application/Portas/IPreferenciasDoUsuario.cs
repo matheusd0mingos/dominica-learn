@@ -17,4 +17,18 @@ public interface IPreferenciasDoUsuario
     Task<int> CartoesNovosPorDiaAsync(CancellationToken ct = default);
 
     Task DefinirCartoesNovosPorDiaAsync(int quantos, CancellationToken ct = default);
+
+    /// <summary>
+    /// Em qual vault a pessoa estava da última vez. Nulo = nunca escolheu.
+    ///
+    /// ISTO É PREFERÊNCIA, E NÃO FRONTEIRA, e a distinção é o que decide onde o dado mora. A fronteira —
+    /// "de quem é este vault" — é o apelido, e ele é imutável e vale para a segurança. Qual vault está
+    /// aberto é onde a pessoa parou de trabalhar: some, e o pior que acontece é ela abrir no estudo
+    /// quando queria o trabalho, e trocar num clique.
+    ///
+    /// Por isso fica aqui e não no cookie: trocar de máquina não devia recomeçar no vault errado.
+    /// </summary>
+    Task<Dominica.Learn.Domain.Vault.NomeDoVault?> VaultAtualAsync(CancellationToken ct = default);
+
+    Task DefinirVaultAtualAsync(Dominica.Learn.Domain.Vault.NomeDoVault vault, CancellationToken ct = default);
 }

@@ -35,4 +35,20 @@ public sealed class ApelidoDeQuemEntrou(UserManager<ApplicationUser> usuarios)
 
         return apelido;
     }
+
+    /// <summary>
+    /// E em qual vault DELE. Mesma razão de a classe existir: a pergunta chega pelo circuito e pelo
+    /// endpoint do download, e duas traduções para manter iguais é uma a mais do que se consegue.
+    ///
+    /// AQUI NÃO SE FALHA ALTO, ao contrário do apelido. Vault vazio é o estado normal de quem nunca
+    /// escolheu; vault apagado por fora é o estado normal de quem mexeu na pasta. Nos dois casos a
+    /// resposta certa é o padrão, e não uma exceção — quem cai no padrão vê o vault de estudo, que é
+    /// onde tudo estava antes de haver mais de um.
+    /// </summary>
+    public async Task<NomeDoVault> VaultDeAsync(ClaimsPrincipal quem)
+    {
+        if (quem.Identity?.IsAuthenticated != true) throw new SemUsuarioAutenticadoException();
+        var usuario = await usuarios.GetUserAsync(quem);
+        return NomeDoVault.Conhecido(usuario?.VaultAtual) ?? NomeDoVault.Padrao;
+    }
 }

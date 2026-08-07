@@ -6,6 +6,12 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 
+@using Dominica.Learn.Infrastructure.Vault
+@using Dominica.Learn.Web.Seguranca
+@using Microsoft.Extensions.Options
+@inject ApelidoDeQuemEntrou Apelidos
+@inject IOptions<OpcoesDoVault> OpcoesDoVault
+@inject AuthenticationStateProvider Autenticacao
 @inject IEmpacotadorDoVault Empacotador
 @inject ReconciliarVault Reconciliacao
 @inject ISnackbar Avisos
@@ -99,7 +105,77 @@
     }
 </MudPaper>
 
+@* —— OS VAULTS —————————————————————————————————————————————————————————————————————
+
+   FICA NA TELA DE BACKUP, e não numa de configurações, porque é a mesma conversa: esta tela é sobre o
+   vault ser SEU — levar embora, trazer de volta. Quantos vaults você tem e como criar outro é a mesma
+   pergunta vista de outro ângulo.
+
+   POR QUE MAIS DE UM VAULT: "[[...]]" resolve por nome de arquivo no vault inteiro. Notas de trabalho e
+   de estudo no mesmo vault fazem um "[[Aterramento]]" escrito estudando poder apontar para a nota de
+   engenharia — e ninguém vê isso acontecer. Ver NomeDoVault. *@
+<MudPaper Class="pa-4 mt-4" Elevation="0" Outlined="true" Style="max-width:780px;margin:0 auto">
+    <MudText Typo="Typo.h5" GutterBottom="true">Os seus vaults</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+        Cada vault é uma pasta separada, com busca, grafo, wikilinks e revisão próprios — e abre sozinho
+        no Obsidian. Nada atravessa de um para o outro.
+    </MudText>
+
+    <MudList T="string" Dense="true" Class="mt-2">
+        @foreach (var v in _vaults)
+        {
+            <MudListItem T="string" Icon="@(v == _atual ? Icons.Material.Filled.FolderOpen : Icons.Material.Outlined.Folder)">
+                <MudText Typo="Typo.body2">
+                    <b>@v.Rotulo</b>
+                    @if (v == _atual)
+                    {
+                        <span class="mud-text-secondary"> — é onde você está</span>
+                    }
+                </MudText>
+            </MudListItem>
+        }
+    </MudList>
+
+    @* Formulário HTML comum, e não um botão do MudBlazor: criar um vault RECARREGA tudo, porque a tela
+       inteira foi montada a partir do vault anterior. Ver RotaDeTrocaDeVault. *@
+    <form action="vault/criar" method="post" class="d-flex align-center gap-2 mt-3">
+        <AntiforgeryToken />
+        <input type="text" name="nome" placeholder="trabalho" required
+               minlength="@NomeDoVault.TamanhoMinimo" maxlength="@NomeDoVault.TamanhoMaximo"
+               class="mud-input-slot" style="padding:.5rem .75rem;border:1px solid var(--mud-palette-lines-default);border-radius:4px" />
+        <button type="submit" class="mud-button-root mud-button mud-button-outlined mud-button-outlined-primary mud-button-outlined-size-medium">
+            Criar vault
+        </button>
+    </form>
+    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
+        Letras sem acento, números e hífen. Ao criar, você já entra nele.
+    </MudText>
+</MudPaper>
+
 @code {
+    private IReadOnlyList<NomeDoVault> _vaults = [];
+    private NomeDoVault _atual = NomeDoVault.Padrao;
+
+    /// <summary>
+    /// A lista sai do DISCO — mesma escolha da barra e da matéria. Ver RaizDoVaultDoUsuario.VaultsDe.
+    /// Falhar aqui não pode levar a tela junto: sem a lista, o resto do backup continua funcionando, e
+    /// backup é a última coisa que se quer indisponível.
+    /// </summary>
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var estado = await Autenticacao.GetAuthenticationStateAsync();
+            var apelido = await Apelidos.DeAsync(estado.User);
+            _vaults = RaizDoVaultDoUsuario.VaultsDe(OpcoesDoVault.Value.Raiz, apelido);
+            _atual = await Apelidos.VaultDeAsync(estado.User);
+        }
+        catch (Exception)
+        {
+            _vaults = [];
+        }
+    }
+
     private MudFileUpload<IBrowserFile>? _seletor;
     private bool _importando;
     private ResultadoDaImportacao? _resultado;

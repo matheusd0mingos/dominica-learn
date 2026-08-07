@@ -37,6 +37,10 @@ public sealed class IndiceEmPostgres(IDbContextFactory<ContextoDoIndice> fabrica
     {
         var db = await fabrica.CreateDbContextAsync(ct);
         db.UsuarioAtual = (await usuario.ApelidoAsync(ct)).Valor;
+        // OS DOIS LADOS, SEMPRE JUNTOS. Preencher um e esquecer o outro não dá erro: dá lista vazia
+        // (porque nenhuma linha real tem vault vazio), e lista vazia parece "não tem nada" em vez de
+        // "perguntei errado". Por isso as duas linhas ficam grudadas, aqui e nos outros adaptadores.
+        db.VaultAtual = (await usuario.VaultAsync(ct)).Valor;
         return db;
     }
 
@@ -58,13 +62,14 @@ public sealed class IndiceEmPostgres(IDbContextFactory<ContextoDoIndice> fabrica
     {
         await using var db = await AbrirAsync(ct);
         var eu = db.UsuarioAtual;
+        var vault = db.VaultAtual;
         var entidade = await db.Notas
             .Include(n => n.Ligacoes).Include(n => n.Etiquetas)
             .FirstOrDefaultAsync(n => n.Caminho == nota.Caminho.Valor, ct);
 
         if (entidade is null)
         {
-            entidade = new NotaNoIndice { Caminho = nota.Caminho.Valor, Usuario = eu };
+            entidade = new NotaNoIndice { Caminho = nota.Caminho.Valor, Usuario = eu, Vault = vault };
             db.Notas.Add(entidade);
         }
         else
@@ -90,6 +95,7 @@ public sealed class IndiceEmPostgres(IDbContextFactory<ContextoDoIndice> fabrica
             .Select(l => new LigacaoNoIndice
             {
                 Usuario = eu,
+            Vault = vault,
                 Alvo = l.Alvo,
                 Destino = l.Destino?.Valor,
                 Secao = l.Secao,
@@ -110,7 +116,8 @@ public sealed class IndiceEmPostgres(IDbContextFactory<ContextoDoIndice> fabrica
             .SelectMany(e => e.ComAncestrais())
             .Select(e => e.Valor)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(v => new EtiquetaNoIndice { Usuario = eu, Valor = v, Propria = escritas.Contains(v) })
+            .Select(v => new EtiquetaNoIndice { Usuario = eu,
+            Vault = vault, Valor = v, Propria = escritas.Contains(v) })
             .ToList();
 
         await db.SaveChangesAsync(ct);

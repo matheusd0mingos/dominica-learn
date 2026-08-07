@@ -3,6 +3,9 @@ using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Infrastructure;
 using Dominica.Learn.Infrastructure.Indice;
 using Dominica.Learn.Infrastructure.Registro;
+using Dominica.Learn.Infrastructure.Vault;
+using Dominica.Learn.Domain.Vault;
+using Microsoft.Extensions.Options;
 using Dominica.Learn.Web.Anexos;
 using Dominica.Learn.Web.Components;
 using Dominica.Learn.Web.Components.Account;
@@ -157,6 +160,23 @@ using (var escopo = app.Services.CreateScope())
     await escopo.ServiceProvider.GetRequiredService<ContextoDoIndice>().Database.MigrateAsync();
     await escopo.ServiceProvider.GetRequiredService<ApplicationDbContext>().Database.MigrateAsync();
     await escopo.ServiceProvider.GetRequiredService<ContextoDoRegistro>().Database.MigrateAsync();
+
+    // —— E O DISCO ——————————————————————————————————————————————————————————————————
+    // O que estava em {raiz}/{apelido} desce para {raiz}/{apelido}/estudo, e daí em diante cada pasta
+    // ali é um vault. Roda a TODA subida porque ela sabe não fazer nada — ver as guardas em
+    // MigracaoParaVaults. Um passo manual no dia do deploy é o passo que se esquece, e esquecer este
+    // deixa o vault de alguém vazio na tela.
+    //
+    // DEPOIS DAS MIGRAÇÕES DE BANCO, e a ordem é o que evita a janela ruim: as linhas antigas do índice
+    // e do registro já foram carimbadas com "estudo" quando os arquivos chegam lá.
+    //
+    // ANTES DE O APP ATENDER, porque o vigia começa a reconciliar assim que sobe: se ele passasse pelo
+    // disco no meio da mudança, veria metade das notas e apagaria a outra metade do índice.
+    var opcoesDoVault = escopo.ServiceProvider.GetRequiredService<IOptions<OpcoesDoVault>>().Value;
+    MigracaoParaVaults.MigrarTodos(
+        opcoesDoVault.Raiz,
+        NomeDoVault.Padrao,
+        escopo.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("MigracaoParaVaults"));
 }
 
 if (app.Environment.IsDevelopment())
@@ -221,6 +241,7 @@ app.UseRateLimiter();
 app.MapHealthChecks("/saude");
 app.MapearAnexos();               // /anexos/** — autenticado, lista de permissão, sem sair da raiz
 app.MapearPacoteDoVault();        // /vault.zip — o download do vault inteiro, fora do circuito
+app.MapearTrocaDeVault();         // /vault/trocar — o alternador da barra, que é estática
 app.MapStaticAssets();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.MapAdditionalIdentityEndpoints();

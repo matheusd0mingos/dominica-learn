@@ -1,6 +1,14 @@
 @implements IDisposable
 
+@using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Infrastructure.Vault
+@using Dominica.Learn.Web.Seguranca
+@using Microsoft.Extensions.Options
+
 @inject NavigationManager NavigationManager
+@inject ApelidoDeQuemEntrou Apelidos
+@inject ILogger<NavMenu> Log
+@inject IOptions<OpcoesDoVault> OpcoesDoVault
 
 @* A navegação, inline na barra do topo. Sem os ícones bitmap do template: eram SVGs embutidos em
    base64 com `fill='white'` cravado, o que já os deixava invisíveis em qualquer fundo claro. Cinco
@@ -30,6 +38,32 @@
 
     <AuthorizeView>
         <Authorized>
+            @* O ALTERNADOR DE VAULT. Só aparece quando há mais de um: com um vault só, um seletor de
+               um item é ruído numa barra que tem seis itens de navegação. Ele nasce escondido e aparece
+               no dia em que passa a significar alguma coisa.
+
+               É FORMULÁRIO, e não link, porque trocar de vault muda estado gravado E precisa recarregar
+               a página: tudo que está na tela foi montado a partir do vault anterior. Ver
+               RotaDeTrocaDeVault, onde as duas razões estão por escrito. *@
+            @if (_vaults.Count > 1)
+            {
+                <span class="nav-sep" aria-hidden="true"></span>
+                <form action="vault/trocar" method="post" class="nav-vault">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="voltarPara" value="@currentUrl" />
+                    <select name="vault" class="nav-vault-seletor" onchange="this.form.submit()"
+                            aria-label="Vault">
+                        @foreach (var v in _vaults)
+                        {
+                            <option value="@v.Valor" selected="@(v == _atual)">@v.Rotulo</option>
+                        }
+                    </select>
+                    @* Sem JavaScript o onchange não dispara, e um seletor que não faz nada é pior que um
+                       botão a mais. *@
+                    <noscript><button type="submit" class="nav-item nav-botao">Ir</button></noscript>
+                </form>
+            }
+
             <span class="nav-sep" aria-hidden="true"></span>
             <NavLink class="nav-item nav-quem" href="Account/Manage">@context.User.Identity?.Name</NavLink>
             <form action="Account/Logout" method="post" class="nav-sair">
@@ -48,10 +82,50 @@
 @code {
     private string? currentUrl;
 
+    [CascadingParameter] private Task<AuthenticationState>? Estado { get; set; }
+
+    private IReadOnlyList<NomeDoVault> _vaults = [];
+    private NomeDoVault _atual = NomeDoVault.Padrao;
+
     protected override void OnInitialized()
     {
         currentUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
         NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    /// <summary>
+    /// A lista de vaults sai do DISCO, e é lida aqui na barra em vez de vir por um serviço com estado.
+    ///
+    /// Custa uma listagem de diretório por renderização da barra — dezenas de microssegundos — e em
+    /// troca não existe cache para invalidar no dia em que alguém criar uma pasta pelo Obsidian. Ver
+    /// RaizDoVaultDoUsuario.VaultsDe, onde a mesma escolha está justificada por inteiro.
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Estado is null) return;
+
+        var estado = await Estado;
+        if (estado.User.Identity?.IsAuthenticated != true) return;
+
+        try
+        {
+            var apelido = await Apelidos.DeAsync(estado.User);
+            _vaults = RaizDoVaultDoUsuario.VaultsDe(OpcoesDoVault.Value.Raiz, apelido);
+            _atual = await Apelidos.VaultDeAsync(estado.User);
+        }
+        catch (Exception e)
+        {
+            // REGISTRA ANTES DE ENGOLIR. A primeira versão só engolia, e o alternador simplesmente não
+            // aparecia — sem tela de erro, sem log, sem nada para puxar o fio. Um catch mudo numa
+            // degradação silenciosa é o defeito indepurável por construção.
+            Log.LogWarning(e, "Não consegui montar o alternador de vaults; a barra segue sem ele.");
+
+            // A BARRA NÃO PODE DERRUBAR A TELA. Ela é desenhada em TODA página, inclusive nas do
+            // Identity: um erro aqui — cadastro sem apelido, disco fora do ar — levaria junto a tela de
+            // login, e aí não haveria como entrar para consertar. Sem alternador é degradação; sem
+            // login é impasse.
+            _vaults = [];
+        }
     }
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)

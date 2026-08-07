@@ -11,6 +11,9 @@ public sealed class NotaNoIndice
     /// </summary>
     public string Usuario { get; set; } = string.Empty;
 
+    /// <summary>Em qual vault desta pessoa a linha vive. Ver ContextoDoIndice.VaultAtual.</summary>
+    public string Vault { get; set; } = string.Empty;
+
     public int Id { get; set; }
     public string Caminho { get; set; } = string.Empty;
     public string Titulo { get; set; } = string.Empty;
@@ -35,6 +38,9 @@ public sealed class LigacaoNoIndice
     /// </summary>
     public string Usuario { get; set; } = string.Empty;
 
+    /// <summary>Em qual vault desta pessoa a linha vive. Ver ContextoDoIndice.VaultAtual.</summary>
+    public string Vault { get; set; } = string.Empty;
+
     public int Id { get; set; }
     public int NotaId { get; set; }
     public NotaNoIndice Nota { get; set; } = null!;
@@ -53,6 +59,9 @@ public sealed class EtiquetaNoIndice
     /// aplicada por FILTRO GLOBAL do EF Core — ver <see cref="ContextoDoIndice"/>.
     /// </summary>
     public string Usuario { get; set; } = string.Empty;
+
+    /// <summary>Em qual vault desta pessoa a linha vive. Ver ContextoDoIndice.VaultAtual.</summary>
+    public string Vault { get; set; } = string.Empty;
 
     public int Id { get; set; }
     public int NotaId { get; set; }
@@ -79,6 +88,9 @@ public sealed class RevisaoNoIndice
     /// aplicada por FILTRO GLOBAL do EF Core — ver <see cref="ContextoDoIndice"/>.
     /// </summary>
     public string Usuario { get; set; } = string.Empty;
+
+    /// <summary>Em qual vault desta pessoa a linha vive. Ver ContextoDoIndice.VaultAtual.</summary>
+    public string Vault { get; set; } = string.Empty;
 
     public long Id { get; set; }
     public string Caminho { get; set; } = string.Empty;
@@ -109,6 +121,17 @@ public sealed class ContextoDoIndice(DbContextOptions<ContextoDoIndice> opcoes) 
     /// </summary>
     public string UsuarioAtual { get; set; } = string.Empty;
 
+    /// <summary>
+    /// E EM QUAL VAULT DELE. A fronteira deste índice virou um PAR, e os dois lados falham fechado pelo
+    /// mesmo motivo: nenhuma linha real tem vault vazio, então esquecer de preencher devolve lista
+    /// vazia — nunca a nota do outro vault.
+    ///
+    /// Vazamento entre vaults da MESMA pessoa não é problema de segurança, e é pior de perceber por
+    /// isso: ninguém desconfia de uma nota própria aparecendo onde não devia. O que ele estraga é o
+    /// grafo e o wikilink, que são o produto.
+    /// </summary>
+    public string VaultAtual { get; set; } = string.Empty;
+
     public DbSet<NotaNoIndice> Notas => Set<NotaNoIndice>();
     public DbSet<LigacaoNoIndice> Ligacoes => Set<LigacaoNoIndice>();
     public DbSet<EtiquetaNoIndice> Etiquetas => Set<EtiquetaNoIndice>();
@@ -119,11 +142,14 @@ public sealed class ContextoDoIndice(DbContextOptions<ContextoDoIndice> opcoes) 
         b.Entity<NotaNoIndice>(e =>
         {
             e.ToTable("notas");
-            // O caminho é único DENTRO de um vault, não no banco. Sem o usuário na chave, a segunda
-            // pessoa a criar "Direito/Licitações.md" esbarraria na nota da primeira.
-            e.HasIndex(x => new { x.Usuario, x.Caminho }).IsUnique();
+            // O caminho é único DENTRO de um vault, não no banco — e "um vault" agora é o par
+            // (usuário, vault). Sem o usuário na chave, a segunda pessoa a criar "Direito/Licitações.md"
+            // esbarraria na nota da primeira; sem o vault, o mesmo caminho no estudo e no trabalho da
+            // MESMA pessoa colidiria, e a segunda gravação sobrescreveria a primeira em silêncio.
+            e.HasIndex(x => new { x.Usuario, x.Vault, x.Caminho }).IsUnique();
             e.Property(x => x.Usuario).HasMaxLength(32);
-            e.HasQueryFilter(x => x.Usuario == UsuarioAtual);
+            e.Property(x => x.Vault).HasMaxLength(32);
+            e.HasQueryFilter(x => x.Usuario == UsuarioAtual && x.Vault == VaultAtual);
             e.Property(x => x.Caminho).HasMaxLength(1024);
             e.Property(x => x.Titulo).HasMaxLength(512);
             e.Property(x => x.Impressao).HasMaxLength(64);
@@ -141,32 +167,35 @@ public sealed class ContextoDoIndice(DbContextOptions<ContextoDoIndice> opcoes) 
             // Backlink é a consulta mais valiosa do produto e roda em toda abertura de nota: o índice
             // inclui o usuário porque a consulta sempre inclui — o filtro global põe as duas colunas
             // no WHERE, e um índice só por destino faria o banco varrer as ligações de todo mundo.
-            e.HasIndex(x => new { x.Usuario, x.Destino });
+            e.HasIndex(x => new { x.Usuario, x.Vault, x.Destino });
             e.Property(x => x.Usuario).HasMaxLength(32);
+            e.Property(x => x.Vault).HasMaxLength(32);
             e.Property(x => x.Alvo).HasMaxLength(1024);
             e.Property(x => x.Destino).HasMaxLength(1024);
-            e.HasQueryFilter(x => x.Usuario == UsuarioAtual);
+            e.HasQueryFilter(x => x.Usuario == UsuarioAtual && x.Vault == VaultAtual);
         });
 
         b.Entity<EtiquetaNoIndice>(e =>
         {
             e.ToTable("etiquetas");
             e.HasOne(x => x.Nota).WithMany(n => n.Etiquetas).HasForeignKey(x => x.NotaId).OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(x => new { x.Usuario, x.Valor });
+            e.HasIndex(x => new { x.Usuario, x.Vault, x.Valor });
             e.Property(x => x.Usuario).HasMaxLength(32);
+            e.Property(x => x.Vault).HasMaxLength(32);
             e.Property(x => x.Valor).HasMaxLength(512);
-            e.HasQueryFilter(x => x.Usuario == UsuarioAtual);
+            e.HasQueryFilter(x => x.Usuario == UsuarioAtual && x.Vault == VaultAtual);
         });
 
         b.Entity<RevisaoNoIndice>(e =>
         {
             e.ToTable("revisoes");
-            e.HasIndex(x => new { x.Usuario, x.Caminho, x.Em });
+            e.HasIndex(x => new { x.Usuario, x.Vault, x.Caminho, x.Em });
             e.Property(x => x.Usuario).HasMaxLength(32);
+            e.Property(x => x.Vault).HasMaxLength(32);
             e.Property(x => x.Caminho).HasMaxLength(1024);
             // Revisão é o único texto que não existe em arquivo nenhum. O filtro aqui também fecha a
             // porta de buscar a revisão de outra pessoa por id — que seria adivinhável, já que é serial.
-            e.HasQueryFilter(x => x.Usuario == UsuarioAtual);
+            e.HasQueryFilter(x => x.Usuario == UsuarioAtual && x.Vault == VaultAtual);
         });
     }
 }

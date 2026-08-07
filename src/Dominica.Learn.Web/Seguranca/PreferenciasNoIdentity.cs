@@ -1,5 +1,6 @@
 using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Domain.Cartoes;
+using Dominica.Learn.Domain.Vault;
 using Dominica.Learn.Web.Data;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -32,6 +33,20 @@ public sealed class PreferenciasNoIdentity(
         // Teto negativo não significa nada, e um teto absurdo é o mesmo que não ter teto — com o
         // agravante de parecer que existe um. Zero continua sendo o "sem teto" explícito.
         eu.CartoesNovosPorDia = Math.Clamp(quantos, TetoDeCartoesNovos.SemTeto, 999);
+        await usuarios.UpdateAsync(eu);
+    }
+
+    public async Task<NomeDoVault?> VaultAtualAsync(CancellationToken ct = default) =>
+        // NomeDoVault.Conhecido, e não De: o campo pode apontar para um vault renomeado ou apagado por
+        // fora, e isso não é motivo para a tela explodir. Nulo aqui vira o padrão em quem pergunta.
+        NomeDoVault.Conhecido((await EuAsync())?.VaultAtual);
+
+    public async Task DefinirVaultAtualAsync(NomeDoVault vault, CancellationToken ct = default)
+    {
+        var eu = await EuAsync();
+        if (eu is null) return;
+
+        eu.VaultAtual = vault.Valor;
         await usuarios.UpdateAsync(eu);
     }
 

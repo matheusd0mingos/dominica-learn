@@ -30,11 +30,18 @@ public static class RotaDoPacote
             [FromServices] IEmpacotadorDoVault empacotador,
             CancellationToken ct) =>
         {
-            escopo.Definir(await apelidos.DeAsync(ctx.User));
+            // O VAULT VAI JUNTO, e esquecê-lo aqui daria o defeito mais silencioso possível: quem
+            // estivesse no vault de trabalho clicaria em "baixar" e receberia, sem erro nenhum, o zip do
+            // vault de estudo. Fora do circuito não há preferência a consultar — quem responde é a mesma
+            // tradução que responde pelo apelido.
+            escopo.Definir(await apelidos.DeAsync(ctx.User), await apelidos.VaultDeAsync(ctx.User));
 
             // O nome do arquivo leva a data: quem baixa duas vezes na mesma pasta não sobrescreve o
             // backup anterior sem perceber.
-            var nome = $"dominica-learn-{DateTime.Now:yyyy-MM-dd}.zip";
+            var vault = await apelidos.VaultDeAsync(ctx.User);
+            // O NOME DO ARQUIVO DIZ QUAL VAULT É. Dois zips "dominica-learn-2026-08-07.zip" na pasta de
+            // downloads, um de estudo e outro de trabalho, é o backup que ninguém consegue conferir.
+            var nome = $"dominica-learn-{vault}-{DateTime.Now:yyyy-MM-dd}.zip";
 
             ctx.Response.ContentType = "application/zip";
             ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{nome}\"";

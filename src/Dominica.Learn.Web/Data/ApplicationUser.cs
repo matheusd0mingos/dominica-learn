@@ -30,4 +30,19 @@ public class ApplicationUser : IdentityUser
     /// <see cref="Dominica.Learn.Domain.Cartoes.TetoDeCartoesNovos"/>.
     /// </summary>
     public int CartoesNovosPorDia { get; set; } = Dominica.Learn.Domain.Cartoes.TetoDeCartoesNovos.Padrao;
+
+    /// <summary>
+    /// Em qual vault a pessoa estava da última vez. Vazio = nunca escolheu, e aí vale o padrão.
+    ///
+    /// PREFERÊNCIA, E NÃO FRONTEIRA — a distinção decide o que pode e o que não pode acontecer com este
+    /// campo. <see cref="Apelido"/> é fronteira: ele diz de QUEM é o conhecimento, e por isso é imutável
+    /// e importa para a segurança. Este aqui diz só onde a pessoa parou de trabalhar; perdê-lo custa um
+    /// clique.
+    ///
+    /// GUARDA O NOME, NÃO UMA CHAVE ESTRANGEIRA, porque não existe tabela de vaults: vault é PASTA, do
+    /// mesmo jeito que matéria é pasta. Se a pasta for renomeada por fora, este campo aponta para um
+    /// vault que não existe mais — e o app cai no padrão, que é o comportamento certo e é o que o
+    /// alternador já faz.
+    /// </summary>
+    public string VaultAtual { get; set; } = string.Empty;
 }

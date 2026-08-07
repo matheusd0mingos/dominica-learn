@@ -113,7 +113,10 @@ public sealed class VigiaDoVault : BackgroundService
     /// </summary>
     private async Task ReconciliarAsync(CancellationToken ct)
     {
-        foreach (var apelido in VaultsNoDisco())
+        // UM VAULT POR VEZ, e não um usuário por vez. Cada vault tem índice próprio: reconciliar "o
+        // usuário" sem dizer qual vault compararia o disco de um com o índice do outro, e o
+        // reconciliador concluiria — corretamente, pelo que ele enxerga — que tudo foi apagado.
+        foreach (var (apelido, vault) in VaultsNoDisco())
         {
             ct.ThrowIfCancellationRequested();
             try
@@ -123,7 +126,7 @@ public sealed class VigiaDoVault : BackgroundService
                 // vaza conexão em produção). Aqui o escopo tem uma segunda função — declarar de quem é o
                 // vault, já que não há ninguém logado para perguntar.
                 using var escopo = _escopos.CreateScope();
-                escopo.ServiceProvider.GetRequiredService<EscopoDoUsuario>().Definir(apelido);
+                escopo.ServiceProvider.GetRequiredService<EscopoDoUsuario>().Definir(apelido, vault);
                 await escopo.ServiceProvider.GetRequiredService<ReconciliarVault>().ExecutarAsync(ct);
             }
             catch (OperationCanceledException) { throw; }
@@ -131,12 +134,16 @@ public sealed class VigiaDoVault : BackgroundService
             {
                 // O vault de um não pode impedir a reconciliação do outro. Sem este catch, uma nota
                 // ilegível na pasta de alguém deixaria todo mundo depois dele fora de sincronia.
-                _log.LogError(e, "Falha ao reconciliar o vault de {Apelido}; seguindo para os demais.", apelido);
+                _log.LogError(e, "Falha ao reconciliar {Vault} de {Apelido}; seguindo para os demais.", vault, apelido);
             }
         }
     }
 
-    private IEnumerable<ApelidoDoUsuario> VaultsNoDisco()
+    /// <summary>
+    /// Todos os vaults do disco, como pares (pessoa, vault) — DOIS níveis de pasta:
+    /// <c>{raiz}/{apelido}/{vault}</c>.
+    /// </summary>
+    private IEnumerable<(ApelidoDoUsuario Apelido, NomeDoVault Vault)> VaultsNoDisco()
     {
         var raiz = Path.GetFullPath(_opcoes.Raiz);
         IEnumerable<string> pastas;
@@ -148,13 +155,27 @@ public sealed class VigiaDoVault : BackgroundService
             var nome = Path.GetFileName(pasta);
             if (!ApelidoDoUsuario.TentarCriar(nome, out var apelido, out var erro) || apelido is null)
             {
-                // Pasta que não é vault de ninguém — um ".git" na raiz, uma sobra de cópia. Avisa em vez
-                // de ignorar calado: se for a pasta de alguém com nome errado, o dono precisa saber por
-                // que as notas dele não aparecem.
+                // Pasta que não é de ninguém — um ".git" na raiz, uma sobra de cópia. Avisa em vez de
+                // ignorar calado: se for a pasta de alguém com nome errado, o dono precisa saber por que
+                // as notas dele não aparecem.
                 _log.LogWarning("Pasta na raiz do vault que não é de nenhum usuário ({Motivo}): {Pasta}", erro, nome);
                 continue;
             }
-            yield return apelido;
+
+            foreach (var subpasta in Directory.EnumerateDirectories(pasta))
+            {
+                var nomeDoVault = Path.GetFileName(subpasta);
+                if (!NomeDoVault.TentarCriar(nomeDoVault, out var vault, out var porQue) || vault is null)
+                {
+                    // Mesmo critério do nível de cima, e o aviso importa ainda mais aqui: uma MATÉRIA
+                    // deixada por engano na pasta do usuário (migração que não rodou, cópia manual) cai
+                    // exatamente neste ramo, e o dono veria o vault sem aquela matéria e nada mais.
+                    _log.LogWarning("Pasta em {Apelido} que não é um vault válido ({Motivo}): {Pasta}",
+                        apelido, porQue, nomeDoVault);
+                    continue;
+                }
+                yield return (apelido, vault);
+            }
         }
     }
 

@@ -1,4 +1,5 @@
 using System.Text;
+using Dominica.Learn.Domain.Vault;
 using Dominica.Learn.Domain.Anexos;
 using Dominica.Learn.Infrastructure.Vault;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -21,7 +22,7 @@ public sealed class ArmazemDeAnexosEmDiscoTests : IDisposable
     {
         _raizComum = Path.Combine(Path.GetTempPath(), "learn-anexos-" + Guid.NewGuid().ToString("N")[..10]);
         var opcoes = Options.Create(new OpcoesDoVault { Raiz = _raizComum });
-        _raiz = Path.Combine(_raizComum, Apelido);
+        _raiz = Path.Combine(_raizComum, Apelido, NomeDoVault.Padrao.Valor);
         _armazem = new ArmazemDeAnexosEmDisco(
             new RaizDoVaultDoUsuario(opcoes, new UsuarioDeTeste(Apelido)),
             NullLogger<ArmazemDeAnexosEmDisco>.Instance);

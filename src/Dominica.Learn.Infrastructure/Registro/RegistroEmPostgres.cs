@@ -28,6 +28,10 @@ public sealed class RegistroEmPostgres(IDbContextFactory<ContextoDoRegistro> fab
     {
         var db = await fabrica.CreateDbContextAsync(ct);
         db.UsuarioAtual = (await usuario.ApelidoAsync(ct)).Valor;
+        // OS DOIS LADOS, SEMPRE JUNTOS. Preencher um e esquecer o outro não dá erro: dá lista vazia
+        // (porque nenhuma linha real tem vault vazio), e lista vazia parece "não tem nada" em vez de
+        // "perguntei errado". Por isso as duas linhas ficam grudadas, aqui e nos outros adaptadores.
+        db.VaultAtual = (await usuario.VaultAsync(ct)).Valor;
         return db;
     }
 
@@ -35,9 +39,11 @@ public sealed class RegistroEmPostgres(IDbContextFactory<ContextoDoRegistro> fab
     {
         await using var db = await AbrirAsync(ct);
         var eu = db.UsuarioAtual;
+        var vault = db.VaultAtual;
         db.Lotes.Add(new LoteNoRegistro
         {
             Usuario = eu,
+            Vault = vault,
             Em = lote.Em,
             Materia = lote.Materia.Nome,
             Total = lote.Total,
@@ -52,9 +58,11 @@ public sealed class RegistroEmPostgres(IDbContextFactory<ContextoDoRegistro> fab
     {
         await using var db = await AbrirAsync(ct);
         var eu = db.UsuarioAtual;
+        var vault = db.VaultAtual;
         db.Sessoes.Add(new SessaoNoRegistro
         {
             Usuario = eu,
+            Vault = vault,
             Inicio = sessao.Inicio,
             Materia = sessao.Materia.Nome,
             Segundos = (int)sessao.Duracao.TotalSeconds,
