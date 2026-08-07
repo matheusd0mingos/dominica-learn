@@ -100,11 +100,17 @@
                 {
                     var de = _visao.Posicionado.Posicoes[a.De];
                     var para = _visao.Posicionado.Posicoes[a.Para];
+                    @* A LINHA É O RECURSO, e ela estava com 0,8 px e 55% de opacidade — quase
+                       invisível. Numa tela onde ligar duas notas é o gesto mais valioso do produto, o
+                       resultado do gesto precisa saltar aos olhos: quem ligou pela primeira vez tem de
+                       VER que ligou. Piso de 1,6 px, e o peso soma daí.
+
+                       E O COMENTÁRIO FICA AQUI, FORA DA TAG. Dentro dela, entre atributos, o Razor NÃO
+                       o trata como comentário: ele vira nome de atributo, o navegador recusa com
+                       InvalidCharacterError no setAttribute, e o CIRCUITO MORRE — o grafo inteiro
+                       ficava em branco, com a barra vermelha embaixo. Compilou, passou nos testes, e
+                       só apareceu no navegador. *@
                     <line x1="@N(de.X)" y1="@N(de.Y)" x2="@N(para.X)" y2="@N(para.Y)"
-                          @* A LINHA É O RECURSO, e ela estava com 0,8 px e 55% de opacidade — quase
-                             invisível. Numa tela onde ligar duas notas é o gesto mais valioso do
-                             produto, o resultado do gesto precisa saltar aos olhos: quem ligou pela
-                             primeira vez tem de VER que ligou. Piso de 1,6 px, e o peso soma daí. *@
                           stroke-width="@N(1.6 + Math.Min(a.Peso, 5) * 0.9)" stroke-opacity="0.75" />
                 }
             </g>
