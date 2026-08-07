@@ -421,6 +421,17 @@
     }
 
     /// <summary>
+    /// Chamado pelo editor a cada tecla dentro de um <c>[[</c> aberto. Ver js/editor.js.
+    ///
+    /// O JavaScript só sabe que existe um "[[" e desenha a lista; QUAIS notas entram, em que ordem, e se
+    /// o texto sai como <c>[[Crase]]</c> ou <c>[[Português/Crase]]</c> é decidido aqui — a última é regra
+    /// de domínio, e errá-la produz um link ambíguo, que não dá erro e leva para a nota errada.
+    /// </summary>
+    [JSInvokable]
+    public Task<IReadOnlyList<SugestaoDeLigacao>> AoCompletarLigacao(string termo) =>
+        Conhecimento.ParaCompletarLigacaoAsync(termo);
+
+    /// <summary>
     /// Chamado pelo JavaScript quando o texto ficou parado. É o autosave.
     /// </summary>
     [JSInvokable]

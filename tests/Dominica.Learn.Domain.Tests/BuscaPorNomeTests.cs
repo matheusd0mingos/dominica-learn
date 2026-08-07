@@ -112,4 +112,26 @@ public class BuscaPorNomeTests
 
         Assert.Equal([0, 1], r[0].Posicoes);
     }
+
+    [Fact]
+    public void ANotaIndiceDaMateriaVemAntesDasNotasDaPasta()
+    {
+        // O caso que este produto CRIA sozinho: toda matéria nasce como pasta + nota de mesmo nome.
+        // Com o casamento guloso, "portug" era consumido inteiro pela PASTA de "Português/Origem.md",
+        // o bônus de nome de arquivo nunca disparava, e a nota-índice caía para baixo. Quem digita o
+        // nome da matéria quer a matéria.
+        var r = BuscaPorNome.Ordenar("portug",
+            ["Português/Origem.md", "Português/Português.md", "Português/Crase.md"]);
+
+        Assert.Equal("Português/Português.md", r[0].Texto);
+    }
+
+    [Fact]
+    public void ONomeDoArquivoContinuaGanhandoDaPasta()
+    {
+        // A regra antiga, que a segunda passada não pode ter estragado.
+        var r = BuscaPorNome.Ordenar("licit", ["Licitações/Prazos.md", "Direito/Licitações.md"]);
+
+        Assert.Equal("Direito/Licitações.md", r[0].Texto);
+    }
 }

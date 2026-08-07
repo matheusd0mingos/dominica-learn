@@ -346,4 +346,50 @@ public sealed class ServicoDeConhecimento(
         }
         return notas;
     }
+
+    // —— COMPLETAR [[ ]] ————————————————————————————————————————————————————————————
+    /// <summary>
+    /// Os candidatos do autocompletar de <c>[[</c>, já ordenados e já com o texto pronto para inserir.
+    ///
+    /// POR QUE ESTE MÉTODO EXISTE, em vez de a tela reaproveitar <see cref="ParaAbrirRapidoAsync"/>:
+    /// abrir e citar são gestos diferentes. Quem abre precisa do caminho para navegar; quem cita precisa
+    /// do TEXTO QUE VAI FICAR ESCRITO na nota — e decidir se ele sai curto ou com a pasta exige olhar o
+    /// vault inteiro atrás de homônimas. Deixar essa conta para o JavaScript colocaria uma regra do
+    /// domínio dentro de um arquivo .js, onde ninguém a testaria e ela divergiria do renomear.
+    ///
+    /// Com termo VAZIO devolve as recentes — quem acabou de digitar "[[" quase sempre quer citar algo em
+    /// que estava mexendo, e uma lista alfabética ali seria a informação menos útil possível.
+    /// </summary>
+    public async Task<IReadOnlyList<SugestaoDeLigacao>> ParaCompletarLigacaoAsync(
+        string? termo, int limite = 8, CancellationToken ct = default)
+    {
+        var todos = await indice.TodosOsCaminhosAsync(ct);
+
+        IEnumerable<CaminhoNota> escolhidos;
+        if (string.IsNullOrWhiteSpace(termo))
+        {
+            escolhidos = (await indice.RecentesAsync(limite, ct)).Select(n => n.Caminho);
+        }
+        else
+        {
+            var porCaminho = todos.ToDictionary(c => c.Valor, c => c, StringComparer.Ordinal);
+            escolhidos = BuscaPorNome.Ordenar(termo, porCaminho.Keys)
+                .Take(limite)
+                .Select(a => porCaminho[a.Texto]);
+        }
+
+        return escolhidos
+            .Select(c => new SugestaoDeLigacao(
+                c.Nome, c.Pasta, EscritaDeLigacao.MaisCurta(c, todos)))
+            .ToList();
+    }
 }
+
+/// <summary>
+/// Um candidato do autocompletar de <c>[[</c>.
+///
+/// <see cref="Insercao"/> é separado de <see cref="Nome"/> porque nem sempre são iguais: quando existe
+/// outra nota com o mesmo nome, o que se mostra continua sendo o nome — é por ele que a pessoa reconhece
+/// a nota — mas o que se escreve tem de ser o caminho, ou o link fica ambíguo.
+/// </summary>
+public sealed record SugestaoDeLigacao(string Nome, string Pasta, string Insercao);

@@ -60,15 +60,45 @@ public static class BuscaPorNome
 
     /// <summary>
     /// Pontua um candidato. Null quando as letras do termo não aparecem, na ordem, dentro dele.
+    ///
+    /// TENTA DUAS VEZES, e é isso que salva o caso mais comum deste produto. O casamento é guloso: ele
+    /// pega a primeira letra que serve e nunca volta atrás. Numa matéria, a nota-índice se chama
+    /// "Português/Português.md" — a pasta e o nome são a MESMA palavra — e quem digita "portug" tem o
+    /// termo inteiro consumido pela PASTA. O bônus de "casou no nome do arquivo" nunca dispara, e a
+    /// nota-índice cai abaixo de qualquer outra nota daquela pasta. Como toda matéria criada aqui nasce
+    /// nesse formato, seria o defeito mais visível do buscador.
+    ///
+    /// A segunda tentativa casa só a partir do nome do arquivo, e vence a de maior pontuação.
     /// </summary>
     private static AcertoPorNome? Pontuar(string busca, string candidato)
     {
         var alvo = SemAcento(candidato);
+        var barra = alvo.LastIndexOf('/');
+
+        var inteiro = Casar(busca, alvo, 0, barra);
+        var soONome = barra >= 0 ? Casar(busca, alvo, barra + 1, barra) : null;
+
+        var melhor = soONome is not null && (inteiro is null || soONome.Pontos > inteiro.Pontos)
+            ? soONome
+            : inteiro;
+        if (melhor is null) return null;
+
+        // Casamento curto num texto curto vale mais: "crase" em "Crase" é acerto perfeito; a mesma
+        // busca dentro de um caminho de oitenta caracteres é coincidência.
+        return new AcertoPorNome(
+            candidato, melhor.Pontos + Math.Max(0, 20 - alvo.Length / 4), melhor.Posicoes);
+    }
+
+    /// <summary>
+    /// Uma passada gulosa a partir de <paramref name="inicio"/>. Null quando falta letra.
+    /// </summary>
+    private static AcertoPorNome? Casar(string busca, string alvo, int inicio, int barra)
+    {
         var posicoes = new List<int>(busca.Length);
 
         var pontos = 0;
         var anterior = -2;
-        var i = 0;
+        var i = inicio;
 
         for (var b = 0; b < busca.Length; b++)
         {
@@ -97,14 +127,11 @@ public static class BuscaPorNome
         // O NOME DO ARQUIVO vale mais que a pasta. Quem digita "licit" está lembrando do nome da nota,
         // não do caminho até ela — e sem este peso, uma pasta chamada "Licitações" com dez notas
         // dentro empurraria a nota "Licitações" para o décimo lugar.
-        var barra = alvo.LastIndexOf('/');
         if (barra >= 0 && posicoes[0] > barra) pontos += 15;
 
-        // Casamento curto num texto curto vale mais: "crase" em "Crase" é acerto perfeito; a mesma
-        // busca dentro de um caminho de oitenta caracteres é coincidência.
-        pontos += Math.Max(0, 20 - alvo.Length / 4);
-
-        return new AcertoPorNome(candidato, pontos, posicoes);
+        // O texto vai vazio: quem monta o resultado final é Pontuar, que conhece o candidato original
+        // com acento. Aqui só interessam pontos e posições.
+        return new AcertoPorNome(string.Empty, pontos, posicoes);
     }
 
     private static bool EhSeparador(char c) => c is ' ' or '/' or '-' or '_' or '.';

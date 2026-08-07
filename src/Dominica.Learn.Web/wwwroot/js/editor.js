@@ -103,8 +103,165 @@ export async function criar(id, conteudo, ouvinte) {
     temporizador = setTimeout(() => enviar(cm), SILENCIO_MS)
   })
 
-  editores.set(id, { cm, limpar: () => clearTimeout(temporizador) })
+  const completar = ligarCompletarLigacao(cm, ouvinte)
+
+  editores.set(id, {
+    cm,
+    limpar: () => { clearTimeout(temporizador); completar.limpar() },
+  })
   cm.refresh()
+}
+
+// ——————————————————————————————————————————————————————————————————————————————————————————
+// AUTOCOMPLETAR DE [[
+//
+// POR QUE ISTO É O RECURSO QUE FAZ O VAULT VIRAR REDE: escrever "[[" e ter de lembrar o nome exato da
+// nota é o momento em que a pessoa desiste de ligar e escreve a explicação de novo, do zero. É assim que
+// um vault vira uma pilha de arquivos soltos em vez de conhecimento conectado. Três letras e a lista têm
+// de aparecer.
+//
+// A DIVISÃO DE TRABALHO COM O C# É PROPOSITAL, e é a regra deste arquivo: o JavaScript só sabe DETECTAR
+// que o cursor está dentro de um "[[" aberto e DESENHAR uma lista. Quem decide quais notas casam, em que
+// ordem, e — o mais importante — se o texto inserido sai como "[[Crase]]" ou "[[Português/Crase]]" é o
+// servidor. Essa última é regra de domínio: erra-se para o lado da ambiguidade, e link ambíguo não dá
+// erro, leva para a nota errada em silêncio. Ver EscritaDeLigacao.
+//
+// UMA IDA AO SERVIDOR POR TECLA, com 90 ms de folga. Parece caro e não é: é a mesma ordem de grandeza do
+// autosave que já roda aqui. A alternativa — baixar o vault inteiro e filtrar no navegador — obrigaria a
+// reescrever a pontuação da busca em JavaScript, onde ela não teria teste e divergiria da do abridor
+// rápido no primeiro ajuste.
+const ESPERA_SUGESTAO_MS = 90
+const MAX_TERMO = 60
+
+function ligarCompletarLigacao(cm, ouvinte) {
+  let caixa = null
+  let sugestoes = []
+  let escolhido = 0
+  let pedido = null
+
+  const fechar = () => {
+    clearTimeout(pedido)
+    caixa?.remove()
+    caixa = null
+    sugestoes = []
+  }
+
+  // O contexto: um "[[" aberto na linha do cursor, sem "]]" entre ele e o cursor.
+  const contexto = () => {
+    const cur = cm.getCursor()
+    const linha = cm.getLine(cur.line) ?? ''
+    const antes = linha.slice(0, cur.ch)
+
+    const abre = antes.lastIndexOf('[[')
+    if (abre < 0) return null
+
+    const termo = antes.slice(abre + 2)
+    // "]" no meio já fechou o link; termo comprido é quase certamente um "[[" antigo lá atrás na linha,
+    // e não o que a pessoa está escrevendo agora.
+    if (termo.includes(']') || termo.length > MAX_TERMO) return null
+
+    return { termo, de: { line: cur.line, ch: abre }, ate: cur }
+  }
+
+  const desenhar = (ctx) => {
+    if (!sugestoes.length) return fechar()
+
+    if (!caixa) {
+      caixa = document.createElement('div')
+      caixa.className = 'cm-ligacoes'
+      // No <body>, e não dentro do editor: dentro, o `overflow` do CodeMirror recortaria a lista, e o
+      // sintoma seria uma lista que só mostra a primeira linha quando o cursor está perto da borda.
+      document.body.appendChild(caixa)
+    }
+
+    caixa.innerHTML = ''
+    sugestoes.forEach((s, i) => {
+      const item = document.createElement('div')
+      item.className = 'cm-ligacoes-item' + (i === escolhido ? ' cm-ligacoes-atual' : '')
+      const nome = document.createElement('span')
+      nome.className = 'cm-ligacoes-nome'
+      nome.textContent = s.nome
+      item.appendChild(nome)
+      if (s.pasta) {
+        const pasta = document.createElement('span')
+        pasta.className = 'cm-ligacoes-pasta'
+        pasta.textContent = s.pasta
+        item.appendChild(pasta)
+      }
+      // mousedown e não click: o click chega depois do blur, e o blur já teria fechado a lista.
+      item.addEventListener('mousedown', (e) => { e.preventDefault(); aceitar(i) })
+      caixa.appendChild(item)
+    })
+
+    const pos = cm.cursorCoords(ctx.de, 'page')
+    caixa.style.left = `${pos.left}px`
+    caixa.style.top = `${pos.bottom + 4}px`
+
+    // Se não couber abaixo, sobe. Sem isto, a lista fica fora da tela justamente quando se escreve no
+    // fim da nota — que é onde se escreve quase sempre.
+    const altura = caixa.offsetHeight
+    if (pos.bottom - window.scrollY + altura + 16 > window.innerHeight)
+      caixa.style.top = `${pos.top - altura - 4}px`
+  }
+
+  const aceitar = (i) => {
+    const escolha = sugestoes[i]
+    const ctx = contexto()
+    if (!escolha || !ctx) return fechar()
+
+    cm.replaceRange(`[[${escolha.insercao}]]`, ctx.de, ctx.ate)
+    fechar()
+    cm.focus()
+  }
+
+  const reavaliar = () => {
+    const ctx = contexto()
+    if (!ctx) return fechar()
+
+    clearTimeout(pedido)
+    pedido = setTimeout(() => {
+      ouvinte.invokeMethodAsync('AoCompletarLigacao', ctx.termo)
+        .then((r) => {
+          // O cursor pode ter saído do "[[" enquanto a resposta vinha. Desenhar aqui deixaria uma lista
+          // órfã flutuando sobre o texto, e ela só sumiria no próximo clique.
+          const agora = contexto()
+          if (!agora || agora.de.line !== ctx.de.line || agora.de.ch !== ctx.de.ch) return fechar()
+          sugestoes = r ?? []
+          escolhido = 0
+          desenhar(agora)
+        })
+        .catch(() => fechar())
+    }, ESPERA_SUGESTAO_MS)
+  }
+
+  cm.on('cursorActivity', reavaliar)
+  cm.on('blur', fechar)
+
+  cm.on('keydown', (_, e) => {
+    if (!caixa || !sugestoes.length) return
+
+    const mover = (d) => {
+      escolhido = (escolhido + d + sugestoes.length) % sugestoes.length
+      const ctx = contexto()
+      if (ctx) desenhar(ctx)
+    }
+
+    switch (e.key) {
+      case 'ArrowDown': mover(1); break
+      case 'ArrowUp': mover(-1); break
+      case 'Enter':
+      case 'Tab': aceitar(escolhido); break
+      case 'Escape': fechar(); break
+      default: return
+    }
+
+    // codemirrorIgnore é o que impede o CodeMirror de ALÉM disso inserir uma quebra de linha no Enter.
+    // Só preventDefault não basta: o CM5 trata a tecla no seu próprio despacho, antes do navegador.
+    e.preventDefault()
+    e.codemirrorIgnore = true
+  })
+
+  return { limpar: fechar }
 }
 
 export function ler(id) {

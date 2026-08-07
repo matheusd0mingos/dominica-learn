@@ -348,3 +348,57 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
     background: color-mix(in srgb, var(--ouro) 18%, transparent) !important;
     border-left: 3px solid var(--ouro);
 }
+
+/* A lista do autocompletar de [[ ]].
+
+   Ela mora no <body> e não dentro do editor — de dentro, o overflow do CodeMirror a recortaria. O
+   preço é que nenhum CSS com escopo a alcança, e por isso as regras estão aqui. */
+.cm-ligacoes {
+    position: absolute;
+    z-index: 2000;
+    min-width: 260px;
+    max-width: 420px;
+    max-height: 260px;
+    overflow-y: auto;
+    background: var(--panel);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    box-shadow: var(--sombra);
+    padding: 4px;
+    font-size: .9rem;
+}
+
+.cm-ligacoes-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    /* A pasta pode ser longa; o nome nunca deve ser empurrado para fora por causa dela. */
+    overflow: hidden;
+}
+
+.cm-ligacoes-nome {
+    color: var(--ink);
+    white-space: nowrap;
+}
+
+.cm-ligacoes-pasta {
+    color: var(--ink-faint);
+    font-size: .8em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* O item sob as setas. Mesma marca do abridor rápido de propósito: são o mesmo gesto — escolher uma
+   nota de uma lista com o teclado — e aprender duas linguagens visuais para isso seria uma a mais. */
+.cm-ligacoes-atual {
+    background: color-mix(in srgb, var(--ouro) 18%, transparent);
+    box-shadow: inset 3px 0 0 var(--ouro);
+}
+
+.cm-ligacoes-item:hover {
+    background: color-mix(in srgb, var(--ouro) 10%, transparent);
+}
