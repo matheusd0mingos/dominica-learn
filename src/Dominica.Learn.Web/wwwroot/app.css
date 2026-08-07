@@ -466,3 +466,29 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
     color: var(--ink-faint);
     font-size: .78em;
 }
+
+/* A prévia do cartão no diálogo: é ela que ensina a sintaxe sem exigir que alguém a decore. Fonte
+   monoespaçada de propósito — o que está ali é o texto literal que vai para o arquivo. */
+.cartao-previa {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .85rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--panel-2);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    padding: 8px 10px;
+    margin: 4px 0 0;
+    color: var(--ink);
+}
+
+/* Um cartão na lista lateral da nota. Mesma linha divisória das menções: são duas listas do mesmo
+   painel, e duas linguagens visuais ali seria uma a mais para aprender. */
+.cartao-item {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--linha);
+}
+
+.cartao-item:last-of-type {
+    border-bottom: none;
+}

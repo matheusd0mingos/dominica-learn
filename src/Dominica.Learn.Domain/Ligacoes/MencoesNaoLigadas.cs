@@ -29,7 +29,8 @@ public sealed record Mencao(int Linha, int Posicao, int Comprimento, string Text
 ///     que valem para ligações e etiquetas (ver <see cref="AnalisadorDeNota.TrechosDeProsa"/>);
 ///   • o que JÁ é ligação: um <c>[[Prescrição]]</c> contém a palavra e não é menção solta;
 ///   • pedaço de palavra: "Prescrição" dentro de "Imprescritibilidade" não é citação da nota, e sugerir
-///     ligar ali ensinaria a pessoa a ignorar o painel inteiro.
+///     ligar ali ensinaria a pessoa a ignorar o painel inteiro;
+///   • CABEÇALHO: um "# Prescrição" é o NOME da nota, não uma referência a outra.
 ///
 /// A CLASSE É PURA — recebe texto e nomes, devolve posições. Quem sabe QUAIS notas vale a pena varrer é o
 /// caso de uso, que tem o índice.
@@ -71,6 +72,12 @@ public static class MencoesNaoLigadas
 
         foreach (var trecho in AnalisadorDeNota.TrechosDeProsa(conteudo))
         {
+            // CABEÇALHO NÃO É MENÇÃO. Um "# Prescrição" é o NOME da nota, não uma referência a outra: o
+            // botão "Ligar" ali trocaria o título por um link para a nota vizinha, mudando o que a nota
+            // se chama em vez de acrescentar uma ligação. Aconteceu de verdade neste vault de teste, e o
+            // estrago não dá erro nenhum — a nota some das listas com o nome que ela tinha.
+            if (trecho.EhCabecalho) continue;
+
             var dobrado = Dobrar(trecho.Texto);
 
             foreach (var nome in procurados)

@@ -1,0 +1,101 @@
+@using Dominica.Learn.Domain.Cartoes
+
+@* Criar um cartão SEM DECORAR A SINTAXE.
+
+   O recurso de flashcard já existia inteiro — analisador, agendamento SM-2, fila de revisão. O que não
+   existia era o gesto de criar: era preciso lembrar se são dois ou três dois-pontos, se o de várias
+   linhas usa "?" ou "??", e onde cada um entra. Uma sintaxe que precisa ser decorada é uma sintaxe que
+   não se usa, e o resultado era um recurso que existia no código e não na vida de ninguém.
+
+   O DIÁLOGO NÃO GUARDA NADA. Ele monta o texto e o insere no cursor — o cartão passa a morar na nota,
+   em Markdown que o Obsidian lê. Guardá-lo numa tabela seria mais fácil e quebraria a promessa: o vault
+   continuaria abrindo no Obsidian, só que sem os cartões. *@
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Cartão novo</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_frente" @bind-Value:after="Recalcular" Label="Pergunta" Variant="Variant.Outlined"
+                      AutoFocus="true" Immediate="true" Lines="2"
+                      Placeholder="Prazo para impugnar o edital" />
+
+        <MudTextField @bind-Value="_verso" @bind-Value:after="Recalcular" Label="Resposta" Variant="Variant.Outlined" Class="mt-3"
+                      Immediate="true" Lines="3"
+                      Placeholder="Até 3 dias úteis antes da abertura" />
+
+        @* Mão dupla não é padrão de propósito: ele dobra a carga de revisão, e a maioria dos pares de
+           estudo só faz sentido num sentido ("Prazo → 3 dias" sim; "3 dias → Prazo" não diz nada). *@
+        <MudCheckBox @bind-Value="_duplo" @bind-Value:after="Recalcular" Color="Color.Primary" Class="mt-2"
+                     Label="Perguntar também ao contrário (dobra a revisão)" />
+
+        @if (_problema is not null)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-3">@Explicar(_problema.Value)</MudAlert>
+        }
+
+        @* A PRÉVIA É O QUE ENSINA A SINTAXE sem exigir que ela seja decorada: depois de ver "Prazo::3
+           dias" algumas vezes, a pessoa passa a escrever direto no editor — e aí o diálogo virou
+           desnecessário, que é o melhor que ele pode fazer. *@
+        @if (_previa is not null)
+        {
+            <MudText Typo="Typo.overline" Class="mt-3 d-block">Vai ficar assim na nota</MudText>
+            <pre class="cartao-previa">@_previa</pre>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancelar">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="_previa is null"
+                   OnClick="Confirmar">Inserir na nota</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    private string _frente = string.Empty;
+    private string _verso = string.Empty;
+    private bool _duplo;
+
+    private string? _previa;
+    private ProblemaDoCartao? _problema;
+
+    /// <summary>
+    /// Chamada por @bind-Value:after em cada campo, e não por OnParametersSet: aquele só dispara quando
+    /// um PARÂMETRO muda, e o que muda aqui é estado interno. Com ele, a prévia ficaria congelada no que
+    /// existia quando o diálogo abriu — vazia, para sempre.
+    /// </summary>
+    private void Recalcular()
+    {
+        // O problema só é MOSTRADO depois que a pessoa escreveu algo dos dois lados: acusar "pergunta
+        // vazia" no diálogo recém-aberto é reclamar de algo que ninguém teve chance de fazer ainda.
+        var comecou = _frente.Trim().Length > 0 && _verso.Trim().Length > 0;
+
+        if (RedatorDeCartao.TentarEscrever(_frente, _verso, _duplo, out var texto, out var problema))
+        {
+            _previa = texto?.TrimEnd('\n');
+            _problema = null;
+        }
+        else
+        {
+            _previa = null;
+            _problema = comecou ? problema : null;
+        }
+    }
+
+    private void Confirmar()
+    {
+        Recalcular();
+        if (!RedatorDeCartao.TentarEscrever(_frente, _verso, _duplo, out var texto, out _)) return;
+        Dialogo.Close(DialogResult.Ok(texto!));
+    }
+
+    private void Cancelar() => Dialogo.Cancel();
+
+    private static string Explicar(ProblemaDoCartao p) => p switch
+    {
+        ProblemaDoCartao.FrenteVazia => "Falta a pergunta.",
+        ProblemaDoCartao.VersoVazio => "Falta a resposta.",
+        _ => "A pergunta não pode conter \"::\" — é o separador que divide pergunta e resposta.",
+    };
+}

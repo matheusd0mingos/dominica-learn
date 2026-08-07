@@ -172,4 +172,34 @@ public class MencoesNaoLigadasTests
         Assert.Empty(MencoesNaoLigadas.Encontrar("Qualquer texto.", []));
         Assert.Empty(MencoesNaoLigadas.Encontrar("Qualquer texto.", ["", "  "]));
     }
+
+    [Fact]
+    public void EmCabecalhoNaoConta()
+    {
+        // ACONTECEU DE VERDADE, num vault de teste: o botão "Ligar" transformou o "# Prescrição" de uma
+        // nota no link "[[Direito tributário/Prescrição|Prescrição]]" — o TÍTULO dela virou uma
+        // referência para a nota vizinha. Não deu erro nenhum; a nota só passou a aparecer nas listas
+        // com um nome que ninguém escreveu.
+        var texto = "# Prescrição\n\nOutro assunto qualquer.";
+
+        Assert.Empty(MencoesNaoLigadas.Encontrar(texto, ["Prescrição"]));
+    }
+
+    [Fact]
+    public void SubcabecalhoTambemNaoConta()
+    {
+        var texto = "# Tributário\n\n## Prescrição e decadência\n\nTexto.";
+
+        Assert.Empty(MencoesNaoLigadas.Encontrar(texto, ["Prescrição"]));
+    }
+
+    [Fact]
+    public void OTextoAbaixoDoCabecalhoContinuaContando()
+    {
+        // A exclusão é da LINHA do cabeçalho, não do que vem depois dele — senão a regra apagaria o
+        // corpo inteiro de qualquer nota bem estruturada.
+        var texto = "## Prazos\n\nA prescrição corre do lançamento.";
+
+        Assert.Single(MencoesNaoLigadas.Encontrar(texto, ["Prescrição"]));
+    }
 }

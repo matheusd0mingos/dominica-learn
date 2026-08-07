@@ -155,8 +155,16 @@ public static class AnalisadorDeNota
             }
             if (cerca is not null) { cercaAberta = cerca; continue; }
 
+            // Cabeçalho vem MARCADO, e não removido: ele é prosa de verdade para quem procura texto, e
+            // não é lugar para transformar em ligação. Quem consome decide — ver MencoesNaoLigadas.
+            var semIndentacao = linha.TrimStart();
+            var nivel = 0;
+            while (nivel < semIndentacao.Length && semIndentacao[nivel] == '#') nivel++;
+            var ehCabecalho = nivel is >= 1 and <= 6
+                && nivel < semIndentacao.Length && semIndentacao[nivel] == ' ';
+
             foreach (var (inicio, fim) in TrechosForaDeCodigo(linha))
-                yield return new TrechoDeProsa(i, inicioDaLinha + inicio, linha[inicio..fim]);
+                yield return new TrechoDeProsa(i, inicioDaLinha + inicio, linha[inicio..fim], ehCabecalho);
         }
     }
 
@@ -374,4 +382,4 @@ public static class AnalisadorDeNota
 }
 
 /// <summary>Um pedaço de prosa da nota, com onde ele começa no texto inteiro.</summary>
-public sealed record TrechoDeProsa(int Linha, int Inicio, string Texto);
+public sealed record TrechoDeProsa(int Linha, int Inicio, string Texto, bool EhCabecalho = false);

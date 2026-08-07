@@ -29,6 +29,12 @@ public sealed class SessaoDeEdicao(IJSObjectReference modulo, string idDoElement
     /// <summary>Insere no cursor — é onde quem anexou um arquivo espera que ele apareça.</summary>
     public Task InserirAsync(string texto) => modulo.InvokeVoidAsync("inserir", idDoElemento, texto).AsTask();
 
+    /// <summary>
+    /// Insere em LINHA PRÓPRIA. Para o que só é o que é estando sozinho na linha — um cartão colado no
+    /// fim de uma frase deixa de ser cartão, porque o "::" passa a dividir o texto da pessoa.
+    /// </summary>
+    public Task InserirBlocoAsync(string texto) => modulo.InvokeVoidAsync("inserirBloco", idDoElemento, texto).AsTask();
+
     public async ValueTask DisposeAsync()
     {
         // O editor vive no navegador; se ninguém o destruir, cada troca de nota deixa um CodeMirror órfão

@@ -4,6 +4,7 @@
 @using Dominica.Learn.Application.CasosDeUso
 @using Dominica.Learn.Application.Portas
 @using Dominica.Learn.Domain.Anexos
+@using Dominica.Learn.Domain.Cartoes
 @using Dominica.Learn.Domain.Vault
 @using Dominica.Learn.Web.Interop
 @using Microsoft.JSInterop
@@ -208,6 +209,14 @@
                         <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
                     }
 
+                    @* O cartão é criado por DIÁLOGO, e não escrevendo "::" à mão. A sintaxe existe e
+                       continua valendo — mas uma sintaxe que precisa ser decorada é uma sintaxe que não
+                       se usa, e sem este botão o recurso de flashcard existia no código e não na vida. *@
+                    <MudTooltip Text="Criar um cartão de revisão aqui (vira texto na própria nota)">
+                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Style"
+                                       Disabled="_lendo" OnClick="CriarCartaoAsync" />
+                    </MudTooltip>
+
                     @* Renomear e excluir ficam num menu, e não como botões soltos ao lado dos outros, por
                        uma razão de segurança e não de espaço: são as duas únicas ações desta barra que
                        não têm volta. Um clique errado ao mirar o "anexar" não pode apagar uma nota. *@
@@ -271,6 +280,28 @@
                             </MudListItem>
                         }
                     </MudList>
+                }
+            }
+
+            @* —— CARTÕES DESTA NOTA ——
+
+               Ver os cartões que a nota já tem é o que fecha o ciclo do botão de criar: sem esta lista,
+               criar um cartão é um gesto sem retorno visível, e ninguém sabe se a nota tem dois ou
+               dezoito até chegar o dia da revisão. Sai do TEXTO da nota, não do índice — é o mesmo
+               analisador que monta a fila, então o que aparece aqui é exatamente o que vai ser revisado. *@
+            @if (_cartoes.Count > 0)
+            {
+                <MudText Typo="Typo.overline" Class="mt-4 d-block">Cartões desta nota (@_cartoes.Count)</MudText>
+                @foreach (var c in _cartoes.Take(12))
+                {
+                    <div class="cartao-item">
+                        <MudText Typo="Typo.body2">@c.Frente</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">@c.Verso</MudText>
+                    </div>
+                }
+                @if (_cartoes.Count > 12)
+                {
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">…e mais @(_cartoes.Count - 12).</MudText>
                 }
             }
 
@@ -339,6 +370,7 @@
     private IReadOnlyList<MateriaContada> _materias = [];
     private IReadOnlyList<EtiquetaContada> _etiquetas = [];
     private IReadOnlyList<MencaoEmNota>? _mencoes;
+    private IReadOnlyList<Cartao> _cartoes = [];
     private bool _ligando;
     private IReadOnlyList<Acerto> _acertos = [];
     private string _termo = string.Empty;
@@ -531,8 +563,32 @@
 
         // As menções vêm DEPOIS. A varredura lê arquivos do disco, e segurar a abertura da nota por
         // causa de um painel lateral seria trocar o essencial pelo acessório — quem abriu quer escrever.
+        _cartoes = AnalisadorDeCartoes.Analisar(caminho, _aberta.Nota.Conteudo);
+
         _mencoes = null;
         _ = CarregarMencoesAsync(caminho);
+    }
+
+    /// <summary>
+    /// Abre o diálogo do cartão e insere o texto NO CURSOR.
+    ///
+    /// Grava logo em seguida, sem esperar o autosave: o cartão acabou de ser digitado num diálogo que já
+    /// fechou, e uma janela em que fechar a aba o perderia seria a pior forma de estrear o recurso.
+    /// </summary>
+    private async Task CriarCartaoAsync()
+    {
+        if (_aberta is null || _sessao is null) return;
+
+        var d = await Dialogos.ShowAsync<DialogoDeNovoCartao>("Cartão novo");
+        var r = await d.Result;
+        if (r is null || r.Canceled || r.Data is not string texto) return;
+
+        await _sessao.InserirBlocoAsync(texto);
+        await AoMudarOTexto(await _sessao.LerAsync());
+
+        // A lista ao lado sai do texto: sem recalcular, o cartão recém-criado não apareceria nela, e o
+        // gesto pareceria não ter funcionado.
+        _cartoes = AnalisadorDeCartoes.Analisar(_aberta.Nota.Caminho, await _sessao.LerAsync());
     }
 
     /// <summary>

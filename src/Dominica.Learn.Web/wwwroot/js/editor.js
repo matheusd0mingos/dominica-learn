@@ -287,6 +287,38 @@ export function inserir(id, texto) {
   e.cm.focus()
 }
 
+// Insere um BLOCO — um cartão, hoje — em linha própria.
+//
+// Diferente de `inserir`, que é para o que entra no meio da frase (a referência a um anexo é parte do
+// parágrafo em que ela aparece). Um cartão colado no fim de uma frase deixa de ser cartão: o separador
+// "::" passa a dividir o texto da pessoa.
+//
+// O CASO DO CURSOR NA POSIÇÃO ZERO É TRATADO À PARTE, e é o que a primeira versão errou: uma nota
+// recém-aberta tem o cursor no começo porque NINGUÉM O COLOCOU ALI. Inserir no cursor punha o cartão
+// acima do "# Título", empurrando o cabeçalho para baixo. Quando o cursor está no começo de um
+// documento que já tem texto, o lugar certo é o fim.
+export function inserirBloco(id, texto) {
+  const e = editores.get(id)
+  if (!e) return
+  const cm = e.cm
+
+  const cursor = cm.getCursor()
+  const noComeco = cursor.line === 0 && cursor.ch === 0
+  const temTexto = cm.getValue().trim().length > 0
+
+  const destino = noComeco && temTexto
+    ? { line: cm.lastLine(), ch: cm.getLine(cm.lastLine()).length }
+    : { line: cursor.line, ch: cm.getLine(cursor.line).length }
+
+  // Uma linha em branco antes só quando a linha de destino tem conteúdo: senão, cada cartão criado numa
+  // nota vazia deixaria um buraco no topo.
+  const separador = cm.getLine(destino.line).trim().length > 0 ? '\n\n' : ''
+
+  cm.replaceRange(separador + texto, destino)
+  cm.setCursor({ line: cm.lastLine(), ch: 0 })
+  cm.focus()
+}
+
 export function focar(id) {
   editores.get(id)?.cm.focus()
 }
