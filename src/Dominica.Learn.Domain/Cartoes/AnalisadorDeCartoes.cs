@@ -81,10 +81,74 @@ public static class AnalisadorDeCartoes
 
             // —— uma linha: pergunta::resposta ——
             var deUmaLinha = LerInline(nota, linhas, i);
-            if (deUmaLinha is not null) cartoes.Add(deUmaLinha);
+            if (deUmaLinha is not null) { cartoes.Add(deUmaLinha); continue; }
+
+            // —— lacuna: "art. ==178== define os grupos do balanço" ——
+            // Vem DEPOIS do "::" de propósito: uma linha que tem os dois é um cartão explícito com um
+            // destaque no meio, e não uma lacuna. Quem escreveu "::" declarou o que queria.
+            var comLacuna = LerLacuna(nota, linhas, i);
+            if (comLacuna is not null) cartoes.Add(comLacuna);
         }
 
         return cartoes;
+    }
+
+    /// <summary>Abertura e fechamento da lacuna. É a marca de destaque do Markdown, e a que o plugin usa.</summary>
+    private const string Lacuna = "==";
+
+    /// <summary>
+    /// Lê a linha como cartão de LACUNA: o trecho destacado some da frente e reaparece no verso.
+    ///
+    /// POR QUE ESTE FORMATO EXISTE E VALE A PENA: para decorar "o art. 178 define os grupos do balanço",
+    /// escrever pergunta e resposta obriga a inventar a pergunta ("qual artigo define os grupos?") e a
+    /// repetir a frase. A lacuna transforma a própria frase da nota em cartão, sem duplicar texto — e o
+    /// texto continua legível na leitura, porque "==" é destaque em Markdown.
+    ///
+    /// VÁRIAS LACUNAS NA MESMA LINHA VIRAM UM CARTÃO SÓ, com todas escondidas. O plugin do Obsidian
+    /// faria delas cartões separados, cada um com seu agendamento numa marca de vários campos. Ficar com
+    /// um cartão é a escolha de não escrever um formato de marca que este código não sabe ler de volta —
+    /// o arquivo continua válido nos dois lados, e o que difere é só a granularidade do agendamento.
+    /// </summary>
+    private static Cartao? LerLacuna(CaminhoNota nota, string[] linhas, int i)
+    {
+        var (texto, agendamento, ocupadas) = SepararAgendamento(linhas, i, linhas[i]);
+
+        var pedacos = texto.Split(Lacuna);
+
+        // Split por "==" dá partes ímpares quando os delimitadores estão emparelhados: fora, dentro,
+        // fora, dentro, fora. Par significa "==" solto — provavelmente texto, não lacuna.
+        if (pedacos.Length < 3 || pedacos.Length % 2 == 0) return null;
+
+        var frente = new System.Text.StringBuilder();
+        var verso = new System.Text.StringBuilder();
+        var achouAlgo = false;
+
+        for (var p = 0; p < pedacos.Length; p++)
+        {
+            var dentro = p % 2 == 1;
+            if (dentro)
+            {
+                // "== ==" vazio não esconde nada e viraria um cartão sem resposta.
+                if (pedacos[p].Trim().Length == 0) return null;
+                achouAlgo = true;
+                frente.Append("[…]");
+                verso.Append(pedacos[p]);
+            }
+            else
+            {
+                frente.Append(pedacos[p]);
+                verso.Append(pedacos[p]);
+            }
+        }
+
+        if (!achouAlgo) return null;
+
+        var textoFrente = LimparMarcadores(frente.ToString());
+        // Uma linha que é SÓ a lacuna não tem contexto nenhum: a frente seria "[…]" e a pessoa veria um
+        // cartão sem pergunta. Isso é destaque de Markdown comum, não cartão.
+        if (textoFrente.Replace("[…]", "").Trim().Length == 0) return null;
+
+        return new Cartao(nota, textoFrente, LimparMarcadores(verso.ToString()), i, ocupadas, agendamento);
     }
 
     private static bool EhSeparadorDeBloco(string linha)

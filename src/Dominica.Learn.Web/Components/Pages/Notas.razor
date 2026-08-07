@@ -198,6 +198,7 @@
                         <CustomContent Context="seletor">
                             <MudTooltip Text="Anexar imagem, PDF ou áudio (vai para a pasta Anexos do vault)">
                                 <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.AttachFile"
+                                               aria-label="Anexar arquivo"
                                                Disabled="_anexando"
                                                OnClick="@(() => seletor.OpenFilePickerAsync())" />
                             </MudTooltip>
@@ -212,9 +213,22 @@
                     @* O cartão é criado por DIÁLOGO, e não escrevendo "::" à mão. A sintaxe existe e
                        continua valendo — mas uma sintaxe que precisa ser decorada é uma sintaxe que não
                        se usa, e sem este botão o recurso de flashcard existia no código e não na vida. *@
-                    <MudTooltip Text="Criar um cartão de revisão aqui (vira texto na própria nota)">
+                    @* aria-label em cada botão de ícone: o texto do MudTooltip aparece só ao passar o
+                       mouse e não vira nome acessível nenhum — para quem usa leitor de tela, e para
+                       qualquer teste automatizado, estes botões eram "button" sem mais nada. *@
+                    <MudTooltip Text="Criar um cartão de revisão (o trecho selecionado vira a resposta)">
                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Style"
+                                       aria-label="Criar cartão de revisão"
                                        Disabled="_lendo" OnClick="CriarCartaoAsync" />
+                    </MudTooltip>
+
+                    @* LACUNA: o gesto mais barato de todos. Selecionar "178" em "o art. 178 define os
+                       grupos" e clicar aqui transforma a própria frase da nota em cartão, sem inventar
+                       pergunta nem duplicar texto — e ela continua legível, porque "==" é destaque. *@
+                    <MudTooltip Text="Virar lacuna: o trecho selecionado some do cartão e vira a resposta">
+                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Highlight"
+                                       aria-label="Virar lacuna"
+                                       Disabled="_lendo" OnClick="VirarLacunaAsync" />
                     </MudTooltip>
 
                     @* Renomear e excluir ficam num menu, e não como botões soltos ao lado dos outros, por
@@ -487,6 +501,27 @@
         }
     }
 
+    /// <summary>
+    /// Transforma a seleção em lacuna. Grava na hora — o cartão nasceu de um clique só, e esperar o
+    /// autosave deixaria uma janela em que fechar a aba o perderia.
+    /// </summary>
+    private async Task VirarLacunaAsync()
+    {
+        if (_aberta is null || _sessao is null) return;
+
+        if (!await _sessao.EnvolverSelecaoAsync("=="))
+        {
+            // Dizer o que falta, em vez de o botão não fazer nada: um botão que não responde é lido como
+            // defeito, e a pessoa clica mais três vezes antes de desistir.
+            Avisos.Add("Selecione antes o trecho que deve virar a lacuna — o número do artigo, a data, o prazo.",
+                Severity.Info);
+            return;
+        }
+
+        await AoMudarOTexto(await _sessao.LerAsync());
+        _cartoes = AnalisadorDeCartoes.Analisar(_aberta.Nota.Caminho, await _sessao.LerAsync());
+    }
+
     private async Task AlternarFavoritoAsync()
     {
         if (_aberta is null) return;
@@ -579,7 +614,12 @@
     {
         if (_aberta is null || _sessao is null) return;
 
-        var d = await Dialogos.ShowAsync<DialogoDeNovoCartao>("Cartão novo");
+        // O trecho selecionado entra como RESPOSTA. Ver o comentário do parâmetro no diálogo: quem marca
+        // uma frase no resumo está marcando o fato, e a pergunta é o que ainda não existe.
+        var selecionado = await _sessao.SelecaoAsync();
+
+        var parametros = new DialogParameters<DialogoDeNovoCartao> { { c => c.Selecao, selecionado } };
+        var d = await Dialogos.ShowAsync<DialogoDeNovoCartao>("Cartão novo", parametros);
         var r = await d.Result;
         if (r is null || r.Canceled || r.Data is not string texto) return;
 

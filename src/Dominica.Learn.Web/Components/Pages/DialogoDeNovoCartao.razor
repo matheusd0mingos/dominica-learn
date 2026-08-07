@@ -24,6 +24,14 @@
                       Immediate="true" Lines="3"
                       Placeholder="Até 3 dias úteis antes da abertura" />
 
+        @if (!string.IsNullOrWhiteSpace(Selecao))
+        {
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                A resposta veio do trecho que você selecionou. Falta a pergunta — e formulá-la é a parte
+                que ensina.
+            </MudText>
+        }
+
         @* Mão dupla não é padrão de propósito: ele dobra a carga de revisão, e a maioria dos pares de
            estudo só faz sentido num sentido ("Prazo → 3 dias" sim; "3 dias → Prazo" não diz nada). *@
         <MudCheckBox @bind-Value="_duplo" @bind-Value:after="Recalcular" Color="Color.Primary" Class="mt-2"
@@ -53,6 +61,16 @@
 @code {
     [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
 
+    /// <summary>
+    /// O trecho selecionado no editor, quando o cartão nasce de uma frase já escrita.
+    ///
+    /// ENTRA COMO RESPOSTA, e não como pergunta: lendo um resumo, o que se marca é o FATO que se quer
+    /// lembrar — "até 3 dias úteis antes da abertura". A pergunta é o que ainda não existe, e formulá-la
+    /// é justamente onde o estudo acontece. Trocar os dois faria a ferramenta escrever a parte que ensina
+    /// e pedir a parte que não ensina.
+    /// </summary>
+    [Parameter] public string? Selecao { get; set; }
+
     private string _frente = string.Empty;
     private string _verso = string.Empty;
     private bool _duplo;
@@ -65,6 +83,12 @@
     /// um PARÂMETRO muda, e o que muda aqui é estado interno. Com ele, a prévia ficaria congelada no que
     /// existia quando o diálogo abriu — vazia, para sempre.
     /// </summary>
+    protected override void OnInitialized()
+    {
+        _verso = (Selecao ?? string.Empty).Trim();
+        Recalcular();
+    }
+
     private void Recalcular()
     {
         // O problema só é MOSTRADO depois que a pessoa escreveu algo dos dois lados: acusar "pergunta

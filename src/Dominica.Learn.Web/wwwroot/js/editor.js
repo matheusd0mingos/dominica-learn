@@ -319,6 +319,29 @@ export function inserirBloco(id, texto) {
   cm.focus()
 }
 
+// O que está selecionado agora. É o que permite que o gesto natural — marcar a frase que importa e
+// transformá-la em cartão — funcione sem redigitar nada.
+export function selecao(id) {
+  return editores.get(id)?.cm.getSelection() ?? ''
+}
+
+// Envolve a seleção com uma marca ("==" para lacuna). Devolve false quando não há nada selecionado, para
+// que o C# possa dizer o motivo em vez de o botão simplesmente não fazer nada.
+export function envolverSelecao(id, marca) {
+  const e = editores.get(id)
+  if (!e) return false
+  const cm = e.cm
+  const texto = cm.getSelection()
+  if (!texto.trim()) return false
+
+  // Já estava envolvido: DESFAZ. Sem isto, clicar duas vezes produziria "====texto====", que não é
+  // lacuna nenhuma e o analisador descarta — o sintoma seria o cartão sumir da fila sem explicação.
+  const jaTem = texto.startsWith(marca) && texto.endsWith(marca) && texto.length > marca.length * 2
+  cm.replaceSelection(jaTem ? texto.slice(marca.length, -marca.length) : marca + texto + marca)
+  cm.focus()
+  return true
+}
+
 export function focar(id) {
   editores.get(id)?.cm.focus()
 }

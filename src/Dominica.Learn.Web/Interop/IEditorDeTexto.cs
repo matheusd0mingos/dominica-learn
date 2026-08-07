@@ -35,6 +35,16 @@ public sealed class SessaoDeEdicao(IJSObjectReference modulo, string idDoElement
     /// </summary>
     public Task InserirBlocoAsync(string texto) => modulo.InvokeVoidAsync("inserirBloco", idDoElemento, texto).AsTask();
 
+    /// <summary>O texto selecionado agora, ou vazio.</summary>
+    public Task<string> SelecaoAsync() => modulo.InvokeAsync<string>("selecao", idDoElemento).AsTask();
+
+    /// <summary>
+    /// Envolve a seleção com uma marca — "==" para lacuna. False quando não havia nada selecionado, para
+    /// que a tela possa dizer o motivo em vez de o botão parecer quebrado.
+    /// </summary>
+    public Task<bool> EnvolverSelecaoAsync(string marca) =>
+        modulo.InvokeAsync<bool>("envolverSelecao", idDoElemento, marca).AsTask();
+
     public async ValueTask DisposeAsync()
     {
         // O editor vive no navegador; se ninguém o destruir, cada troca de nota deixa um CodeMirror órfão
