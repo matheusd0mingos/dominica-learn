@@ -35,7 +35,6 @@ public static class RotaDeTrocaDeVault
             [FromForm] string vault,
             [FromForm] string? voltarPara,
             [FromServices] ApelidoDeQuemEntrou apelidos,
-            [FromServices] IPreferenciasDoUsuario preferencias,
             [FromServices] IOptions<OpcoesDoVault> opcoes,
             [FromServices] ILoggerFactory logs) =>
         {
@@ -59,8 +58,13 @@ public static class RotaDeTrocaDeVault
                 return Results.Redirect(Destino(ctx, voltarPara));
             }
 
-            await preferencias.DefinirVaultAtualAsync(escolhido);
-            log.LogInformation("{Apelido} agora está no vault {Vault}.", apelido, escolhido);
+            // GRAVA E CONFERE. A versão anterior chamava e seguia, e quando a gravação não acontecia —
+            // e ela não acontecia nunca, ver ApelidoDeQuemEntrou.DefinirVaultAsync — o redirecionamento
+            // saía igual e a tela voltava com o vault antigo, como se o clique tivesse sido ignorado.
+            if (!await apelidos.DefinirVaultAsync(ctx.User, escolhido))
+                log.LogError("Não consegui gravar o vault {Vault} para {Apelido}.", escolhido, apelido);
+            else
+                log.LogInformation("{Apelido} agora está no vault {Vault}.", apelido, escolhido);
 
             return Results.Redirect(Destino(ctx, voltarPara));
         })
@@ -79,7 +83,6 @@ public static class RotaDeTrocaDeVault
             HttpContext ctx,
             [FromForm] string nome,
             [FromServices] ApelidoDeQuemEntrou apelidos,
-            [FromServices] IPreferenciasDoUsuario preferencias,
             [FromServices] IOptions<OpcoesDoVault> opcoes,
             [FromServices] ILoggerFactory logs) =>
         {
@@ -95,8 +98,10 @@ public static class RotaDeTrocaDeVault
             // Criar por cima de um vault que já existe não estraga nada — a pasta simplesmente já está
             // lá —, mas trocar para ele em seguida é o que a pessoa queria de qualquer jeito.
             RaizDoVaultDoUsuario.Criar(opcoes.Value.Raiz, apelido, novo);
-            await preferencias.DefinirVaultAtualAsync(novo);
-            log.LogInformation("{Apelido} criou o vault {Vault} e entrou nele.", apelido, novo);
+            if (!await apelidos.DefinirVaultAsync(ctx.User, novo))
+                log.LogError("Criei o vault {Vault} de {Apelido}, mas não consegui entrar nele.", novo, apelido);
+            else
+                log.LogInformation("{Apelido} criou o vault {Vault} e entrou nele.", apelido, novo);
 
             return Results.Redirect(Absoluto(ctx, "painel"));
         })

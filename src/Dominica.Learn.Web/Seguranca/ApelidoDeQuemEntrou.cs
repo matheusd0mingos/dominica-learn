@@ -70,4 +70,29 @@ public sealed class ApelidoDeQuemEntrou(IServiceScopeFactory escopos)
         var usuario = await usuarios.GetUserAsync(quem);
         return NomeDoVault.Conhecido(usuario?.VaultAtual) ?? NomeDoVault.Padrao;
     }
+
+    /// <summary>
+    /// Grava em qual vault a pessoa passa a trabalhar. Devolve falso quando não deu.
+    ///
+    /// EXISTE AQUI, E NÃO NO IPreferenciasDoUsuario, e a diferença é a que fez a troca de vault não
+    /// funcionar de jeito nenhum: aquele adaptador pergunta quem é a pessoa ao provedor de estado do
+    /// BLAZOR, e um endpoint HTTP não tem circuito. Ele lançava, o catch de lá devolvia "não sei", e a
+    /// gravação simplesmente não acontecia — sem erro na tela, sem erro no log. O seletor voltava
+    /// marcando o vault antigo e parecia que o clique não tinha registrado.
+    ///
+    /// Esta classe é a que traduz um ClaimsPrincipal em vault, e ela funciona nos dois mundos. É o
+    /// mesmo motivo pelo qual o download do pacote já a usava em vez do adaptador de preferências.
+    /// </summary>
+    public async Task<bool> DefinirVaultAsync(ClaimsPrincipal quem, NomeDoVault vault)
+    {
+        if (quem.Identity?.IsAuthenticated != true) return false;
+
+        await using var escopo = escopos.CreateAsyncScope();
+        var usuarios = escopo.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var usuario = await usuarios.GetUserAsync(quem);
+        if (usuario is null) return false;
+
+        usuario.VaultAtual = vault.Valor;
+        return (await usuarios.UpdateAsync(usuario)).Succeeded;
+    }
 }
