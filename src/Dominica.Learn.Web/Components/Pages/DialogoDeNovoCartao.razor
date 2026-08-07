@@ -1,4 +1,10 @@
+@using Dominica.Learn.Application.CasosDeUso
 @using Dominica.Learn.Domain.Cartoes
+@using Dominica.Learn.Domain.Vault
+
+@inject ServicoDeCartoes Cartoes
+@inject ServicoDeConhecimento Conhecimento
+@inject ISnackbar Avisos
 
 @* Criar um cartão SEM DECORAR A SINTAXE.
 
@@ -16,6 +22,23 @@
         <MudText Typo="Typo.h6">Cartão novo</MudText>
     </TitleContent>
     <DialogContent>
+        @* ONDE O CARTÃO VAI MORAR — só quando quem chamou não tem nota aberta (o caso da tela de
+           revisar). Vindo da tela de notas, o destino é óbvio: a nota que está na frente. Perguntar ali
+           seria um clique a mais para responder o que já se sabe.
+
+           O padrão é a nota do cartão que está na tela. Quem está revisando e pensa "falta um cartão
+           sobre isto" quase sempre quer que ele viva junto do que explica o assunto. *@
+        @if (EscolherDestino)
+        {
+            <MudSelect T="string" @bind-Value="_destino" Label="Em qual nota" Variant="Variant.Outlined"
+                       Dense="true" Class="mb-3">
+                @foreach (var n in _notas)
+                {
+                    <MudSelectItem T="string" Value="@n.Valor">@n.Nome <span class="mud-text-secondary">@n.Pasta</span></MudSelectItem>
+                }
+            </MudSelect>
+        }
+
         <MudTextField @bind-Value="_frente" @bind-Value:after="Recalcular" Label="Pergunta" Variant="Variant.Outlined"
                       AutoFocus="true" Immediate="true" Lines="2"
                       Placeholder="Prazo para impugnar o edital" />
@@ -53,8 +76,9 @@
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="Cancelar">Cancelar</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="_previa is null"
-                   OnClick="Confirmar">Inserir na nota</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_previa is null || _gravando || (EscolherDestino && _destino.Length == 0))"
+                   OnClick="Confirmar">@(EscolherDestino ? "Criar cartão" : "Inserir na nota")</MudButton>
     </DialogActions>
 </MudDialog>
 
@@ -71,6 +95,19 @@
     /// </summary>
     [Parameter] public string? Selecao { get; set; }
 
+    /// <summary>
+    /// Ligado por quem NÃO tem nota aberta — hoje, a tela de revisar. Com ele o diálogo mostra o seletor
+    /// de nota e GRAVA sozinho; sem ele, devolve o texto para quem chamou inserir no cursor.
+    ///
+    /// As duas metades são o mesmo gesto com destinos diferentes, e é por isso que moram no mesmo
+    /// diálogo: a parte que ensina — escrever pergunta e resposta, ver a prévia, ser barrado quando o
+    /// "::" está na pergunta — não pode existir em duas versões que divergem no primeiro ajuste.
+    /// </summary>
+    [Parameter] public bool EscolherDestino { get; set; }
+
+    /// <summary>A nota que já vem escolhida. Ver o comentário do seletor.</summary>
+    [Parameter] public CaminhoNota? DestinoSugerido { get; set; }
+
     private string _frente = string.Empty;
     private string _verso = string.Empty;
     private bool _duplo;
@@ -78,15 +115,24 @@
     private string? _previa;
     private ProblemaDoCartao? _problema;
 
+    private IReadOnlyList<CaminhoNota> _notas = [];
+    private string _destino = string.Empty;
+    private bool _gravando;
+
     /// <summary>
     /// Chamada por @bind-Value:after em cada campo, e não por OnParametersSet: aquele só dispara quando
     /// um PARÂMETRO muda, e o que muda aqui é estado interno. Com ele, a prévia ficaria congelada no que
     /// existia quando o diálogo abriu — vazia, para sempre.
     /// </summary>
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         _verso = (Selecao ?? string.Empty).Trim();
         Recalcular();
+
+        if (!EscolherDestino) return;
+
+        _notas = await Conhecimento.TodosOsCaminhosAsync();
+        _destino = DestinoSugerido?.Valor ?? _notas.FirstOrDefault()?.Valor ?? string.Empty;
     }
 
     private void Recalcular()
@@ -107,11 +153,28 @@
         }
     }
 
-    private void Confirmar()
+    private async Task Confirmar()
     {
         Recalcular();
-        if (!RedatorDeCartao.TentarEscrever(_frente, _verso, _duplo, out var texto, out _)) return;
-        Dialogo.Close(DialogResult.Ok(texto!));
+        if (_gravando || !RedatorDeCartao.TentarEscrever(_frente, _verso, _duplo, out var texto, out _)) return;
+
+        // Sem destino a escolher, o diálogo continua sendo só um escritor de texto: quem chamou insere.
+        if (!EscolherDestino) { Dialogo.Close(DialogResult.Ok(texto!)); return; }
+
+        if (!CaminhoNota.TentarCriar(_destino, out var caminho, out _) || caminho is null) return;
+
+        _gravando = true;
+        try
+        {
+            var r = await Cartoes.AcrescentarCartaoAsync(caminho, texto!);
+            if (!r.Ok) { Avisos.Add(r.Mensagem ?? "Não consegui gravar o cartão.", Severity.Error); return; }
+
+            Dialogo.Close(DialogResult.Ok(r.Valor!));
+        }
+        finally
+        {
+            _gravando = false;
+        }
     }
 
     private void Cancelar() => Dialogo.Cancel();

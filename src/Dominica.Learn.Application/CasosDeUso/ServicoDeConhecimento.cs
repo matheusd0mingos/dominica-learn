@@ -352,6 +352,16 @@ public sealed class ServicoDeConhecimento(
     /// A árvore de etiquetas do vault, com as contagens certas. Ver <see cref="ArvoreDeEtiquetas"/> para
     /// por que a contagem não é a soma dos filhos.
     /// </summary>
+    /// <summary>
+    /// Todas as notas do vault, em ordem de caminho — para uma tela que precisa oferecer "em qual nota".
+    /// Ordenado aqui e não na tela: duas telas com a mesma lista em ordens diferentes é o tipo de coisa
+    /// que ninguém reporta e todo mundo estranha.
+    /// </summary>
+    public async Task<IReadOnlyList<CaminhoNota>> TodosOsCaminhosAsync(CancellationToken ct = default) =>
+        (await indice.TodosOsCaminhosAsync(ct))
+            .OrderBy(c => c.Valor, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
     public async Task<IReadOnlyList<NoDeEtiqueta>> PainelDeEtiquetasAsync(CancellationToken ct = default) =>
         ArvoreDeEtiquetas.Montar(await indice.EtiquetasPorNotaAsync(ct));
 

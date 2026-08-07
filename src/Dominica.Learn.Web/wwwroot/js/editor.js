@@ -112,6 +112,36 @@ export async function criar(id, conteudo, ouvinte) {
   ]
   const completar = { limpar: () => completadores.forEach((c) => c.limpar()) }
 
+  // A LINHA ONDE O CURSOR ESTÁ, marcada.
+  //
+  // O cursor PISCA — metade do tempo ele não está lá para ser encontrado. Numa nota de trinta linhas,
+  // isso obriga a caçar o traço a cada vez que se olha para o teclado e volta. A faixa não pisca: ela
+  // responde "você está aqui" no intervalo em que o traço sumiu, e é o que faz o editor deixar de
+  // parecer um campo de texto morto.
+  //
+  // São dez linhas em vez do addon `active-line` do CodeMirror, e a troca é consciente: o addon faria
+  // exatamente isto e traria mais um arquivo de terceiro para versionar e atualizar. A pintura mora no
+  // app.css, com os tokens do tema.
+  let linhaMarcada = null
+  const marcarLinhaAtual = () => {
+    const linha = cm.getCursor().line
+    if (linha === linhaMarcada) return
+    if (linhaMarcada !== null) cm.removeLineClass(linhaMarcada, 'background', 'CodeMirror-activeline-background')
+    // Só com o cursor SOLTO. Com texto selecionado a faixa brigaria com a seleção, pintando por baixo
+    // dela uma segunda cor que não quer dizer nada.
+    if (cm.somethingSelected()) { linhaMarcada = null; return }
+    cm.addLineClass(linha, 'background', 'CodeMirror-activeline-background')
+    linhaMarcada = linha
+  }
+  cm.on('cursorActivity', marcarLinhaAtual)
+  // Sem foco não há cursor, e uma faixa apontando para um cursor que não existe é ruído.
+  cm.on('blur', () => {
+    if (linhaMarcada !== null) cm.removeLineClass(linhaMarcada, 'background', 'CodeMirror-activeline-background')
+    linhaMarcada = null
+  })
+  cm.on('focus', marcarLinhaAtual)
+  marcarLinhaAtual()
+
   // O CodeMirror MEDE UMA VEZ e guarda. Ele mede na criação — quando a fonte monoespaçada pode ainda
   // não ter carregado e a coluna pode ainda não ter a largura final —, e daí em diante confia no que
   // mediu. Uma medida velha não erra só o desenho: erra o MAPA DE CLIQUE, e clicar no meio de uma

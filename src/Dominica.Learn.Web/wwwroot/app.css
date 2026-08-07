@@ -233,8 +233,32 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
 :root[data-tema="escuro"] .CodeMirror-gutters { border-right-color: var(--linha); }
 :root[data-tema="escuro"] .CodeMirror-linenumber { color: var(--ink-faint); }
 
-/* O cursor precisa ser claro para existir sobre o fundo escuro — o padrão é preto. */
-:root[data-tema="escuro"] .CodeMirror-cursor { border-left-color: var(--ink); }
+/* ── ONDE ESTÁ O CURSOR ───────────────────────────────────────────────────────
+   O padrão do CodeMirror é `border-left: 1px solid black`. Um fio de 1px preto, piscando, no meio de
+   uma nota de trinta linhas: em monitor grande a pessoa perde o cursor toda vez que olha para o teclado,
+   e editar vira caçar. Foi exatamente essa a reclamação.
+
+   Duas mudanças, e as duas juntas é que resolvem:
+
+     1. O CURSOR ENGROSSA e ganha a cor da tinta do tema — dobro da largura, contraste máximo contra o
+        fundo. Vale para os dois temas numa regra só: --ink já é escuro no claro e claro no escuro.
+     2. A LINHA ATUAL GANHA FUNDO. Isto é o que de fato conserta, porque o cursor PISCA — metade do
+        tempo ele não está lá para ser achado. A faixa não pisca: ela diz onde você está mesmo no
+        intervalo em que o traço sumiu. Quem liga a classe é o editor.js, num punhado de linhas; o
+        addon do CodeMirror faria o mesmo e traria um arquivo a mais para versionar. */
+/* `.CodeMirror .CodeMirror-cursor` e não `.CodeMirror-cursor`: o codemirror.css é injetado pelo
+   editor.js SOB DEMANDA, ou seja, DEPOIS deste arquivo — com a mesma especificidade, quem chega por
+   último vence, e o `border-left: 1px solid black` dele apagaria a regra abaixo. Foi o que aconteceu na
+   primeira tentativa deste conserto, e é também por isso que a regra do tema escuro funcionava havia
+   meses: ela já tinha um seletor a mais (`:root[data-tema=...]`) e ganhava por acidente. */
+.CodeMirror .CodeMirror-cursor {
+    border-left-width: 2px;
+    border-left-color: var(--ink);
+}
+
+.CodeMirror-activeline-background {
+    background: color-mix(in srgb, var(--ouro) 10%, transparent);
+}
 
 /* A seleção do CodeMirror é uma <div> pintada atrás do texto, não a seleção nativa: o azul-claro
    padrão sobre fundo escuro apaga o que está selecionado. */
@@ -253,6 +277,7 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
 :root[data-tema="escuro"] .cm-variable-2 { color: #c8b48a; }
 :root[data-tema="escuro"] .cm-tag { color: #d18f6a; }
 :root[data-tema="escuro"] .CodeMirror-activeline-background { background: #1e2a37; }
+/* Sem a linha ativa, o único sinal seria o traço piscando — ver o bloco do cursor, acima. */
 
 /* O realce de código da PRÉVIA vem do github.min.css, que também só conhece o claro. Aqui basta
    consertar o fundo: as cores das palavras do tema GitHub claro seguem legíveis sobre este tom. */

@@ -168,6 +168,41 @@ public sealed class ServicoDeCartoes(
     }
 
     /// <summary>
+    /// Acrescenta um cartão ao fim de uma nota que JÁ EXISTE.
+    ///
+    /// POR QUE ELE É SEPARADO DO <see cref="RegistrarErroAsync"/>, que faz quase a mesma coisa: aquele
+    /// tem uma intenção embutida — o cartão nasceu de uma questão errada, vai para a nota de erros da
+    /// matéria, e leva a etiqueta que responde "onde eu mais erro". Este não tem intenção nenhuma: é
+    /// "quero um cartão sobre isto, nesta nota". Fundir os dois faria todo cartão criado às pressas
+    /// virar registro de erro, e a etiqueta #errei-na-prova deixaria de significar o que significa.
+    ///
+    /// NÃO CRIA NOTA. Criar nota é um gesto com consequência — ela aparece no grafo, na contagem, na
+    /// busca — e não pode acontecer como efeito colateral de "criar um cartão". Nota inexistente é recusa
+    /// com o nome dela na mensagem.
+    /// </summary>
+    public async Task<Resultado<CaminhoNota>> AcrescentarCartaoAsync(
+        CaminhoNota caminho, string textoDoCartao, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(textoDoCartao))
+            return Resultado<CaminhoNota>.Falha(MotivoDaFalha.Invalida, "O cartão está vazio.");
+
+        var nota = await repositorio.LerAsync(caminho, ct);
+        if (nota is null) return Resultado<CaminhoNota>.NaoEncontrada($"A nota \"{caminho}\"");
+
+        // Linha em branco antes, pelo mesmo motivo do registro de erro: colado no fim do parágrafo
+        // anterior, o "::" passaria a dividir o texto que já estava lá.
+        var conteudo = nota.Conteudo.TrimEnd() + "\n\n" + textoDoCartao.TrimEnd() + "\n";
+
+        var salva = await notas.SalvarAsync(caminho, conteudo, nota.Impressao, autor: null, ct);
+        if (!salva.Ok)
+            return Resultado<CaminhoNota>.Falha(salva.Motivo ?? MotivoDaFalha.Invalida,
+                salva.Mensagem ?? "Não consegui gravar o cartão.");
+
+        log.LogInformation("Cartão acrescentado em {Nota}.", caminho);
+        return Resultado<CaminhoNota>.Sucesso(caminho);
+    }
+
+    /// <summary>
     /// A foto do estudo para o painel.
     ///
     /// LÊ O VAULT INTEIRO uma vez, e não uma consulta por número mostrado. São dezenas de arquivos

@@ -68,6 +68,20 @@
                        OnClick="SuspenderAtualAsync">Suspender</MudButton>
         }
 
+        @* CARTÃO NOVO, AQUI DENTRO.
+
+           Criar cartão só existia dentro do editor, atrás de um ícone — e é revisando que se percebe o
+           que falta ("isto aqui devia ter um cartão"). Obrigar a sair, achar a nota certa e procurar o
+           botão é obrigar a abandonar a sessão, e o cartão que se abandona é o cartão que não existe.
+
+           "Errei uma questão", ao lado, parece a mesma coisa e NÃO É: aquele carrega uma intenção — o
+           cartão nasceu de uma questão errada, vai para a nota de erros da matéria e leva a etiqueta que
+           responde "onde eu mais erro". Este não tem intenção nenhuma. Fundir os dois faria todo cartão
+           criado às pressas virar registro de erro. *@
+        <MudButton Size="Size.Small" Variant="Variant.Text"
+                   StartIcon="@Icons.Material.Filled.AddCard"
+                   OnClick="NovoCartaoAsync">Cartão novo</MudButton>
+
         @* "Errei uma questão" fica AQUI porque é aqui que se está quando o erro dói. Também está no menu
            da tela de notas — o gesto precisa ser alcançável de onde a pessoa estiver, e não exigir que
            ela ache a nota certa antes. *@
@@ -309,6 +323,34 @@
         // Dizer ONDE ele foi parar: um cartão que some sem explicação é indistinguível de um cartão
         // apagado, e a diferença entre as duas coisas é o ponto inteiro da suspensão.
         Avisos.Add($"Suspenso. Ele continua em \"{alvo.Nota.Nome}\", com o histórico guardado.", Severity.Info);
+        await CarregarAsync();
+    }
+
+    /// <summary>
+    /// Cartão novo, sem sair da revisão.
+    ///
+    /// O DESTINO JÁ VEM PREENCHIDO com a nota do cartão que está na tela: quem está revisando e pensa
+    /// "falta um cartão sobre isto" quase sempre quer que ele viva junto do que explica o assunto. Vem
+    /// preenchido, não imposto — o seletor continua ali para quando não for.
+    /// </summary>
+    private async Task NovoCartaoAsync()
+    {
+        var parametros = new DialogParameters<DialogoDeNovoCartao>
+        {
+            { d => d.EscolherDestino, true },
+            { d => d.DestinoSugerido, _atual?.Nota },
+        };
+
+        var d = await Dialogos.ShowAsync<DialogoDeNovoCartao>("Cartão novo", parametros);
+        var r = await d.Result;
+        if (r is null || r.Canceled || r.Data is not CaminhoNota onde) return;
+
+        // DIZ ONDE FOI PARAR, com link. Guardar algo e não dizer onde é a forma mais rápida de a pessoa
+        // parar de confiar — mesma regra do registro de erro.
+        Avisos.Add($"Cartão criado em {onde.Nome}.", Severity.Success);
+
+        // Recarrega: o cartão novo é inédito e vence hoje, então ele ENTRA na fila desta sessão (se o
+        // teto permitir). Não recarregar deixaria a tela dizendo um número e a fila entregando outro.
         await CarregarAsync();
     }
 
