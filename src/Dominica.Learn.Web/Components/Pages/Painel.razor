@@ -1,0 +1,202 @@
+@page "/painel"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Painel
+@using Dominica.Learn.Domain.Vault
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+@inject ServicoDeCartoes Cartoes
+@inject NavigationManager Navegacao
+
+<PageTitle>Painel · Dominica Learn</PageTitle>
+
+<ProvedoresDoMud />
+
+@* O PAINEL DE ESTUDO.
+
+   Ele responde uma pergunta só, e é a primeira do dia: O QUE AGORA. Todo o resto da tela existe para
+   justificar essa resposta — porque uma sugestão sem motivo é uma ordem, e ordem sem explicação deixa de
+   ser obedecida na primeira vez que a pessoa discorda.
+
+   O QUE ESTE PAINEL NÃO MOSTRA, e é deliberado: horas estudadas, questões resolvidas, percentual de
+   acerto, progresso do edital, curva de evolução. Nada disso é calculável hoje — não existe registro de
+   desempenho nem edital — e um número inventado num painel de decisão diária muda a decisão para pior.
+   Ver PainelDeEstudo, no domínio, para o que dá para responder só com os arquivos. *@
+
+@if (_r is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+<MudGrid Spacing="2" Class="pa-2">
+
+    @* —— O QUE AGORA —— *@
+    <MudItem xs="12" md="7">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.h5" GutterBottom="true">O que agora</MudText>
+
+            @if (_r.Agora.Count == 0)
+            {
+                @* O PAINEL SABE FICAR CALADO. Inventar uma tarefa quando não há nenhuma é exatamente
+                   como se ensina alguém a ignorar o painel. *@
+                <MudText Typo="Typo.body1">
+                    Nada vencido, nada pendente. Se for estudar agora, escolha o que quiser —
+                    <b>hoje o sistema não tem opinião melhor que a sua.</b>
+                </MudText>
+            }
+            else
+            {
+                @foreach (var s in _r.Agora)
+                {
+                    <div class="sugestao" @onclick="@(() => Ir(s))" role="button" tabindex="0">
+                        <MudText Typo="Typo.h6">@s.Titulo</MudText>
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">@s.Motivo</MudText>
+                    </div>
+                }
+            }
+
+            <MudDivider Class="my-4" />
+
+            <div class="d-flex flex-wrap gap-4">
+                @* ParaHoje, e NÃO o total de vencidos: é o que a fila vai de fato entregar. A primeira
+                   versão mostrava 36 aqui e a fila entregava 2, porque o teto segurava os inéditos —
+                   dois números da mesma tela discordando, que é a forma mais rápida de a pessoa parar
+                   de confiar no painel. *@
+                <div>
+                    <MudText Typo="Typo.h4">@_r.ParaHoje</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                        para hoje
+                        @if (_r.RevisoesVencidas > 0 && _r.NovosHoje > 0)
+                        {
+                            <text>(@_r.RevisoesVencidas de revisão, @_r.NovosHoje novos)</text>
+                        }
+                    </MudText>
+                </div>
+                @if (_r.NovosGuardados > 0)
+                {
+                    <div>
+                        <MudText Typo="Typo.h4">@_r.NovosGuardados</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                            guardados pelo teto de @_r.Teto/dia
+                        </MudText>
+                    </div>
+                }
+                <div>
+                    <MudText Typo="Typo.h4">@_r.TotalDeCartoes</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">cartões no vault</MudText>
+                </div>
+                <div>
+                    <MudText Typo="Typo.h4">@_r.TotalDeNotas</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">notas</MudText>
+                </div>
+            </div>
+
+            @if (_r.ParaHoje > 0)
+            {
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4"
+                           StartIcon="@Icons.Material.Filled.PlayArrow" Href="revisar">Começar a revisão</MudButton>
+            }
+        </MudPaper>
+    </MudItem>
+
+    @* —— ONDE PRESTAR ATENÇÃO —— *@
+    <MudItem xs="12" md="5">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true" Style="height:100%">
+            <MudText Typo="Typo.h6" GutterBottom="true">Onde prestar atenção</MudText>
+
+            @if (_r.Atencoes.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Nenhum sinal. Toda matéria escrita tem cartão, e nada está custando mais que o normal.
+                </MudText>
+            }
+            else
+            {
+                @foreach (var a in _r.Atencoes.Take(8))
+                {
+                    <div class="atencao atencao-@a.Tipo.ToString().ToLowerInvariant()">
+                        <MudText Typo="Typo.body2"><b>@a.Titulo</b></MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">@a.Motivo</MudText>
+                    </div>
+                }
+            }
+        </MudPaper>
+    </MudItem>
+
+    @* —— AS MATÉRIAS —— *@
+    <MudItem xs="12">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.h6" GutterBottom="true">As matérias</MudText>
+
+            @if (_r.Materias.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Nenhuma matéria ainda. Crie a primeira em <MudLink Href="notas">Notas</MudLink>.
+                </MudText>
+            }
+            else
+            {
+                <div class="tabela-rolante">
+                <MudSimpleTable Dense="true" Hover="true">
+                    <thead>
+                        <tr>
+                            <th>Matéria</th>
+                            <th class="numero">Notas</th>
+                            <th class="numero">Cartões</th>
+                            <th class="numero">A revisar</th>
+                            <th class="numero">Inéditos</th>
+                            <th class="numero">Assentados</th>
+                            <th class="numero">Facilidade</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var m in _r.Materias)
+                        {
+                            <tr>
+                                <td><b>@m.Materia.Rotulo</b></td>
+                                <td class="numero">@m.Notas</td>
+                                <td class="numero">@(m.Cartoes == 0 ? "—" : m.Cartoes.ToString())</td>
+                                <td class="numero">@(m.Vencidos == 0 ? "—" : m.Vencidos.ToString())</td>
+                                <td class="numero">@(m.Ineditos == 0 ? "—" : m.Ineditos.ToString())</td>
+                                <td class="numero">@(m.Maduros == 0 ? "—" : m.Maduros.ToString())</td>
+                                @* Traço, e não "2,50×", quando não há cartão respondido: zero ali seria
+                                   lido como "muito difícil", quando significa "não se sabe ainda". *@
+                                <td class="numero @(m.Facilidade is > 0 and < PainelDeEstudo.FacilidadeDeAtrito ? "atrito" : null)">
+                                    @(m.Facilidade == 0 ? "—" : (m.Facilidade / 100.0).ToString("0.00") + "×")
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                </div>
+
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">
+                    <b>Assentados</b>: cartões que já voltam depois de mais de @PainelDeEstudo.IntervaloDeMaduro dias.
+                    <b>Facilidade</b>: todo cartão começa em 2,50× e cai quando você erra — abaixo disso é
+                    onde a matéria tem custado.
+                </MudText>
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+}
+
+@code {
+    private RetratoDoEstudo? _r;
+
+    protected override async Task OnInitializedAsync() => _r = await Cartoes.PainelAsync();
+
+    /// <summary>
+    /// Cada sugestão leva ao lugar onde ela se resolve. Um painel que só informa obriga a pessoa a
+    /// descobrir sozinha onde clicar — e aí ela deixa de consultá-lo.
+    /// </summary>
+    private void Ir(Sugestao s) => Navegacao.NavigateTo(s.Tipo switch
+    {
+        TipoDeSugestao.Revisar when s.Materia.Existe => $"revisar/{Uri.EscapeDataString(s.Materia.Nome)}",
+        TipoDeSugestao.Revisar => "revisar",
+        TipoDeSugestao.FazerCartoes => Rotas.Grafo(s.Materia),
+        _ => "notas",
+    });
+}

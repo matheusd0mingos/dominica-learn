@@ -1,5 +1,6 @@
 using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Domain.Cartoes;
+using Dominica.Learn.Domain.Painel;
 using Dominica.Learn.Domain.Vault;
 using Microsoft.Extensions.Logging;
 
@@ -142,6 +143,44 @@ public sealed class ServicoDeCartoes(
             ? Resultado<CaminhoNota>.Sucesso(caminho)
             : Resultado<CaminhoNota>.Falha(salva.Motivo ?? MotivoDaFalha.Invalida,
                 salva.Mensagem ?? "Não consegui gravar o erro.");
+    }
+
+    /// <summary>
+    /// A foto do estudo para o painel.
+    ///
+    /// LÊ O VAULT INTEIRO uma vez, e não uma consulta por número mostrado. São dezenas de arquivos
+    /// pequenos; a alternativa — uma varredura por indicador — multiplicaria a leitura por cinco para
+    /// produzir a mesma foto, e ainda correria o risco de dois números da mesma tela discordarem por
+    /// terem sido lidos em momentos diferentes.
+    ///
+    /// "Por escrever" são as LIGAÇÕES QUEBRADAS do vault: o que a pessoa citou entre [[colchetes]] e
+    /// ainda não escreveu. Não é erro a corrigir — é a lista do que ela mesma decidiu estudar.
+    /// </summary>
+    public async Task<RetratoDoEstudo> PainelAsync(CancellationToken ct = default)
+    {
+        var hoje = Hoje;
+        var cartoes = new List<Cartao>();
+        var notasPorMateria = new Dictionary<Materia, int>();
+
+        foreach (var caminho in await CaminhosAsync(materia: null, ct))
+        {
+            var nota = await repositorio.LerAsync(caminho, ct);
+            if (nota is null) continue;
+
+            var m = Materia.De(caminho);
+            notasPorMateria[m] = notasPorMateria.GetValueOrDefault(m) + 1;
+            cartoes.AddRange(AnalisadorDeCartoes.Analisar(caminho, nota.Conteudo));
+        }
+
+        // Distinct pelo ALVO: citar "[[Pregão]]" em cinco notas é UM assunto por escrever, não cinco.
+        var porEscrever = new List<string>();
+        foreach (var caminho in await indice.TodosOsCaminhosAsync(ct))
+            foreach (var l in await indice.LigacoesDeAsync(caminho, ct))
+                if (l.Quebrada && !porEscrever.Contains(l.Alvo, StringComparer.OrdinalIgnoreCase))
+                    porEscrever.Add(l.Alvo);
+
+        var teto = await preferencias.CartoesNovosPorDiaAsync(ct);
+        return PainelDeEstudo.Montar(cartoes, notasPorMateria, porEscrever, hoje, teto);
     }
 
     /// <summary>Quantos cartões cada matéria tem vencidos. É o painel do "por onde começo hoje".</summary>

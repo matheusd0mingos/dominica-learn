@@ -546,3 +546,48 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
         min-height: 44px;
     }
 }
+
+/* ——— PAINEL ——————————————————————————————————————————————————————————————————————— */
+
+/* Cada sugestão é clicável inteira, e não só um link dentro dela: no celular, um alvo do tamanho do
+   bloco é a diferença entre acertar e tentar duas vezes. */
+.sugestao {
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border-radius: var(--raio);
+    border: 1px solid var(--linha);
+    border-left: 4px solid var(--ouro);
+    cursor: pointer;
+}
+
+.sugestao:hover {
+    background: color-mix(in srgb, var(--ouro) 10%, transparent);
+}
+
+.atencao {
+    padding: 8px 0 8px 10px;
+    border-left: 3px solid var(--linha);
+    margin-bottom: 8px;
+}
+
+/* Cor só onde ela significa alguma coisa. "Sem cartões" e "está custando" são problemas de naturezas
+   diferentes e a pessoa age diferente em cada um; "por escrever" não é problema nenhum — é a lista do
+   que ela mesma decidiu estudar, e pintá-la de vermelho seria transformar plano em dívida. */
+.atencao-materiacustando { border-left-color: var(--perigo); }
+.atencao-materiasemcartoes { border-left-color: var(--ouro); }
+
+.numero {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.atrito {
+    color: var(--perigo);
+    font-weight: 600;
+}
+
+/* A tabela de matérias tem sete colunas e não cabe num celular. Ela rola dentro da própria caixa — a
+   página nunca rola na horizontal. */
+.tabela-rolante {
+    overflow-x: auto;
+}
