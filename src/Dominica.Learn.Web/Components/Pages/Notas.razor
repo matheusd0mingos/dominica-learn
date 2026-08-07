@@ -598,6 +598,14 @@
         Conhecimento.ParaCompletarLigacaoAsync(termo);
 
     /// <summary>
+    /// As etiquetas que já existem no vault, para o que foi digitado depois do "#". Ver
+    /// <see cref="ServicoDeConhecimento.ParaCompletarEtiquetaAsync"/>.
+    /// </summary>
+    [JSInvokable]
+    public Task<IReadOnlyList<SugestaoDeEtiqueta>> AoCompletarEtiqueta(string termo) =>
+        Conhecimento.ParaCompletarEtiquetaAsync(termo);
+
+    /// <summary>
     /// Chamado pelo JavaScript quando o texto ficou parado. É o autosave.
     /// </summary>
     [JSInvokable]

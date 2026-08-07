@@ -103,7 +103,14 @@ export async function criar(id, conteudo, ouvinte) {
     temporizador = setTimeout(() => enviar(cm), SILENCIO_MS)
   })
 
-  const completar = ligarCompletarLigacao(cm, ouvinte)
+  // DOIS COMPLETADORES, UM MECANISMO SÓ. Só um deles pode estar aberto por vez, e isso não é sorte: os
+  // dois contextos se excluem (dentro de um "[[" aberto, "#" é âncora de seção e não etiqueta — ver
+  // contextoDeEtiqueta). Sem essa exclusão, Enter seria tratado duas vezes.
+  const completadores = [
+    ligarCompletar(cm, completarLigacao(ouvinte)),
+    ligarCompletar(cm, completarEtiqueta(ouvinte)),
+  ]
+  const completar = { limpar: () => completadores.forEach((c) => c.limpar()) }
 
   // O CodeMirror MEDE UMA VEZ e guarda. Ele mede na criação — quando a fonte monoespaçada pode ainda
   // não ter carregado e a coluna pode ainda não ter a largura final —, e daí em diante confia no que
@@ -134,18 +141,23 @@ export async function criar(id, conteudo, ouvinte) {
 }
 
 // ——————————————————————————————————————————————————————————————————————————————————————————
-// AUTOCOMPLETAR DE [[
+// AUTOCOMPLETAR DE [[ E DE #
 //
-// POR QUE ISTO É O RECURSO QUE FAZ O VAULT VIRAR REDE: escrever "[[" e ter de lembrar o nome exato da
+// POR QUE O DE [[ É O RECURSO QUE FAZ O VAULT VIRAR REDE: escrever "[[" e ter de lembrar o nome exato da
 // nota é o momento em que a pessoa desiste de ligar e escreve a explicação de novo, do zero. É assim que
 // um vault vira uma pilha de arquivos soltos em vez de conhecimento conectado. Três letras e a lista têm
 // de aparecer.
 //
+// E POR QUE O DE # RESOLVE OUTRO PROBLEMA, não o mesmo: ali não se trata de lembrar um nome, e sim de não
+// inventar um. Três semanas depois ninguém sabe se marcou #pegadinha ou #pegadinhas; sem a lista, marca-se
+// a variação nova, e cada uma passa a ter um pedaço do assunto — sem erro em lugar nenhum. Por isso a
+// lista mostra QUANTAS NOTAS já usam cada etiqueta: é o número que diz qual é a de verdade.
+//
 // A DIVISÃO DE TRABALHO COM O C# É PROPOSITAL, e é a regra deste arquivo: o JavaScript só sabe DETECTAR
-// que o cursor está dentro de um "[[" aberto e DESENHAR uma lista. Quem decide quais notas casam, em que
-// ordem, e — o mais importante — se o texto inserido sai como "[[Crase]]" ou "[[Português/Crase]]" é o
-// servidor. Essa última é regra de domínio: erra-se para o lado da ambiguidade, e link ambíguo não dá
-// erro, leva para a nota errada em silêncio. Ver EscritaDeLigacao.
+// que o cursor está num contexto e DESENHAR uma lista. Quem decide o que casa, em que ordem, e — no caso
+// da ligação — se o texto sai como "[[Crase]]" ou "[[Português/Crase]]" é o servidor. Essa última é regra
+// de domínio: erra-se para o lado da ambiguidade, e link ambíguo não dá erro, leva para a nota errada em
+// silêncio. Ver EscritaDeLigacao e BuscaDeEtiquetas.
 //
 // UMA IDA AO SERVIDOR POR TECLA, com 90 ms de folga. Parece caro e não é: é a mesma ordem de grandeza do
 // autosave que já roda aqui. A alternativa — baixar o vault inteiro e filtrar no navegador — obrigaria a
@@ -154,11 +166,99 @@ export async function criar(id, conteudo, ouvinte) {
 const ESPERA_SUGESTAO_MS = 90
 const MAX_TERMO = 60
 
-function ligarCompletarLigacao(cm, ouvinte) {
+/** O "[[" aberto na linha do cursor, sem "]]" entre ele e o cursor. */
+function contextoDeLigacao(cm) {
+  const cur = cm.getCursor()
+  const linha = cm.getLine(cur.line) ?? ''
+  const antes = linha.slice(0, cur.ch)
+
+  const abre = antes.lastIndexOf('[[')
+  if (abre < 0) return null
+
+  const termo = antes.slice(abre + 2)
+  // "]" no meio já fechou o link; termo comprido é quase certamente um "[[" antigo lá atrás na linha,
+  // e não o que a pessoa está escrevendo agora.
+  if (termo.includes(']') || termo.length > MAX_TERMO) return null
+
+  return { termo, de: { line: cur.line, ch: abre }, ate: cur }
+}
+
+/**
+ * O "#" que está virando etiqueta — e não as outras quatro coisas que "#" é em Markdown.
+ *
+ * As exclusões daqui são as MESMAS do analisador que lê a nota no servidor (ver AnalisadorDeNota), e é de
+ * propósito: uma lista que se oferece onde o servidor não vai reconhecer etiqueta nenhuma ensina uma
+ * regra que não existe. Ficam de fora:
+ *
+ *   "# Título"          cabeçalho — "#" na primeira coluna e um espaço logo adiante
+ *   "C#", "x#y"         sem fronteira antes: "#" colado em letra não abre etiqueta
+ *   "[[Nota#Seção]]"    dentro de um "[[" aberto, "#" é âncora de seção
+ *   dentro de ``` ```   bloco de código; "#" ali é comentário de shell, não etiqueta
+ */
+function contextoDeEtiqueta(cm) {
+  const cur = cm.getCursor()
+  const linha = cm.getLine(cur.line) ?? ''
+  const antes = linha.slice(0, cur.ch)
+
+  const jogo = antes.lastIndexOf('#')
+  if (jogo < 0) return null
+
+  // Âncora de seção dentro de uma ligação ainda aberta.
+  const abre = antes.lastIndexOf('[[')
+  if (abre >= 0 && !antes.slice(abre).includes(']]')) return null
+
+  // Fronteira à esquerda. `undefined` (começo da linha) É fronteira: uma etiqueta sozinha numa linha é
+  // o caso mais comum de todos.
+  const anterior = antes[jogo - 1]
+  if (anterior !== undefined && !/[\s([>"',;]/.test(anterior)) return null
+
+  const termo = antes.slice(jogo + 1)
+  // Espaço encerra a etiqueta; "#" seguido de "#" é cabeçalho de nível 2 em diante.
+  if (termo.length > MAX_TERMO || /[\s#\]]/.test(termo)) return null
+
+  // NA PRIMEIRA COLUNA, EXIGE UMA LETRA. Sem isto, começar um cabeçalho ("# ") abriria a lista de
+  // etiquetas no instante em que se digita o "#" — e a lista mais atrapalhadora é a que aparece quando
+  // não se pediu nada. Com uma letra já não há ambiguidade: cabeçalho tem espaço, etiqueta não.
+  if (jogo === linha.length - linha.trimStart().length && termo.length === 0) return null
+
+  if (dentroDeBlocoDeCodigo(cm, cur.line)) return null
+
+  return { termo, de: { line: cur.line, ch: jogo }, ate: cur }
+}
+
+/** Contagem de cercas acima da linha. Ímpar = estamos dentro de um bloco ainda aberto. */
+function dentroDeBlocoDeCodigo(cm, ate) {
+  let cercas = 0
+  for (let i = 0; i < ate; i++)
+    if ((cm.getLine(i) ?? '').trimStart().startsWith('```')) cercas++
+  return cercas % 2 === 1
+}
+
+const completarLigacao = (ouvinte) => ({
+  contexto: contextoDeLigacao,
+  buscar: (termo) => ouvinte.invokeMethodAsync('AoCompletarLigacao', termo),
+  // A pasta é o que separa duas notas de mesmo nome; sem ela, escolher entre duas linhas iguais é sorte.
+  item: (s) => ({ principal: s.nome, secundario: s.pasta }),
+  texto: (s) => `[[${s.insercao}]]`,
+})
+
+const completarEtiqueta = (ouvinte) => ({
+  contexto: contextoDeEtiqueta,
+  buscar: (termo) => ouvinte.invokeMethodAsync('AoCompletarEtiqueta', termo),
+  item: (s) => ({ principal: `#${s.valor}`, secundario: s.uso }),
+  // SEM ESPAÇO NO FIM, de propósito: "#direito" é quase sempre o começo de "#direito/tributário", e um
+  // espaço automático obrigaria a apagá-lo para continuar descendo na hierarquia.
+  texto: (s) => `#${s.valor}`,
+})
+
+function ligarCompletar(cm, opcoes) {
   let caixa = null
   let sugestoes = []
   let escolhido = 0
   let pedido = null
+  // Onde acabamos de aceitar. Sem isto, inserir "#direito" moveria o cursor, o cursorActivity dispararia
+  // de novo e a lista reabriria mostrando a etiqueta que acabou de ser escolhida.
+  let recemAceito = null
 
   const fechar = () => {
     clearTimeout(pedido)
@@ -167,22 +267,7 @@ function ligarCompletarLigacao(cm, ouvinte) {
     sugestoes = []
   }
 
-  // O contexto: um "[[" aberto na linha do cursor, sem "]]" entre ele e o cursor.
-  const contexto = () => {
-    const cur = cm.getCursor()
-    const linha = cm.getLine(cur.line) ?? ''
-    const antes = linha.slice(0, cur.ch)
-
-    const abre = antes.lastIndexOf('[[')
-    if (abre < 0) return null
-
-    const termo = antes.slice(abre + 2)
-    // "]" no meio já fechou o link; termo comprido é quase certamente um "[[" antigo lá atrás na linha,
-    // e não o que a pessoa está escrevendo agora.
-    if (termo.includes(']') || termo.length > MAX_TERMO) return null
-
-    return { termo, de: { line: cur.line, ch: abre }, ate: cur }
-  }
+  const contexto = () => opcoes.contexto(cm)
 
   const desenhar = (ctx) => {
     if (!sugestoes.length) return fechar()
@@ -197,17 +282,18 @@ function ligarCompletarLigacao(cm, ouvinte) {
 
     caixa.innerHTML = ''
     sugestoes.forEach((s, i) => {
+      const { principal, secundario } = opcoes.item(s)
       const item = document.createElement('div')
       item.className = 'cm-ligacoes-item' + (i === escolhido ? ' cm-ligacoes-atual' : '')
       const nome = document.createElement('span')
       nome.className = 'cm-ligacoes-nome'
-      nome.textContent = s.nome
+      nome.textContent = principal
       item.appendChild(nome)
-      if (s.pasta) {
-        const pasta = document.createElement('span')
-        pasta.className = 'cm-ligacoes-pasta'
-        pasta.textContent = s.pasta
-        item.appendChild(pasta)
+      if (secundario) {
+        const lado = document.createElement('span')
+        lado.className = 'cm-ligacoes-pasta'
+        lado.textContent = secundario
+        item.appendChild(lado)
       }
       // mousedown e não click: o click chega depois do blur, e o blur já teria fechado a lista.
       item.addEventListener('mousedown', (e) => { e.preventDefault(); aceitar(i) })
@@ -230,18 +316,24 @@ function ligarCompletarLigacao(cm, ouvinte) {
     const ctx = contexto()
     if (!escolha || !ctx) return fechar()
 
-    cm.replaceRange(`[[${escolha.insercao}]]`, ctx.de, ctx.ate)
+    cm.replaceRange(opcoes.texto(escolha), ctx.de, ctx.ate)
+    recemAceito = { line: ctx.de.line, ch: ctx.de.ch }
     fechar()
     cm.focus()
   }
 
   const reavaliar = () => {
     const ctx = contexto()
-    if (!ctx) return fechar()
+    if (!ctx) { recemAceito = null; return fechar() }
+
+    // Continua sendo o mesmo trecho que acabamos de preencher: não reabrir. Assim que a pessoa mexer em
+    // outro lugar — ou continuar digitando a partir de outro "#" —, a supressão cai sozinha.
+    if (recemAceito && recemAceito.line === ctx.de.line && recemAceito.ch === ctx.de.ch) return fechar()
+    recemAceito = null
 
     clearTimeout(pedido)
     pedido = setTimeout(() => {
-      ouvinte.invokeMethodAsync('AoCompletarLigacao', ctx.termo)
+      opcoes.buscar(ctx.termo)
         .then((r) => {
           // O cursor pode ter saído do "[[" enquanto a resposta vinha. Desenhar aqui deixaria uma lista
           // órfã flutuando sobre o texto, e ela só sumiria no próximo clique.

@@ -479,6 +479,41 @@ public sealed class ServicoDeConhecimento(
                 c.Nome, c.Pasta, EscritaDeLigacao.MaisCurta(c, todos)))
             .ToList();
     }
+
+    // —— COMPLETAR # ————————————————————————————————————————————————————————————————
+    /// <summary>
+    /// As etiquetas candidatas para o que já foi digitado depois do "#".
+    ///
+    /// POR QUE ELE OFERECE SÓ O QUE JÁ EXISTE: a lista não está aqui para poupar teclado, e sim para
+    /// impedir que o vault se despedace em sinônimos. Ninguém lembra, três semanas depois, se marcou
+    /// #pegadinha ou #pegadinhas; sem a lista, marca-se a variação nova e cada uma passa a ter um pedaço
+    /// do assunto — sem erro nenhum na tela. Ver BuscaDeEtiquetas.
+    ///
+    /// Etiqueta NOVA continua sendo só digitar e não escolher nada da lista. É de propósito que não haja
+    /// um item "criar #assim": o gesto de criar tem de ser o gesto normal de escrever, e destacá-lo
+    /// convidaria a criar justamente quando a lista está mostrando que já existe uma parecida.
+    ///
+    /// AS ANCESTRAIS VÊM JUNTO porque é assim que o índice as guarda: quem tem "#direito/tributário"
+    /// também aparece em "#direito", e oferecer os dois níveis é o que permite escolher a largura da
+    /// marca na hora de marcar.
+    /// </summary>
+    public async Task<IReadOnlyList<SugestaoDeEtiqueta>> ParaCompletarEtiquetaAsync(
+        string? termo, int limite = 8, CancellationToken ct = default)
+    {
+        var contadas = await indice.EtiquetasAsync(ct);
+
+        return BuscaDeEtiquetas
+            .Ordenar(termo, contadas.Select(c => (c.Etiqueta, c.Notas)))
+            .Take(limite)
+            .Select(a => new SugestaoDeEtiqueta(a.Etiqueta.Valor, Contar(a.Notas)))
+            .ToList();
+    }
+
+    /// <summary>
+    /// "40 notas" / "1 nota" — o número existe para dizer QUAL É A ETIQUETA DE VERDADE quando duas se
+    /// parecem. É a única informação que separa a que você usa da que escapou uma vez.
+    /// </summary>
+    private static string Contar(int notas) => notas == 1 ? "1 nota" : $"{notas} notas";
 }
 
 /// <summary>
@@ -489,6 +524,14 @@ public sealed class ServicoDeConhecimento(
 /// a nota — mas o que se escreve tem de ser o caminho, ou o link fica ambíguo.
 /// </summary>
 public sealed record SugestaoDeLigacao(string Nome, string Pasta, string Insercao);
+
+/// <summary>
+/// Um candidato do autocompletar de <c>#</c>.
+///
+/// <see cref="Uso"/> é texto pronto ("40 notas") e não um número: quem desenha a lista não deveria ter de
+/// saber decidir entre "1 nota" e "1 notas", e essa é uma decisão de idioma, não de tela.
+/// </summary>
+public sealed record SugestaoDeEtiqueta(string Valor, string Uso);
 
 /// <summary>Uma menção não ligada, com a nota em que ela está.</summary>
 public sealed record MencaoEmNota(CaminhoNota Onde, string Titulo, Mencao Mencao);
