@@ -1,3 +1,4 @@
+using Dominica.Learn.Domain.Analise;
 using Dominica.Learn.Domain.Ligacoes;
 using Dominica.Learn.Domain.Vault;
 
@@ -105,4 +106,46 @@ public class ResolvedorDeWikilinksTests
         var r = Com("Direito/Licitações.md");
         Assert.Equal("Direito/Licitações.md", r.Resolver("licitações")!.Valor);
     }
+
+    // —— EMBED DE ANEXO NÃO É LIGAÇÃO ———————————————————————————————————————————————
+
+    [Fact]
+    public void Embed_de_anexo_nao_vira_ligacao_quebrada()
+    {
+        // O DEFEITO QUE ISTO PEGA CHEGOU ATÉ O USUÁRIO: colar uma imagem numa nota fazia o painel
+        // listar "Anexos/desenho.png" em "ainda por escrever", sugerir "Escrever Anexos/desenho.png"
+        // e pôr uma aresta pendente no grafo. O arquivo existe; o que não existe é a nota que ele
+        // nunca foi.
+        var analise = AnalisadorDeNota.Analisar("# Teste\n\n![[Anexos/desenho.png]]\n", "Teste");
+        var r = new ResolvedorDeWikilinks([CaminhoNota.De("Teste.md")])
+            .Resolver(CaminhoNota.De("Teste.md"), analise.Ligacoes);
+
+        Assert.Empty(r);
+    }
+
+    [Fact]
+    public void Embed_de_NOTA_continua_sendo_ligacao()
+    {
+        // O critério é a EXTENSÃO, não o "!". A transclusão do Obsidian — "![[Resumo]]" — cria
+        // dependência entre duas notas e pertence ao grafo. Excluir todo embed jogaria isso fora
+        // junto com o anexo.
+        var analise = AnalisadorDeNota.Analisar("# Teste\n\n![[Resumo]]\n", "Teste");
+        var r = new ResolvedorDeWikilinks([CaminhoNota.De("Teste.md"), CaminhoNota.De("Resumo.md")])
+            .Resolver(CaminhoNota.De("Teste.md"), analise.Ligacoes);
+
+        var ligacao = Assert.Single(r);
+        Assert.Equal("Resumo.md", ligacao.Destino?.Valor);
+    }
+
+    [Fact]
+    public void Embed_de_PDF_e_de_audio_tambem_ficam_de_fora()
+    {
+        var analise = AnalisadorDeNota.Analisar(
+            "![[Anexos/prova.pdf]]\n![[Anexos/aula.mp3]]\n[[Resumo]]\n", "Teste");
+        var r = new ResolvedorDeWikilinks([CaminhoNota.De("Resumo.md")])
+            .Resolver(CaminhoNota.De("Teste.md"), analise.Ligacoes);
+
+        Assert.Equal("Resumo", Assert.Single(r).Alvo);
+    }
+
 }

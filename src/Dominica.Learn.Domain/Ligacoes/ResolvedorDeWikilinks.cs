@@ -59,6 +59,21 @@ public sealed class ResolvedorDeWikilinks
         foreach (var l in ligacoes)
         {
             if (l.EhExterna) continue;
+
+            // EMBED DE ANEXO NÃO É LIGAÇÃO ENTRE NOTAS. "![[Anexos/desenho.png]]" é uma imagem colada,
+            // e o alvo dela é um arquivo — não uma nota que falta escrever.
+            //
+            // Sem esta linha, todo desenho e toda foto viravam ligação QUEBRADA: apareciam em "ainda
+            // por escrever", viravam a sugestão "Escrever …" do painel e entravam no grafo como aresta
+            // pendente. O quadro de tinta tornou isso visível na primeira nota em que foi usado, mas o
+            // defeito já valia para qualquer imagem anexada.
+            //
+            // O CRITÉRIO É A EXTENSÃO, E NÃO O "!". Embed de NOTA — "![[Resumo]]", a transclusão do
+            // Obsidian — continua sendo ligação de verdade, porque é: ela cria dependência entre duas
+            // notas e pertence ao grafo. O que não pertence é o arquivo.
+            if (l.Forma == FormaDaLigacao.Embed && Anexos.TiposDeAnexo.EhPermitida(Extensao(l.Alvo)))
+                continue;
+
             resolvidas.Add(new LigacaoResolvida
             {
                 Origem = origem,
@@ -71,6 +86,14 @@ public sealed class ResolvedorDeWikilinks
             });
         }
         return resolvidas;
+    }
+
+    /// <summary>A extensão do alvo, ou vazio. "Anexos/desenho.png" → ".png"; "Resumo" → "".</summary>
+    private static string Extensao(string alvo)
+    {
+        var ponto = alvo.LastIndexOf('.');
+        var barra = alvo.LastIndexOf('/');
+        return ponto > barra && ponto >= 0 ? alvo[ponto..] : string.Empty;
     }
 
     /// <summary>Resolve um alvo isolado. <paramref name="origem"/> desempata por proximidade.</summary>
