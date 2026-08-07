@@ -56,9 +56,39 @@ function carregarCodeMirror() {
   return carregado
 }
 
+// NÃO PERGUNTE AO <head> SE JÁ CARREGOU — LEMBRE. Este mapa é a memória: url → a promessa daquele
+// carregamento. Pedir duas vezes devolve a mesma promessa, e ninguém baixa nada duas vezes.
+//
+// A versão anterior perguntava ao DOM (`document.querySelector('link[href=...]')`), e foi assim que
+// nasceu o pior defeito que este editor já teve. A tela das notas declara, no <head>, um
+// <link rel="preload" as="style" href=".../codemirror.css"> para o navegador ir buscando o arquivo
+// antes de o editor pedir. Preload BAIXA, mas NÃO APLICA — é um adiantamento de download, não uma
+// folha de estilo. O seletor encontrava esse preload, concluía "já está aí", e o
+// <link rel="stylesheet"> de verdade nunca era acrescentado.
+//
+// O que aparecia na tela não parecia problema de CSS: o CodeMirror pintava o texto sem estilo nenhum,
+// a borda direita de 50 px do .CodeMirror-sizer virava um bloco escuro, o .CodeMirror-measure — que o
+// codemirror.css esconde com visibility:hidden — ficava visível com o "xxxxxxxxxx" que ele usa para
+// medir a fonte, e as setas do teclado não moviam nada. Parecia editor quebrado. Era folha faltando.
+//
+// Dava para consertar acrescentando `[rel="stylesheet"]` ao seletor. Não é o que está feito aqui, de
+// propósito: isso deixaria de pé a ideia errada — a de que o <head> é o registro de quem já carregou o
+// quê. Ele não é. O <head> é de todo mundo, e qualquer <link> ou <script> que alguém acrescente ali
+// amanhã, por qualquer outro motivo, volta a poder responder por este código. A memória própria não
+// tem esse buraco.
+const pedidos = new Map()
+
+function buscar(url, montar) {
+  let p = pedidos.get(url)
+  if (!p) {
+    p = new Promise((ok, erro) => montar(ok, erro))
+    pedidos.set(url, p)
+  }
+  return p
+}
+
 function script(src) {
-  return new Promise((ok, erro) => {
-    if (document.querySelector(`script[src="${src}"]`)) return ok()
+  return buscar(src, (ok, erro) => {
     const s = document.createElement('script')
     s.src = src
     s.onload = ok
@@ -68,13 +98,16 @@ function script(src) {
 }
 
 function css(href) {
-  return new Promise((ok) => {
-    if (document.querySelector(`link[href="${href}"]`)) return ok()
+  return buscar(href, (ok) => {
     const l = document.createElement('link')
     l.rel = 'stylesheet'
     l.href = href
     l.onload = ok
-    l.onerror = ok   // sem estilo o editor ainda funciona; sem script, não
+    // SEGUIR SEM O ESTILO É RUIM — sem o codemirror.css o editor fica no estado descrito acima,
+    // inutilizável. Ainda assim resolvemos, porque travar é pior: o erro aparece no console e o resto
+    // da tela continua viva, em vez de a promessa nunca completar e a tela ficar em "abrindo o
+    // editor…" para sempre.
+    l.onerror = ok
     document.head.appendChild(l)
   })
 }
