@@ -13,7 +13,7 @@ mesmo tempo.
 Juntar trouxe duas vantagens além dessa obrigação, e as duas contam num VPS pequeno:
 
 1. **Um Postgres em vez de dois.** São ~200 MB de RAM e um alvo de backup a menos.
-   Os dois bancos do Learn (`learn_indice`, `learn_identidade`) seguem separados —
+   Os três bancos do Learn (`learn_indice`, `learn_identidade`, `learn_registro`) seguem separados —
    compartilhar o **servidor** sem compartilhar o **esquema** é exatamente o que o
    próprio código já dizia fazer.
 2. **Um `deploy.sh` só.** Dois roteiros de deploy é um roteiro que alguém esquece
@@ -61,7 +61,10 @@ apareceriam em produção:
    volume da plataforma já existe em qualquer deploy no ar — o script nunca
    rodaria e o Learn subiria batendo em *"database learn_indice does not exist"*.
    Por isso existe o serviço `learn-bancos`: um passo explícito, idempotente, que
-   cria os dois bancos e sai (o mesmo padrão do serviço `migrate` da plataforma).
+   cria os três bancos e sai (o mesmo padrão do serviço `migrate` da plataforma).
+   O `deploy.sh` ainda **confere no Postgres** quais existem depois de subir, e
+   cria o que faltar — porque "o `learn-bancos` concluiu" pode ser verdade a
+   respeito de uma lista de bancos mais curta, de uma versão anterior do arquivo.
 
 ### 2. Subir
 
@@ -365,9 +368,19 @@ Em ordem de importância:
 
 1. **O vault** (`VAULT_NO_HOST`). São os arquivos `.md`: as notas, os anexos e o
    agendamento dos flashcards. É o único lugar onde o conhecimento existe.
-2. **`learn_identidade`**: as contas. Sem ele ninguém entra, mas nada se perde —
+2. **`learn_registro`**: as **horas estudadas** e as **questões resolvidas** por
+   matéria. É o segundo da lista, e não o último, porque é o único item aqui que
+   **ninguém consegue refazer**: o vault se copia, as contas se recadastram, o
+   índice se reconstrói — mas quantas horas você estudou tributário em março só
+   existe porque você registrou em março.
+3. **`learn_identidade`**: as contas. Sem ele ninguém entra, mas nada se perde —
    dá para recadastrar e reapontar os apelidos para as pastas existentes.
-3. **`learn_indice`**: **descartável por construção**. Ele é derivado do vault;
+4. **`learn_indice`**: **descartável por construção**. Ele é derivado do vault;
    apagar e deixar reconstruir na próxima subida é operação de rotina. A única
    coisa que só existe nele é o histórico de revisões das notas — se isso
    importar para você, entra no backup; se não, ignore.
+
+No stack da plataforma isso já está automatizado: o serviço `backup` faz `pg_dump`
+diário de `dominica`, `learn_identidade` e `learn_registro`, e **pula o
+`learn_indice` de propósito**. Ver `novo/plataforma/DEPLOY.md` → *Backup
+automático do Postgres*. O **vault** não passa por ali — ele é disco do host.

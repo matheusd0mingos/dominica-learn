@@ -15,8 +15,9 @@ services:
       POSTGRES_DB: learn_indice
     volumes:
       - dados-do-banco:/var/lib/postgresql/data
-      # Cria o segundo banco (identidade) na primeira subida. Bancos separados de propósito: o índice é
-      # descartável e reconstruível a partir do vault; a identidade não é.
+      # Cria os outros dois bancos (identidade e registro de estudo) na primeira subida. Separados de
+      # propósito: o índice é descartável e reconstruível a partir do vault; os outros dois não são.
+      # SÓ RODA COM O VOLUME VAZIO — num stack que já existia, ver o aviso dentro do criar-bancos.sh.
       - ./docker/criar-bancos.sh:/docker-entrypoint-initdb.d/criar-bancos.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d learn_indice"]
@@ -39,6 +40,9 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Indice: "Host=banco;Database=learn_indice;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       ConnectionStrings__Identidade: "Host=banco;Database=learn_identidade;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # O registro de estudo: horas e questões por matéria. Banco próprio porque é durável e o índice
+      # não — a diferença precisa estar visível na hora de apagar alguma coisa. Ver criar-bancos.sh.
+      ConnectionStrings__Registro: "Host=banco;Database=learn_registro;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
       Vault__Raiz: /dados/vault
     volumes:
       # A RAIZ DOS VAULTS. Dentro dela nasce UMA PASTA POR USUÁRIO, com o apelido escolhido no cadastro:
