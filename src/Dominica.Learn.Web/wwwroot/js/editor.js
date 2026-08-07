@@ -206,6 +206,10 @@ export async function criar(id, conteudo, ouvinte) {
     limpar: () => { clearTimeout(temporizador); completar.limpar(); observador.disconnect() },
   })
 
+  // FOCA AQUI, e não numa chamada separada do C#: cada interop é uma ida e volta na rede, e quem abre
+  // uma nota quer o cursor piscando — não em mais 300 ms.
+  cm.focus()
+
   // O número volta para o C#, que o guarda na sessão e o devolve ao destruir. É o crachá.
   return minha
 }

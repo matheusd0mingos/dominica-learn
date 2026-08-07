@@ -28,6 +28,19 @@
 
 @* Os provedores vivem AQUI, e não no layout: diálogo e snackbar só aparecem no mesmo escopo
    interativo de quem os abre. Ver ProvedoresDoMud. *@
+@* AS BIBLIOTECAS DO EDITOR COMEÇAM A BAIXAR JÁ, junto com o resto da página.
+   Sem isto elas só são pedidas lá na frente, DEPOIS de o circuito subir e o interop rodar — e aí a
+   pessoa espera em série o que podia ter vindo em paralelo. `preload` não executa nada: apenas põe o
+   arquivo no cache do navegador para quando o `criar` precisar dele. Só nesta página, porque só aqui
+   existe editor: quem abre o painel ou a revisão não paga por isto. *@
+<HeadContent>
+    <link rel="preload" as="style" href="lib/codemirror/codemirror.css" />
+    <link rel="preload" as="script" href="lib/codemirror/codemirror.js" />
+    <link rel="preload" as="script" href="lib/codemirror/xml.js" />
+    <link rel="preload" as="script" href="lib/codemirror/markdown.js" />
+    <link rel="preload" as="script" href="lib/codemirror/continuelist.js" />
+</HeadContent>
+
 <ProvedoresDoMud />
 
 <MudGrid Spacing="2" Class="pa-2">
@@ -477,9 +490,10 @@
             try
             {
                 _referencia ??= DotNetObjectReference.Create(this);
+                // O foco vem DENTRO do `criar`, e não numa chamada própria: cada interop é uma ida e
+                // volta na rede, e uma a menos aqui é 300 ms a menos até o cursor piscar.
                 _sessao = await Editor.AbrirAsync(IdDoEditor, _aberta.Nota.Conteudo,
                     DotNetObjectReference.Create<object>(this));
-                await _sessao.FocarAsync();
 
                 // UM RENDER A MAIS, de propósito: `_sessao` acabou de deixar de ser nulo, e é ele que
                 // esconde o "Abrindo o editor…". Sem esta linha o aviso fica na tela para sempre, por

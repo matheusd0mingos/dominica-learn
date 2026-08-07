@@ -183,6 +183,30 @@ else
 // Declarar os sete na ordem custa sete linhas e tira o palpite da jogada.
 if (hospedagem.CaminhoBase.Length > 0) app.UsePathBase(hospedagem.CaminhoBase);
 
+// AS BIBLIOTECAS DE `lib/` SÃO IMUTÁVEIS, E PRECISAM DIZER ISSO.
+//
+// Sem cabeçalho de cache elas são REVALIDADAS a cada navegação: uma ida e volta por arquivo, cinco
+// arquivos do CodeMirror. Em localhost não custa nada; com 300 ms de latência é ~1,5 s toda vez que se
+// abre uma nota, MESMO com tudo já baixado. Medido.
+//
+// O carimbo vai no `OnStarting` — no instante em que a resposta sai — e não nas opções do
+// UseStaticFiles, porque quem de fato serve estes arquivos é o MapStaticAssets (a ETag com hash e o
+// `Vary: Accept-Encoding` na resposta o entregam), e ele já tinha posto `no-cache` ali. Descoberto
+// olhando o cabeçalho de verdade depois de a primeira tentativa não mudar nada.
+//
+// `immutable` é honesto aqui e não seria em outro lugar: são cópias versionadas de terceiros, e elas
+// só mudam quando alguém troca o arquivo e faz deploy — e o deploy troca a imagem inteira.
+app.Use(async (ctx, seguinte) =>
+{
+    if (ctx.Request.Path.StartsWithSegments("/lib"))
+        ctx.Response.OnStarting(() =>
+        {
+            ctx.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+            return Task.CompletedTask;
+        });
+    await seguinte();
+});
+
 app.UseHttpsRedirection();
 app.UseCabecalhosDeSeguranca();   // CSP, X-Content-Type-Options, Referrer-Policy — ver Seguranca/
 app.UseStaticFiles();
