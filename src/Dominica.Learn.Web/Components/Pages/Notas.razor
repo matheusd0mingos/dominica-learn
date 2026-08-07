@@ -314,6 +314,22 @@
     <MudItem xs="12" md="3" Class="col-contexto">
         <MudPaper Class="pa-3" Elevation="0" Outlined="true">
             <MudText Typo="Typo.overline" Class="d-block">Aponta para esta nota</MudText>
+
+            @* OS DOIS BOTÕES DE LIGAR, e eles ficam AQUI porque é aqui que as ligações vivem. Juntar
+               "ver" e "fazer" no mesmo bloco é o que faz o recurso se explicar sozinho: até hoje só
+               existia o caminho de digitar "[[", que é invisível para quem não conhece a sintaxe.
+
+               O de baixo escreve na OUTRA nota, e essa direção não tinha caminho nenhum na interface —
+               era abrir a outra nota e digitar lá. Ver ServicoDeConhecimento.LigarAsync: é o mesmo
+               método para as duas, muda só qual das notas é a de dentro. *@
+            <div class="d-flex flex-column align-start">
+                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Link" Disabled="_ligando"
+                           OnClick="LigarDaquiAsync">Ligar a uma nota</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.CallReceived" Disabled="_ligando"
+                           OnClick="LigarParaCaAsync">Fazer outra apontar para cá</MudButton>
+            </div>
             @if (_aberta.Backlinks.Count == 0)
             {
                 <MudText Typo="Typo.body2" Class="mud-text-secondary">Nada ainda.</MudText>
@@ -862,6 +878,68 @@
             Log.LogWarning(e, "Não consegui procurar menções para {Caminho}.", caminho.Valor);
         }
         await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// Escreve nesta nota uma ligação para outra, escolhida numa busca. O "[[" deixa de ser o único
+    /// caminho — vira atalho de quem já gosta.
+    /// </summary>
+    private Task LigarDaquiAsync() => EscolherELigarAsync(
+        "Ligar a uma nota",
+        "A ligação é escrita NESTA nota, numa seção \"Relacionadas\" no fim.",
+        daquiParaEscolhida: true);
+
+    /// <summary>
+    /// A direção que não tinha caminho nenhum na interface: fazer OUTRA nota apontar para esta.
+    /// </summary>
+    private Task LigarParaCaAsync() => EscolherELigarAsync(
+        "Fazer outra apontar para cá",
+        "A ligação é escrita NA OUTRA nota — ela passa a apontar para esta.",
+        daquiParaEscolhida: false);
+
+    private async Task EscolherELigarAsync(string titulo, string explicacao, bool daquiParaEscolhida)
+    {
+        if (_aberta is null || _ligando) return;
+
+        var aberta = _aberta.Nota.Caminho;
+        var parametros = new DialogParameters<DialogoDeEscolherNota>
+        {
+            { d => d.Titulo, titulo },
+            { d => d.Explicacao, explicacao },
+            { d => d.Excluir, aberta },
+        };
+
+        var dialogo = await Dialogos.ShowAsync<DialogoDeEscolherNota>(titulo, parametros);
+        var escolha = await dialogo.Result;
+        if (escolha is null || escolha.Canceled || escolha.Data is not CaminhoNota outra) return;
+
+        _ligando = true;
+        try
+        {
+            var (dentroDe, apontarPara) = daquiParaEscolhida ? (aberta, outra) : (outra, aberta);
+            var r = await Conhecimento.LigarAsync(dentroDe, apontarPara);
+
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui ligar.", Severity.Warning);
+                return;
+            }
+
+            // DIZ ONDE ESCREVEU E O QUÊ. Escrever numa nota que não está aberta é legítimo e não pode
+            // ser silencioso: num produto cujo lema é "o vault é seu", mexer no arquivo por baixo do
+            // pano é grave. Ver LigacaoEscrita.
+            Avisos.Add(r.Valor!.JaHavia
+                ? $"{dentroDe.Nome} já apontava para {apontarPara.Nome}."
+                : $"Escrevi \"{r.Valor.Linha}\" em {dentroDe.Nome}.", Severity.Success);
+
+            // Reabre: os backlinks e o texto desta nota podem ter mudado, e uma tela que não reflete o
+            // que acabou de ser gravado é a mesma coisa que não ter gravado.
+            await AbrirAsync(aberta);
+        }
+        finally
+        {
+            _ligando = false;
+        }
     }
 
     private async Task LigarMencaoAsync(MencaoEmNota m)
