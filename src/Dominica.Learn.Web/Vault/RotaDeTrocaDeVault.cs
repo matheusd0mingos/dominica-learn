@@ -45,7 +45,7 @@ public static class RotaDeTrocaDeVault
             if (!NomeDoVault.TentarCriar(vault, out var escolhido, out var porQue) || escolhido is null)
             {
                 log.LogWarning("Troca de vault recusada para {Apelido}: {Motivo}", apelido, porQue);
-                return Results.Redirect(Destino(voltarPara));
+                return Results.Redirect(Destino(ctx, voltarPara));
             }
 
             // O VAULT PRECISA EXISTIR NO DISCO — e a lista sai do disco, não de uma tabela. Sem esta
@@ -56,13 +56,13 @@ public static class RotaDeTrocaDeVault
             if (!existentes.Contains(escolhido))
             {
                 log.LogWarning("Troca recusada: {Apelido} não tem o vault \"{Vault}\".", apelido, escolhido);
-                return Results.Redirect(Destino(voltarPara));
+                return Results.Redirect(Destino(ctx, voltarPara));
             }
 
             await preferencias.DefinirVaultAtualAsync(escolhido);
             log.LogInformation("{Apelido} agora está no vault {Vault}.", apelido, escolhido);
 
-            return Results.Redirect(Destino(voltarPara));
+            return Results.Redirect(Destino(ctx, voltarPara));
         })
         .RequireAuthorization()
         .DisableAntiforgery();   // o formulário na barra estática já leva o token; ver NavMenu
@@ -89,7 +89,7 @@ public static class RotaDeTrocaDeVault
             if (!NomeDoVault.TentarCriar(nome, out var novo, out var porQue) || novo is null)
             {
                 log.LogWarning("Criação de vault recusada para {Apelido}: {Motivo}", apelido, porQue);
-                return Results.Redirect("backup");
+                return Results.Redirect(Absoluto(ctx, "backup"));
             }
 
             // Criar por cima de um vault que já existe não estraga nada — a pasta simplesmente já está
@@ -98,7 +98,7 @@ public static class RotaDeTrocaDeVault
             await preferencias.DefinirVaultAtualAsync(novo);
             log.LogInformation("{Apelido} criou o vault {Vault} e entrou nele.", apelido, novo);
 
-            return Results.Redirect("painel");
+            return Results.Redirect(Absoluto(ctx, "painel"));
         })
         .RequireAuthorization()
         .DisableAntiforgery();
@@ -116,10 +116,26 @@ public static class RotaDeTrocaDeVault
     /// O PADRÃO É O PAINEL, e não a tela em que a pessoa estava, quando não há para onde voltar: é a
     /// tela que faz sentido em qualquer vault.
     /// </summary>
-    private static string Destino(string? voltarPara) =>
-        !string.IsNullOrWhiteSpace(voltarPara)
-        && !voltarPara.StartsWith("//", StringComparison.Ordinal)
-        && Uri.TryCreate(voltarPara, UriKind.Relative, out _)
-            ? voltarPara
-            : "painel";
+    private static string Destino(HttpContext ctx, string? voltarPara) =>
+        Absoluto(ctx, !string.IsNullOrWhiteSpace(voltarPara)
+            && !voltarPara.StartsWith("//", StringComparison.Ordinal)
+            && !voltarPara.StartsWith('/')
+            && Uri.TryCreate(voltarPara, UriKind.Relative, out _)
+                ? voltarPara
+                : "painel");
+
+    /// <summary>
+    /// O caminho ABSOLUTO, com o PathBase na frente. É isto ou um 404.
+    ///
+    /// Um Location relativo — "painel" — o navegador resolve contra o DIRETÓRIO da requisição, e a
+    /// requisição é /private/dominica-learn/vault/criar. O destino vira
+    /// /private/dominica-learn/vault/painel, que não existe. Em desenvolvimento, servido na raiz, o
+    /// erro some: /vault/painel também não existe, mas ninguém repara porque o teste segue navegando
+    /// para outro lugar. Foi assim que ele passou pelos meus testes e chegou até você.
+    ///
+    /// PathBase é vazio quando o app é servido na raiz do domínio (o caso do subdomínio), e aí o
+    /// resultado é "/painel" — que é o certo nos dois modos. Ver OpcoesDeHospedagem.
+    /// </summary>
+    private static string Absoluto(HttpContext ctx, string caminhoRelativo) =>
+        $"{ctx.Request.PathBase}/{caminhoRelativo.TrimStart('/')}";
 }
