@@ -80,7 +80,7 @@
            depois de trinta cartões, é um botão que ninguém tem coragem de apertar. *@
         @if (_desfazivel is { } desfazer)
         {
-            <MudTooltip Text="@($"Volta \"{Resumir(desfazer.Frente)}\" ao agendamento que tinha")">
+            <MudTooltip Text="@($"Volta \"{CartaoProblema.Resumir(desfazer.Frente)}\" ao agendamento que tinha")">
                 <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Secondary"
                            StartIcon="@Icons.Material.Filled.Undo"
                            Disabled="_gravando" OnClick="DesfazerAsync">Desfazer</MudButton>
@@ -166,6 +166,25 @@
 
             @if (_revelado)
             {
+                @* O AVISO SÓ DEPOIS DE REVELAR, e a razão é a mecânica da revisão: mostrá-lo junto com a
+                   pergunta contaria que este é "o cartão difícil" antes de a pessoa tentar lembrar — e o
+                   esforço de recuperar da memória é o mecanismo inteiro da repetição espaçada.
+
+                   E ele aparece AQUI, no cartão, e não numa lista noutra tela: a hora de decidir
+                   reescrever um cartão ruim é a hora em que ele está na sua frente pela sétima vez. Ver
+                   CartaoProblema. *@
+                @if (CartaoProblema.Diagnostico(_atual) is { Length: > 0 } diagnostico)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mt-4">
+                        @diagnostico
+                        <div class="mt-2">
+                            <MudButton Size="Size.Small" Variant="Variant.Text"
+                                       StartIcon="@Icons.Material.Filled.EditNote"
+                                       Href="@Rotas.Nota(_atual.Nota)">Abrir a nota e reescrever</MudButton>
+                        </div>
+                    </MudAlert>
+                }
+
                 <MudDivider Class="my-4" />
                 @* white-space:pre-wrap preserva as quebras do verso de bloco: uma resposta de três linhas
                    escrita em três linhas tem de aparecer em três linhas. *@
@@ -351,13 +370,6 @@
         {
             _gravando = false;
         }
-    }
-
-    /// <summary>A frente do cartão em uma linha, para caber num aviso sem virar parágrafo.</summary>
-    private static string Resumir(string frente)
-    {
-        var limpa = frente.Replace('\n', ' ').Trim();
-        return limpa.Length <= 48 ? limpa : limpa[..47].TrimEnd() + "…";
     }
 
     private void Avancar()

@@ -33,6 +33,8 @@ public enum TipoDeAtencao
     MateriaCustando,
     /// <summary>Ligação quebrada: você citou e ainda não escreveu.</summary>
     PorEscrever,
+    /// <summary>Um cartão específico que você erra sempre — e que quase sempre precisa ser reescrito.</summary>
+    CartaoProblema,
 }
 
 /// <summary>Um bloco do "o que agora". <see cref="Motivo"/> é obrigatório — ver o comentário da classe.</summary>
@@ -178,7 +180,7 @@ public static class PainelDeEstudo
             Suspensos: cartoes.Count(c => c.Suspenso),
             Materias: materias,
             Agora: Agora(materias, porEscrever, novosHoje, ineditos - novosHoje),
-            Atencoes: Atencoes(materias, porEscrever));
+            Atencoes: Atencoes(materias, porEscrever, vivos));
     }
 
     /// <summary>
@@ -270,9 +272,19 @@ public static class PainelDeEstudo
     }
 
     private static IReadOnlyList<Atencao> Atencoes(
-        IReadOnlyList<MateriaNoPainel> materias, IReadOnlyList<string> porEscrever)
+        IReadOnlyList<MateriaNoPainel> materias, IReadOnlyList<string> porEscrever, IReadOnlyList<Cartao> vivos)
     {
         var lista = new List<Atencao>();
+
+        // OS CARTÕES-PROBLEMA VÊM PRIMEIRO, e não é ordem alfabética: são o único item desta lista que
+        // está custando tempo TODO DIA. Uma matéria sem cartão pode esperar a semana que vem; meia dúzia
+        // de cartões mal formulados está comendo a sessão de hoje.
+        //
+        // Só os TRÊS PIORES. A lista inteira viraria uma tarefa de mutirão, que é o tipo de coisa que se
+        // adia; três é o que se reescreve hoje. Ver CartaoProblema.
+        foreach (var c in CartaoProblema.Ordenados(vivos).Take(3))
+            lista.Add(new Atencao(TipoDeAtencao.CartaoProblema, Cartoes.CartaoProblema.Resumir(c.Frente),
+                CartaoProblema.Diagnostico(c)!));
 
         foreach (var m in materias.Where(m => m.Cartoes == 0 && m.Notas > 0))
             lista.Add(new Atencao(TipoDeAtencao.MateriaSemCartoes, m.Materia.Rotulo,
