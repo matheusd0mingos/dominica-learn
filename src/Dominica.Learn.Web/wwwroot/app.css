@@ -512,3 +512,37 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
     padding: 0 6px;
     margin-bottom: 2px;
 }
+
+/* ——— CELULAR ———————————————————————————————————————————————————————————————————————
+
+   A NOTA VEM PRIMEIRO. Numa tela larga as três colunas convivem e a ordem natural é
+   navegação → nota → contexto. Empilhadas num celular, essa mesma ordem obriga quem abriu uma nota a
+   rolar a busca, as matérias, as recentes e as etiquetas ANTES de ver o texto — foram medidos ~1200px
+   de rolagem até a primeira linha da nota, num aparelho de 800px de altura. Abrir uma nota no celular
+   custava rolar um telefone e meio.
+
+   `order` resolve porque o MudGrid é flexbox: a marcação continua na ordem que faz sentido para leitor
+   de tela e para a tela larga, e só a apresentação muda. */
+@media (max-width: 959px) {
+    .col-editor { order: 1; }
+    .col-contexto { order: 2; }
+    .col-navegacao { order: 3; }
+
+    /* O painel de navegação vira o rodapé da tela: ele é para ONDE IR DEPOIS, não para agora. */
+    .col-navegacao .mud-paper { border-top: 2px solid var(--linha); }
+}
+
+/* Alvos de toque no corpo do app. O mínimo confortável é ~44px; os botões de ícone do MudBlazor vêm com
+   26px, que é mirar com a ponta do dedo. Só em telas de toque: no desktop, botões de 44px espalhariam a
+   barra da nota e roubariam espaço do texto. */
+@media (max-width: 959px) and (pointer: coarse) {
+    .mud-icon-button {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* A lista de notas e de matérias é onde mais se toca — e onde mais se erra o alvo. */
+    .mud-list-item {
+        min-height: 44px;
+    }
+}

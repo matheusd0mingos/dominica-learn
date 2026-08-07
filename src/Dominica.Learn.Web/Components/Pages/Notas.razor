@@ -33,7 +33,7 @@
 <MudGrid Spacing="2" Class="pa-2">
 
     @* —— NAVEGAÇÃO: busca, favoritas, matérias, recentes, etiquetas —— *@
-    <MudItem xs="12" md="3">
+    <MudItem xs="12" md="3" Class="col-navegacao">
         <MudPaper Class="pa-3" Elevation="0" Outlined="true">
             <MudTextField @bind-Value="_termo" Immediate="true" DebounceInterval="250"
                           OnDebounceIntervalElapsed="BuscarAsync" Placeholder="Buscar no vault…"
@@ -141,7 +141,7 @@
     </MudItem>
 
     @* —— EDITOR —— *@
-    <MudItem xs="12" md="6">
+    <MudItem xs="12" md="6" Class="col-editor">
         <MudPaper Class="pa-3" Elevation="0" Outlined="true" Style="min-height:70vh">
             @if (_aberta is null)
             {
@@ -258,7 +258,7 @@
     </MudItem>
 
     @* —— O QUE APONTA PARA CÁ —— *@
-    <MudItem xs="12" md="3">
+    <MudItem xs="12" md="3" Class="col-contexto">
         <MudPaper Class="pa-3" Elevation="0" Outlined="true">
             <MudText Typo="Typo.overline" Class="d-block">Aponta para esta nota</MudText>
             @if (_aberta is null || _aberta.Backlinks.Count == 0)

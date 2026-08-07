@@ -87,7 +87,36 @@
     background: rgba(201, 162, 74, .18);
 }
 
-@media (max-width: 700px) {
-    .nav-app ::deep .nav-item { padding: 4px 8px; font-size: 13px; }
-    .nav-app ::deep .nav-quem { max-width: 110px; }
+/* NO CELULAR A BARRA VIRA UMA FAIXA QUE ROLA, e não uma pilha de linhas.
+
+   Medido num Pixel 7: com `flex-wrap`, os sete itens quebravam em CINCO linhas e o cabeçalho comia 135px
+   de altura antes de qualquer conteúdo — numa tela de 800px, um sexto dela só para navegar. E os alvos
+   de toque ficavam com 26px de altura, contra os ~44px que um dedo acerta sem mirar.
+
+   Rolagem horizontal é a solução honesta aqui: os itens continuam todos visíveis por deslize, ninguém
+   precisa aprender um menu escondido, e a altura volta a ser uma linha. */
+@media (max-width: 900px) {
+    .nav-app {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        /* Sem isto, a barra empurra a página inteira e cria rolagem lateral no documento. */
+        min-width: 0;
+        /* Esconde a barra de rolagem: ela apareceria por cima dos itens numa faixa desta altura. */
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .nav-app::-webkit-scrollbar { display: none; }
+
+    .nav-app ::deep .nav-item {
+        font-size: 14px;
+        /* 44px é o alvo confortável de toque. min-height, e não height, para o texto não ser cortado
+           quando o navegador aumenta a fonte por acessibilidade. */
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 12px;
+    }
+
+    .nav-app ::deep .nav-quem { max-width: 130px; }
 }
