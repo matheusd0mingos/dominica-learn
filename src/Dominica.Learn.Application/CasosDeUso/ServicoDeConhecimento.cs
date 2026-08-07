@@ -313,4 +313,37 @@ public sealed class ServicoDeConhecimento(
     /// </summary>
     public async Task<int> QuantasApontamParaAsync(CaminhoNota caminho, CancellationToken ct = default) =>
         (await indice.BacklinksAsync(caminho, ct)).Count;
+
+    // —— ABRIR RÁPIDO ————————————————————————————————————————————————————————————————
+    /// <summary>
+    /// Os candidatos do abridor rápido, já ordenados. Com o termo VAZIO devolve as recentes: quem abre
+    /// o buscador sem digitar quase sempre quer voltar para onde estava, e uma lista alfabética ali
+    /// seria a informação menos útil que existe.
+    /// </summary>
+    public async Task<IReadOnlyList<NotaIndexada>> ParaAbrirRapidoAsync(
+        string? termo, int limite = 12, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(termo))
+            return await indice.RecentesAsync(limite, ct);
+
+        // A busca por NOME roda sobre o caminho inteiro — "dirtrib/lic" tem de funcionar, porque é
+        // assim que se lembra de uma nota: pela matéria mais o nome.
+        var todos = await indice.TodosOsCaminhosAsync(ct);
+        var porCaminho = todos.ToDictionary(c => c.Valor, c => c, StringComparer.Ordinal);
+
+        var ordenados = BuscaPorNome.Ordenar(termo, porCaminho.Keys)
+            .Take(limite)
+            .Select(a => porCaminho[a.Texto])
+            .ToList();
+
+        // O índice tem o título e as etiquetas; o caminho sozinho não. Buscar um a um é barato porque
+        // são no máximo `limite` itens — e é o que evita a tela mostrar nome de arquivo cru.
+        var notas = new List<NotaIndexada>(ordenados.Count);
+        foreach (var caminho in ordenados)
+        {
+            var n = await indice.ObterAsync(caminho, ct);
+            if (n is not null) notas.Add(n);
+        }
+        return notas;
+    }
 }

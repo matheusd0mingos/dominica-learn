@@ -342,3 +342,9 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
     border-radius: var(--raio);
     padding: 2px;
 }
+
+/* O item sob as setas no abridor rápido. Sem marca visível, navegar de teclado é digitar às cegas. */
+.busca-rapida-atual {
+    background: color-mix(in srgb, var(--ouro) 18%, transparent) !important;
+    border-left: 3px solid var(--ouro);
+}
