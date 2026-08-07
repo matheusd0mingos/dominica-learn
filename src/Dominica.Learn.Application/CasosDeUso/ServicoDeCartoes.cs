@@ -27,9 +27,9 @@ public sealed class ServicoDeCartoes(
     /// <summary>
     /// Os cartões vencidos, prontos para revisar. <paramref name="materia"/> nulo = o vault inteiro.
     ///
-    /// A ORDEM É DETERMINÍSTICA — os mais atrasados primeiro, depois por caminho. Embaralhar seria o
-    /// costume, e aqui atrapalharia: a fila é recalculada a cada resposta (o serviço não guarda sessão),
-    /// então uma ordem aleatória mudaria a fila embaixo de quem está revisando.
+    /// A ORDEM É DETERMINÍSTICA e INTERCALADA — ver <see cref="OrdemDaFila"/>. Os mais atrasados
+    /// primeiro; dentro de uma mesma data, um cartão de cada nota por rodada, para que a sessão não vire
+    /// um bloco de cartões da mesma nota (onde a pessoa lembra do que leu, não do conceito).
     /// </summary>
     public async Task<IReadOnlyList<Cartao>> FilaAsync(
         Materia? materia = null, int limite = 100, CancellationToken ct = default)
@@ -47,12 +47,7 @@ public sealed class ServicoDeCartoes(
                     fila.Add(cartao);
         }
 
-        return fila
-            .OrderBy(c => c.AgendamentoOu(hoje).Vence)
-            .ThenBy(c => c.Nota.Valor, StringComparer.Ordinal)
-            .ThenBy(c => c.Linha)
-            .Take(limite)
-            .ToList();
+        return OrdemDaFila.Intercalar(fila, hoje).Take(limite).ToList();
     }
 
     /// <summary>Quantos cartões cada matéria tem vencidos. É o painel do "por onde começo hoje".</summary>

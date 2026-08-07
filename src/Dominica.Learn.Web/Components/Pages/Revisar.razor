@@ -23,6 +23,24 @@
         {
             <MudButton Size="Size.Small" Variant="Variant.Text" Href="revisar">Todas as matérias</MudButton>
         }
+
+        @* ESCOLHER A MATÉRIA TEM DE SER POSSÍVEL COM A FILA CHEIA. A lista lá embaixo só aparece quando
+           a fila acaba — ou seja, quando não há mais nada a decidir. Quem abre a tela com 37 cartões
+           vencidos e quer estudar só Contabilidade hoje precisa disto AQUI, antes do primeiro cartão.
+           Continua sem clique a mais para quem só quer começar: a fila arranca sozinha. *@
+        @if (_porMateria.Count(m => m.Vencidos > 0) > 1)
+        {
+            <MudMenu Label="Escolher matéria" Size="Size.Small" Variant="Variant.Text"
+                     EndIcon="@Icons.Material.Filled.ArrowDropDown" Dense="true">
+                @foreach (var m in _porMateria.Where(m => m.Vencidos > 0))
+                {
+                    <MudMenuItem Href="@($"revisar/{Uri.EscapeDataString(m.Materia.Nome)}")">
+                        @m.Materia.Rotulo — @m.Vencidos vencido(s)
+                    </MudMenuItem>
+                }
+            </MudMenu>
+        }
+
         <MudSpacer />
         @if (_fila.Count > 0)
         {
