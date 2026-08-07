@@ -58,6 +58,17 @@ public sealed class EtiquetaNoIndice
     public int NotaId { get; set; }
     public NotaNoIndice Nota { get; set; } = null!;
     public string Valor { get; set; } = string.Empty;
+
+    /// <summary>
+    /// A pessoa ESCREVEU esta etiqueta na nota, ou ela está aqui só como ancestral de outra?
+    ///
+    /// A linha "direito" existe para toda nota marcada com "#direito/penal" — é o que faz "tudo de
+    /// #direito" funcionar sem virar um LIKE que casaria "#direitos-humanos". Mas essa expansão apaga uma
+    /// distinção real: quem está marcado SÓ como "#direito", sem tópico, é justamente o que ficou por
+    /// organizar. Sem esta coluna, o painel mostraria "3 notas paradas em #direito" quando são zero — um
+    /// número que não dá erro nenhum e vira a medida usada para decidir o que estudar.
+    /// </summary>
+    public bool Propria { get; set; }
 }
 
 /// <summary>Uma versão anterior de uma nota. NÃO é índice: é o único lugar onde este texto ainda existe.</summary>

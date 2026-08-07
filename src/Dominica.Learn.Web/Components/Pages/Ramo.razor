@@ -1,0 +1,88 @@
+@using Dominica.Learn.Domain.Analise
+
+@* Um ramo da árvore de etiquetas — ele mesmo e, recursivamente, os filhos.
+
+   COMPONENTE SEPARADO porque a recursão precisa de um: um @foreach dentro do próprio markup do pai só
+   desenharia dois níveis, e hierarquia de etiqueta em vault de concurso passa disso
+   ("#direito/administrativo/licitações" já são três). *@
+
+@if (Visivel)
+{
+    <div class="etiqueta-ramo" style="@($"padding-left:{Nivel * 14}px")">
+        <div class="etiqueta-linha @(Ehatual ? "etiqueta-atual" : null)" @onclick="Escolher">
+            @if (No.Filhos.Count > 0)
+            {
+                @* A setinha é um <span> com onclick próprio, e não um MudIconButton: o
+                   @onclick:stopPropagation do Blazor gera um parâmetro OnClick, que colide com o do
+                   componente do MudBlazor. Sem parar a propagação, abrir o galho também o selecionaria —
+                   dois gestos diferentes no mesmo clique. *@
+                <span class="etiqueta-abrir" @onclick="Alternar" @onclick:stopPropagation="true"
+                      role="button" aria-label="@(_aberto ? "Fechar" : "Abrir")">
+                    <MudIcon Size="Size.Small"
+                             Icon="@(_aberto ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)" />
+                </span>
+            }
+            else
+            {
+                <span class="etiqueta-abrir-vazio"></span>
+            }
+
+            <span class="etiqueta-rotulo">@No.Rotulo</span>
+
+            @* DOIS NÚMEROS quando eles divergem: o total do galho e quantas notas param NESTE nó. As três
+               marcadas só como "#direito", sem tópico, são justamente as que ficaram por organizar — e
+               essa informação some se só existir o total. *@
+            <span class="etiqueta-conta">@No.Total</span>
+            @if (No.Filhos.Count > 0 && No.Proprias > 0)
+            {
+                <span class="etiqueta-proprias" title="notas marcadas só com esta etiqueta">@No.Proprias aqui</span>
+            }
+        </div>
+
+        @if (_aberto)
+        {
+            @foreach (var filho in No.Filhos)
+            {
+                <Ramo No="filho" Nivel="Nivel + 1" Filtro="@Filtro" Selecionada="Selecionada" AoEscolher="AoEscolher" />
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public NoDeEtiqueta No { get; set; } = default!;
+    [Parameter] public int Nivel { get; set; }
+    [Parameter] public string? Filtro { get; set; }
+    [Parameter] public Etiqueta? Selecionada { get; set; }
+    [Parameter] public EventCallback<Etiqueta> AoEscolher { get; set; }
+
+    private bool _aberto;
+
+    private bool Ehatual => Selecionada is not null && Selecionada.Valor.Equals(No.Etiqueta.Valor, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Um ramo aparece se ele casa com o filtro OU se algum descendente casa — senão, filtrar por
+    /// "licit" esconderia "#direito", e com ele o caminho até "#direito/administrativo/licitações".
+    ///
+    /// CUIDADO AO PASSAR <c>Filtro</c>: parâmetro de tipo string recebe TEXTO LITERAL quando escrito
+    /// sem "@". <c>Filtro="_filtro"</c> passa a palavra "_filtro", não a variável — e o sintoma é a
+    /// árvore inteira desaparecer, porque nenhuma etiqueta contém essa palavra. Compila, não dá erro
+    /// nenhum, e a tela abre vazia. Foi assim que apareceu na primeira vez que rodou.
+    /// </summary>
+    private bool Visivel => string.IsNullOrWhiteSpace(Filtro) || Casa(No);
+
+    private bool Casa(NoDeEtiqueta no) =>
+        no.Etiqueta.Valor.Contains(Filtro!.Trim(), StringComparison.OrdinalIgnoreCase)
+        || no.Filhos.Any(Casa);
+
+    protected override void OnParametersSet()
+    {
+        // Filtrando, tudo abre: obrigar a expandir à mão o que a busca acabou de encontrar desfaz o
+        // ganho de ter filtrado.
+        if (!string.IsNullOrWhiteSpace(Filtro)) _aberto = true;
+    }
+
+    private void Alternar() => _aberto = !_aberto;
+
+    private Task Escolher() => AoEscolher.InvokeAsync(No.Etiqueta);
+}

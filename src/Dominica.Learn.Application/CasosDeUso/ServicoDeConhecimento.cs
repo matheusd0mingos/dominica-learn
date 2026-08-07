@@ -347,6 +347,102 @@ public sealed class ServicoDeConhecimento(
         return notas;
     }
 
+    // —— PAINEL DE ETIQUETAS ————————————————————————————————————————————————————————
+    /// <summary>
+    /// A árvore de etiquetas do vault, com as contagens certas. Ver <see cref="ArvoreDeEtiquetas"/> para
+    /// por que a contagem não é a soma dos filhos.
+    /// </summary>
+    public async Task<IReadOnlyList<NoDeEtiqueta>> PainelDeEtiquetasAsync(CancellationToken ct = default) =>
+        ArvoreDeEtiquetas.Montar(await indice.EtiquetasPorNotaAsync(ct));
+
+    // —— MENÇÕES NÃO LIGADAS ————————————————————————————————————————————————————————
+    /// <summary>
+    /// As notas que citam esta pelo nome sem ligar para ela.
+    ///
+    /// A LISTA DE CANDIDATAS VEM DA BUSCA DE TEXTO, e não de uma varredura do vault inteiro. A diferença
+    /// aparece no vault de dois anos: ler todas as notas do disco a cada abertura de nota transformaria
+    /// um painel lateral no gargalo do produto. A busca já sabe quem contém a palavra; ao domínio só cabe
+    /// decidir, nessas poucas, se a ocorrência é uma menção de verdade.
+    ///
+    /// O PREÇO DESSA ESCOLHA, dito às claras: o que a busca de texto não encontra, este painel não mostra.
+    /// Na prática isso significa depender de como o índice normaliza acento e radical — e é por isso que
+    /// se procura por cada nome e apelido separadamente, em vez de confiar numa consulta só.
+    /// </summary>
+    public async Task<IReadOnlyList<MencaoEmNota>> MencoesNaoLigadasAsync(
+        CaminhoNota caminho, int limiteDeNotas = 20, CancellationToken ct = default)
+    {
+        var alvo = await indice.ObterAsync(caminho, ct);
+        if (alvo is null) return [];
+
+        var nomes = new List<string> { caminho.Nome };
+        nomes.AddRange(alvo.Apelidos);
+
+        // Candidatas: quem contém alguma das palavras. Sem a própria nota, que sempre cita o próprio nome.
+        var candidatas = new Dictionary<CaminhoNota, NotaIndexada>();
+        foreach (var nome in nomes.Where(n => n.Length >= 3).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            foreach (var acerto in await indice.BuscarAsync(
+                         new ConsultaDeBusca { Texto = nome, Limite = limiteDeNotas }, ct))
+            {
+                if (acerto.Nota.Caminho == caminho) continue;
+
+                // XARÁ NÃO É MENÇÃO. Duas notas "Prescrição" em matérias diferentes existem de verdade num
+                // vault de concurso, e o título de uma delas — "# Prescrição", na primeira linha — casaria
+                // com o nome da outra. Sugerir ligar ali é oferecer trocar o próprio título por um link
+                // para outra nota, que é o contrário do que a pessoa quer.
+                if (nomes.Any(n => string.Equals(n, acerto.Nota.Caminho.Nome, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                candidatas.TryAdd(acerto.Nota.Caminho, acerto.Nota);
+            }
+        }
+
+        var encontradas = new List<MencaoEmNota>();
+        foreach (var (candidata, indexada) in candidatas.Take(limiteDeNotas))
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var nota = await repositorio.LerAsync(candidata, ct);
+            if (nota is null) continue;   // o disco mudou desde a última reconciliação
+
+            foreach (var mencao in MencoesNaoLigadas.Encontrar(nota.Conteudo, nomes))
+                encontradas.Add(new MencaoEmNota(candidata, indexada.Titulo, mencao));
+        }
+
+        return encontradas;
+    }
+
+    /// <summary>
+    /// Transforma uma menção em ligação, gravando a nota que a contém.
+    ///
+    /// GRAVA PELO <see cref="ServicoDeNotas"/>, e não direto no repositório: é ali que mora a invariante
+    /// de que toda gravação reindexa e cria revisão. Escrever por fora deixaria o índice mentindo até o
+    /// vigia passar — e a menção continuaria na lista, como se o clique não tivesse feito nada.
+    /// </summary>
+    public async Task<Resultado<int>> LigarMencaoAsync(
+        CaminhoNota onde, Mencao mencao, CaminhoNota alvo, CancellationToken ct = default)
+    {
+        var nota = await repositorio.LerAsync(onde, ct);
+        if (nota is null) return Resultado<int>.NaoEncontrada($"A nota \"{onde.Valor}\"");
+
+        var todos = await indice.TodosOsCaminhosAsync(ct);
+        var novo = MencoesNaoLigadas.Ligar(nota.Conteudo, mencao, EscritaDeLigacao.MaisCurta(alvo, todos));
+
+        // Null aqui significa que o texto mudou embaixo entre listar e clicar. Falhar em voz alta é o
+        // contrário de gravar por cima da posição antiga e estragar uma frase qualquer em silêncio.
+        if (novo is null)
+            return Resultado<int>.Falha(MotivoDaFalha.Conflito,
+                "Esta nota mudou desde que a lista foi montada. Abra o painel de novo para ver onde a menção está agora.");
+
+        var gravada = await notas.SalvarAsync(onde, novo, nota.Impressao, ct: ct);
+        if (!gravada.Ok)
+            return Resultado<int>.Falha(
+                gravada.Motivo ?? MotivoDaFalha.Invalida, gravada.Mensagem ?? "Não consegui gravar a nota.");
+
+        log.LogInformation("Menção ligada em {Onde} para {Alvo}.", onde.Valor, alvo.Valor);
+        return Resultado<int>.Sucesso(1);
+    }
+
     // —— COMPLETAR [[ ]] ————————————————————————————————————————————————————————————
     /// <summary>
     /// Os candidatos do autocompletar de <c>[[</c>, já ordenados e já com o texto pronto para inserir.
@@ -393,3 +489,6 @@ public sealed class ServicoDeConhecimento(
 /// a nota — mas o que se escreve tem de ser o caminho, ou o link fica ambíguo.
 /// </summary>
 public sealed record SugestaoDeLigacao(string Nome, string Pasta, string Insercao);
+
+/// <summary>Uma menção não ligada, com a nota em que ela está.</summary>
+public sealed record MencaoEmNota(CaminhoNota Onde, string Titulo, Mencao Mencao);

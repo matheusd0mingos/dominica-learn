@@ -1,0 +1,119 @@
+@page "/etiquetas"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Domain.Analise
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+@inject ServicoDeConhecimento Conhecimento
+@inject ServicoDeNotas Servico
+
+<PageTitle>Etiquetas · Dominica Learn</PageTitle>
+
+<ProvedoresDoMud />
+
+@* O PAINEL DE ETIQUETAS.
+
+   POR QUE ETIQUETA NÃO É PASTA, e por que este painel é uma tela e não uma lista de fichas no canto:
+
+   A pasta responde "o que esta nota É" — ela é de Direito Tributário, e mora lá. A etiqueta responde
+   "o que esta nota TEM", e isso atravessa as matérias: #súmula, #pegadinha, #decorar, #errei-na-prova.
+   Uma etiqueta que repete o nome da pasta não acrescenta nada; a que vale é a que junta o que está
+   espalhado. Um painel de verdade tem de mostrar essa travessia — quantas notas, de quais matérias — e
+   não só um filtro.
+
+   A HIERARQUIA APARECE porque é assim que se estuda: disciplina → tópico → subtópico. E o número do pai
+   NÃO é a soma dos filhos: quem marca "#direito" e "#direito/penal" na mesma nota seria contado duas
+   vezes. Ver ArvoreDeEtiquetas. *@
+
+<MudGrid Spacing="2" Class="pa-2">
+    <MudItem xs="12" md="4">
+        <MudPaper Class="pa-3" Elevation="0" Outlined="true" Style="min-height:70vh">
+            <MudText Typo="Typo.h6" GutterBottom="true">Etiquetas</MudText>
+
+            @if (_arvore is null)
+            {
+                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+            }
+            else if (_arvore.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Nenhuma ainda. Escreva <b>#súmula</b> ou <b>#errei-na-prova</b> no meio de uma nota e
+                    ela aparece aqui. Etiqueta boa é a que <b>atravessa</b> as matérias — a que só repete
+                    o nome da pasta não acrescenta nada.
+                </MudText>
+            }
+            else
+            {
+                <MudTextField @bind-Value="_filtro" Immediate="true" Placeholder="Filtrar…"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" />
+                @foreach (var no in _arvore)
+                {
+                    <Ramo No="no" Nivel="0" Filtro="@_filtro" Selecionada="_selecionada" AoEscolher="EscolherAsync" />
+                }
+            }
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="8">
+        <MudPaper Class="pa-3" Elevation="0" Outlined="true" Style="min-height:70vh">
+            @if (_selecionada is null)
+            {
+                <MudText Typo="Typo.h6">Escolha uma etiqueta</MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Escolhendo uma etiqueta com filhas, aparecem também as notas marcadas com as filhas —
+                    <b>#direito</b> traz o que está só como <b>#direito/penal</b>.
+                </MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.h6">@_selecionada.ToString()</MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+                    @_notas.Count nota(s), contando as marcadas com etiquetas abaixo desta.
+                </MudText>
+
+                @if (_notas.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Nenhuma nota.</MudText>
+                }
+                else
+                {
+                    <MudList T="string" Dense="true">
+                        @foreach (var n in _notas)
+                        {
+                            <MudListItem T="string" Href="@Rotas.Nota(n.Caminho)">
+                                <MudText Typo="Typo.body2"><b>@n.Titulo</b></MudText>
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                    @(n.Caminho.Pasta.Length == 0 ? "(raiz)" : n.Caminho.Pasta)
+                                </MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    private IReadOnlyList<NoDeEtiqueta>? _arvore;
+    private Etiqueta? _selecionada;
+    private IReadOnlyList<NotaIndexada> _notas = [];
+    private string _filtro = string.Empty;
+
+    protected override async Task OnInitializedAsync() =>
+        _arvore = await Conhecimento.PainelDeEtiquetasAsync();
+
+    private async Task EscolherAsync(Etiqueta etiqueta)
+    {
+        _selecionada = etiqueta;
+
+        // A busca por etiqueta já entende a hierarquia (ver Etiqueta.EstaAbaixoDe): escolher #direito
+        // traz o que está marcado só como #direito/penal. Sem isso, o pai de uma árvore bem organizada
+        // mostraria zero notas — que é o resultado mais confuso possível para quem clicou nele.
+        var acertos = await Servico.BuscarAsync(new ConsultaDeBusca { Etiqueta = etiqueta, Limite = 200 });
+        _notas = acertos.Select(a => a.Nota).ToList();
+    }
+}

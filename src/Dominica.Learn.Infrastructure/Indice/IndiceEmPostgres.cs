@@ -85,11 +85,16 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario)
         // A etiqueta é gravada COM OS ANCESTRAIS. É o que faz "tudo de #direito" trazer também o que está
         // marcado só como #direito/penal — sem isso, a hierarquia seria decorativa e a consulta viraria um
         // LIKE 'direito%' que casaria "#direitos-humanos" por acidente.
+        // "Propria" marca a etiqueta como a pessoa a ESCREVEU, separando-a dos ancestrais criados aqui.
+        // Ver EtiquetaNoIndice.Propria: sem essa marca, o painel não consegue dizer quantas notas pararam
+        // na disciplina sem chegar ao tópico.
+        var escritas = a.Etiquetas.Select(e => e.Valor).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         entidade.Etiquetas = a.Etiquetas
             .SelectMany(e => e.ComAncestrais())
             .Select(e => e.Valor)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(v => new EtiquetaNoIndice { Usuario = eu, Valor = v })
+            .Select(v => new EtiquetaNoIndice { Usuario = eu, Valor = v, Propria = escritas.Contains(v) })
             .ToList();
 
         await db.SaveChangesAsync(ct);
@@ -141,6 +146,10 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario)
         if (!string.IsNullOrWhiteSpace(consulta.Pasta))
             q = q.Where(n => n.Caminho.StartsWith(consulta.Pasta + "/"));
 
+        // IGUALDADE EXATA, e ainda assim hierárquica: quem grava é que já expandiu. Toda nota marcada com
+        // "#direito/penal" tem também uma linha "direito" (ver IndexarAsync), então "#direito" traz as
+        // filhas sem nenhum LIKE — que casaria "#direitos-humanos" por acidente. A hierarquia mora no que
+        // se GRAVA, não no que se consulta, e é por isso que esta linha pode ser tão simples.
         if (consulta.Etiqueta is { } etiqueta)
             q = q.Where(n => n.Etiquetas.Any(e => e.Valor.ToLower() == etiqueta.Valor.ToLower()));
 
@@ -197,6 +206,26 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario)
             .Where(x => x.E is not null)
             .Select(x => new EtiquetaContada(x.E!, x.Notas))
             .OrderBy(x => x.Etiqueta.Valor, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<IReadOnlyList<Etiqueta>>> EtiquetasPorNotaAsync(CancellationToken ct = default)
+    {
+        await EuAsync(ct);
+        // Só as ESCRITAS. Os ancestrais são recriados pela árvore, que sabe não contar a mesma nota duas
+        // vezes; trazê-los daqui faria "quantas notas param neste nó" ser sempre igual ao total do galho.
+        var linhas = await db.Etiquetas.AsNoTracking()
+            .Where(e => e.Propria)
+            .Select(e => new { e.NotaId, e.Valor })
+            .ToListAsync(ct);
+
+        return linhas
+            .GroupBy(l => l.NotaId)
+            .Select(g => (IReadOnlyList<Etiqueta>)g
+                .Select(l => Etiqueta.TentarCriar(l.Valor))
+                .Where(e => e is not null)
+                .Select(e => e!)
+                .ToList())
             .ToList();
     }
 

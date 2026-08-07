@@ -402,3 +402,67 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
 .cm-ligacoes-item:hover {
     background: color-mix(in srgb, var(--ouro) 10%, transparent);
 }
+
+/* Uma menção não ligada no painel lateral. O trecho de frase é o que permite decidir sem abrir a outra
+   nota — e por isso ele pode quebrar em várias linhas, ao contrário de tudo o mais no painel. */
+.mencao {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--linha);
+}
+
+.mencao:last-of-type {
+    border-bottom: none;
+}
+
+.mencao-nota {
+    font-weight: 600;
+}
+
+/* A árvore de etiquetas. */
+.etiqueta-linha {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.etiqueta-linha:hover {
+    background: color-mix(in srgb, var(--ouro) 10%, transparent);
+}
+
+.etiqueta-atual {
+    background: color-mix(in srgb, var(--ouro) 18%, transparent);
+    box-shadow: inset 3px 0 0 var(--ouro);
+}
+
+/* Reserva o mesmo espaço da setinha nas folhas: sem isto, os rótulos de níveis irmãos ficam
+   desalinhados conforme um tenha filhos e o outro não, e a árvore deixa de parecer uma árvore. */
+.etiqueta-abrir,
+.etiqueta-abrir-vazio {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+}
+
+.etiqueta-abrir {
+    cursor: pointer;
+    color: var(--ink-faint);
+}
+
+.etiqueta-rotulo {
+    flex: 1;
+    color: var(--ink);
+}
+
+.etiqueta-conta {
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.etiqueta-proprias {
+    color: var(--ink-faint);
+    font-size: .78em;
+}

@@ -66,6 +66,16 @@ public interface IIndiceDoVault
 
     Task<IReadOnlyList<EtiquetaContada>> EtiquetasAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// As etiquetas de cada nota, agrupadas por nota. É o que o painel hierárquico precisa.
+    ///
+    /// POR QUE NÃO BASTA O <see cref="EtiquetasAsync"/> JÁ CONTADO: o total de "#direito" não é a soma de
+    /// "#direito/penal" e "#direito/tributário". Uma nota marcada com a disciplina E o tópico — que é como
+    /// se marca de verdade — seria contada duas vezes. O número inflado não dá erro em lugar nenhum, e
+    /// vira a medida que a pessoa usa para decidir o que estudar. Ver ArvoreDeEtiquetas.
+    /// </summary>
+    Task<IReadOnlyList<IReadOnlyList<Etiqueta>>> EtiquetasPorNotaAsync(CancellationToken ct = default);
+
     Task<IReadOnlyList<NotaIndexada>> RecentesAsync(int limite, CancellationToken ct = default);
 
     /// <summary>Todos os caminhos, para a árvore do vault.</summary>

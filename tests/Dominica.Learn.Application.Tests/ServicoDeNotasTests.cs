@@ -1,6 +1,7 @@
 using Dominica.Learn.Application;
 using Dominica.Learn.Application.CasosDeUso;
 using Dominica.Learn.Application.Portas;
+using Dominica.Learn.Domain.Analise;
 using Dominica.Learn.Domain.Ligacoes;
 using Dominica.Learn.Domain.Reconciliacao;
 using Dominica.Learn.Domain.Vault;
@@ -101,6 +102,9 @@ public class ServicoDeNotasTests
 
         public Task<IReadOnlyList<EtiquetaContada>> EtiquetasAsync(CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<EtiquetaContada>>([]);
+
+        public Task<IReadOnlyList<IReadOnlyList<Etiqueta>>> EtiquetasPorNotaAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<IReadOnlyList<Etiqueta>>>([]);
 
         public Task<IReadOnlyList<NotaIndexada>> RecentesAsync(int limite, CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<NotaIndexada>>([]);

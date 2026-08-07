@@ -118,6 +118,48 @@ public static class AnalisadorDeNota
         };
     }
 
+    /// <summary>
+    /// Os pedaços de PROSA da nota: o texto que sobra depois de tirar o frontmatter, os blocos cercados e
+    /// o código em linha. Cada pedaço vem com a posição em que começa no texto inteiro.
+    ///
+    /// EXISTE PARA QUE AS MENÇÕES NÃO LIGADAS USEM EXATAMENTE AS MESMAS REGRAS das ligações e etiquetas.
+    /// Uma segunda varredura com "quase" as mesmas regras é o tipo de duplicação que só se descobre
+    /// quando alguém arruma um bug em um dos lados: aqui, o sintoma seria o painel de menções sugerindo
+    /// ligar uma palavra que está dentro de um exemplo de código.
+    ///
+    /// As posições são relativas ao texto com as quebras de linha JÁ NORMALIZADAS para "\n" — que é como
+    /// este analisador enxerga tudo, e como as notas são gravadas.
+    /// </summary>
+    public static IEnumerable<TrechoDeProsa> TrechosDeProsa(string conteudo)
+    {
+        var texto = ImpressaoDigitalNormalizador(conteudo);
+        var linhas = texto.Split('\n');
+        var inicioDoCorpo = Frontmatter.Ler(linhas).LinhasOcupadas;
+
+        var deslocamento = 0;
+        for (var i = 0; i < inicioDoCorpo; i++) deslocamento += linhas[i].Length + 1;
+
+        string? cercaAberta = null;
+
+        for (var i = inicioDoCorpo; i < linhas.Length; i++)
+        {
+            var linha = linhas[i];
+            var inicioDaLinha = deslocamento;
+            deslocamento += linha.Length + 1;
+
+            var cerca = DetectarCerca(linha.TrimStart());
+            if (cercaAberta is not null)
+            {
+                if (cerca is not null && cerca == cercaAberta) cercaAberta = null;
+                continue;
+            }
+            if (cerca is not null) { cercaAberta = cerca; continue; }
+
+            foreach (var (inicio, fim) in TrechosForaDeCodigo(linha))
+                yield return new TrechoDeProsa(i, inicioDaLinha + inicio, linha[inicio..fim]);
+        }
+    }
+
     private static string ImpressaoDigitalNormalizador(string conteudo) =>
         (conteudo ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
 
@@ -330,3 +372,6 @@ public static class AnalisadorDeNota
         return string.Empty;
     }
 }
+
+/// <summary>Um pedaço de prosa da nota, com onde ele começa no texto inteiro.</summary>
+public sealed record TrechoDeProsa(int Linha, int Inicio, string Texto);

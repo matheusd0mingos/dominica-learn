@@ -19,6 +19,7 @@
 @inject NavigationManager Navegacao
 @inject ISnackbar Avisos
 @inject IDialogService Dialogos
+@inject ILogger<Notas> Log
 @implements IAsyncDisposable
 
 <PageTitle>@(_aberta?.Nota.Titulo ?? "Notas") · Dominica Learn</PageTitle>
@@ -272,6 +273,50 @@
                     </MudList>
                 }
             }
+
+            @* —— MENÇÕES NÃO LIGADAS ——
+
+               É a resposta à pergunta "e se eu descobrir a conexão só depois?". Ninguém escreve links
+               enquanto pensa: escreve-se "a prescrição tributária corre desde…" e só semanas depois se
+               cria a nota "Prescrição". Esta lista são todos os encontros que já aconteceram e ficaram
+               sem registro. *@
+            @if (_aberta is not null)
+            {
+                <MudText Typo="Typo.overline" Class="mt-4 d-block">Mencionam sem ligar</MudText>
+
+                @if (_mencoes is null)
+                {
+                    @* Carrega DEPOIS da nota aparecer: a varredura lê arquivos do disco, e segurar a
+                       abertura da nota por causa de um painel lateral seria trocar o essencial pelo
+                       acessório. *@
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Procurando…</MudText>
+                }
+                else if (_mencoes.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Nenhuma.</MudText>
+                }
+                else
+                {
+                    @foreach (var m in _mencoes.Take(15))
+                    {
+                        <div class="mencao">
+                            <MudText Typo="Typo.body2" Class="mencao-nota">@m.Titulo</MudText>
+                            @* O TRECHO É OBRIGATÓRIO, não enfeite: sem ver a frase, a pessoa teria de
+                               abrir a outra nota para decidir, e aí não economizou nada. *@
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">@m.Mencao.Trecho</MudText>
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                                       Disabled="_ligando"
+                                       OnClick="@(() => LigarMencaoAsync(m))">Ligar</MudButton>
+                        </div>
+                    }
+                    @if (_mencoes.Count > 15)
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                            …e mais @(_mencoes.Count - 15).
+                        </MudText>
+                    }
+                }
+            }
         </MudPaper>
     </MudItem>
 </MudGrid>
@@ -293,6 +338,8 @@
     private IReadOnlyList<TemplateDisponivel> _templates = [];
     private IReadOnlyList<MateriaContada> _materias = [];
     private IReadOnlyList<EtiquetaContada> _etiquetas = [];
+    private IReadOnlyList<MencaoEmNota>? _mencoes;
+    private bool _ligando;
     private IReadOnlyList<Acerto> _acertos = [];
     private string _termo = string.Empty;
     private string _estado = string.Empty;
@@ -481,6 +528,62 @@
         _favorita = Dominica.Learn.Domain.Analise.EditorDeFrontmatter.EhFavorita(_aberta.Nota.Analise);
         _renderizada = null;
         if (_lendo) await AoTrocarModoAsync(true);
+
+        // As menções vêm DEPOIS. A varredura lê arquivos do disco, e segurar a abertura da nota por
+        // causa de um painel lateral seria trocar o essencial pelo acessório — quem abriu quer escrever.
+        _mencoes = null;
+        _ = CarregarMencoesAsync(caminho);
+    }
+
+    /// <summary>
+    /// Procura quem cita esta nota sem ligar. Roda solta, fora do caminho de abertura.
+    ///
+    /// A CONFERÊNCIA DO CAMINHO NO FIM não é paranoia: quem abre uma nota e clica logo na seguinte teria
+    /// o painel da primeira aterrissando sobre a segunda, oferecendo ligar menções que são de outra nota.
+    /// </summary>
+    private async Task CarregarMencoesAsync(CaminhoNota caminho)
+    {
+        try
+        {
+            var achadas = await Conhecimento.MencoesNaoLigadasAsync(caminho);
+            if (_aberta?.Nota.Caminho != caminho) return;
+            _mencoes = achadas;
+        }
+        catch (Exception e)
+        {
+            // Painel lateral que falha não pode derrubar a tela de escrever.
+            _mencoes = [];
+            Log.LogWarning(e, "Não consegui procurar menções para {Caminho}.", caminho.Valor);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LigarMencaoAsync(MencaoEmNota m)
+    {
+        if (_aberta is null || _ligando) return;
+
+        _ligando = true;
+        try
+        {
+            var r = await Conhecimento.LigarMencaoAsync(m.Onde, m.Mencao, _aberta.Nota.Caminho);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui ligar.", Severity.Warning);
+                // Recarrega a lista: se o motivo foi o texto ter mudado, as posições velhas não servem
+                // mais e deixá-las na tela convidaria a errar de novo.
+                _mencoes = null;
+                await CarregarMencoesAsync(_aberta.Nota.Caminho);
+                return;
+            }
+
+            Avisos.Add($"Ligada em {m.Titulo}.", Severity.Success);
+            // A outra nota agora aponta para esta: os backlinks daqui mudaram.
+            await AbrirAsync(_aberta.Nota.Caminho);
+        }
+        finally
+        {
+            _ligando = false;
+        }
     }
 
     private async Task RecarregarAsync()
