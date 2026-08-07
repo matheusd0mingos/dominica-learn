@@ -26,7 +26,14 @@
     </header>
 
     <main class="conteudo">
-        @Body
+        @* O LIMITE FICA AQUI, DENTRO DO LAYOUT, e a posição é o recurso inteiro.
+           Em volta do AuthorizeRouteView — que foi onde eu o pus primeiro — o erro leva o LAYOUT
+           junto, e a tela fica sem a barra do topo: sem menu, o "dá para navegar por ali em cima" da
+           mensagem vira mentira, e a única saída volta a ser o F5. Descoberto vendo o print do teste,
+           não lendo o código. Ver LimiteDeErro. *@
+        <LimiteDeErro>
+            @Body
+        </LimiteDeErro>
     </main>
 </div>
 

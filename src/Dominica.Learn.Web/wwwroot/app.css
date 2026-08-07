@@ -659,3 +659,40 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
 /* O cartão-problema é o único aviso do painel que está custando tempo TODO DIA — os outros podem esperar
    a semana que vem. Daí o vermelho, o mesmo da matéria que está custando. */
 .atencao-cartaoproblema { border-left-color: var(--perigo); }
+
+/* A tela que quebrou. Ela aparece no lugar do conteúdo, com a moldura do app intacta em volta —
+   é o que diz, sem precisar de texto, que o resto continua funcionando. */
+.erro-de-tela {
+    max-width: 620px;
+    margin: 8vh auto;
+    background: var(--panel);
+    border: 1px solid var(--linha);
+    border-left: 4px solid var(--perigo);
+    border-radius: var(--raio);
+    padding: 24px 28px;
+}
+
+.erro-de-tela h2 { margin-top: 0; font-size: 1.3rem; }
+
+/* O detalhe técnico fica DISCRETO e legível, não escondido: sem ele, "quebrou" é tudo o que se
+   consegue relatar, e um relato assim não conserta nada. */
+.erro-de-tela-detalhe {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .82rem;
+    color: var(--ink-faint);
+    background: var(--panel-2);
+    border-radius: 6px;
+    padding: 8px 10px;
+    overflow-x: auto;
+}
+
+.erro-de-tela-botao {
+    margin-top: 8px;
+    background: var(--tinta);
+    color: #fff;
+    border: 0;
+    border-radius: var(--raio);
+    padding: 9px 16px;
+    cursor: pointer;
+}
+.erro-de-tela-botao:hover { background: #16304f; }
