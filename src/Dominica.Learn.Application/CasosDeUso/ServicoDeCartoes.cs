@@ -61,6 +61,10 @@ public sealed class ServicoDeCartoes(
 
             foreach (var cartao in AnalisadorDeCartoes.Analisar(caminho, nota.Conteudo))
             {
+                // O suspenso fica FORA da fila e fora da conta do teto: ele não é dívida de revisão nem
+                // consome cota — está guardado, não adiado.
+                if (cartao.Suspenso) continue;
+
                 todos.Add(cartao);
                 if (cartao.AgendamentoOu(hoje).Vencido(hoje)) fila.Add(cartao);
             }
@@ -155,6 +159,40 @@ public sealed class ServicoDeCartoes(
             caminho, cartao.Linha + 1, resposta, agendamento.IntervaloEmDias);
 
         return Resultado<Agendamento>.Sucesso(agendamento);
+    }
+
+    /// <summary>
+    /// Suspende ou devolve um cartão à fila.
+    ///
+    /// SUSPENDER NÃO É APAGAR, e a diferença aparece no agendamento: ele fica intacto no arquivo, então
+    /// devolver o cartão à fila devolve junto o histórico que ele tinha. Ver <see cref="Suspensao"/>.
+    ///
+    /// RELÊ O CARTÃO DO DISCO antes de mexer, como o responder faz: o que estava na tela pode ter minutos
+    /// de idade, e suspender pela posição antiga suspenderia o cartão vizinho — em silêncio.
+    /// </summary>
+    public async Task<Resultado<bool>> SuspenderAsync(
+        CaminhoNota caminho, int linha, bool suspenso, CancellationToken ct = default)
+    {
+        var nota = await repositorio.LerAsync(caminho, ct);
+        if (nota is null) return Resultado<bool>.NaoEncontrada($"A nota \"{caminho}\"");
+
+        var cartao = AnalisadorDeCartoes.Analisar(caminho, nota.Conteudo).FirstOrDefault(c => c.Linha == linha);
+        if (cartao is null)
+            return Resultado<bool>.NaoEncontrada($"O cartão na linha {linha + 1} de \"{caminho}\"");
+
+        var conteudo = Suspensao.Definir(nota.Conteudo, cartao.Linha, suspenso);
+        if (ReferenceEquals(conteudo, nota.Conteudo)) return Resultado<bool>.Sucesso(suspenso);
+
+        var salva = await notas.SalvarAsync(caminho, conteudo, nota.Impressao, autor: null, ct);
+        if (!salva.Ok)
+            return Resultado<bool>.Falha(
+                salva.Motivo ?? MotivoDaFalha.Invalida,
+                salva.Mensagem ?? "Não consegui gravar.");
+
+        log.LogInformation("Cartão de {Nota}:{Linha} {Estado}.",
+            caminho, cartao.Linha + 1, suspenso ? "suspenso" : "devolvido à fila");
+
+        return Resultado<bool>.Sucesso(suspenso);
     }
 
     /// <summary>

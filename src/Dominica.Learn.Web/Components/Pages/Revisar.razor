@@ -57,6 +57,16 @@
             }
         </MudMenu>
 
+        @* SUSPENDER, ao lado das notas e não escondido: a hora de tirar um cartão mal formulado da
+           frente é exatamente quando ele aparece. Sem esta saída, a pessoa responde "bom" num cartão que
+           não presta só para ele sumir — e aí a fila vira um lugar onde se mente para o algoritmo. *@
+        @if (_atual is not null)
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.PauseCircleOutline"
+                       OnClick="SuspenderAtualAsync">Suspender</MudButton>
+        }
+
         <MudSpacer />
         @if (_fila.Count > 0)
         {
@@ -209,6 +219,28 @@
     private async Task DefinirTetoAsync(int quantos)
     {
         await Preferencias.DefinirCartoesNovosPorDiaAsync(quantos);
+        await CarregarAsync();
+    }
+
+    /// <summary>
+    /// Tira o cartão da fila sem apagá-lo. O agendamento fica no arquivo — devolvê-lo depois devolve o
+    /// histórico junto.
+    /// </summary>
+    private async Task SuspenderAtualAsync()
+    {
+        if (_atual is null) return;
+
+        var alvo = _atual;
+        var r = await Cartoes.SuspenderAsync(alvo.Nota, alvo.Linha, suspenso: true);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui suspender.", Severity.Warning);
+            return;
+        }
+
+        // Dizer ONDE ele foi parar: um cartão que some sem explicação é indistinguível de um cartão
+        // apagado, e a diferença entre as duas coisas é o ponto inteiro da suspensão.
+        Avisos.Add($"Suspenso. Ele continua em \"{alvo.Nota.Nome}\", com o histórico guardado.", Severity.Info);
         await CarregarAsync();
     }
 

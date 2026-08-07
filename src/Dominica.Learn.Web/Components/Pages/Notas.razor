@@ -17,6 +17,7 @@
 @inject IRenderizadorDoCliente Leitura
 @inject ServicoDeConhecimento Conhecimento
 @inject ServicoDeAnexos Anexos
+@inject ServicoDeCartoes Cartoes
 @inject NavigationManager Navegacao
 @inject ISnackbar Avisos
 @inject IDialogService Dialogos
@@ -306,11 +307,20 @@
             @if (_cartoes.Count > 0)
             {
                 <MudText Typo="Typo.overline" Class="mt-4 d-block">Cartões desta nota (@_cartoes.Count)</MudText>
+                @* O SUSPENSO PRECISA APARECER AQUI, ou suspender vira apagar: fora da fila e fora desta
+                   lista, ele não existe em lugar nenhum da interface, e a promessa de que dá para
+                   voltar atrás fica sem como ser cumprida. *@
                 @foreach (var c in _cartoes.Take(12))
                 {
-                    <div class="cartao-item">
+                    <div class="cartao-item @(c.Suspenso ? "cartao-suspenso" : null)">
                         <MudText Typo="Typo.body2">@c.Frente</MudText>
                         <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">@c.Verso</MudText>
+                        @if (c.Suspenso)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.PlayCircleOutline"
+                                       OnClick="@(() => SuspenderAsync(c, false))">Voltar para a fila</MudButton>
+                        }
                     </div>
                 }
                 @if (_cartoes.Count > 12)
@@ -505,6 +515,19 @@
     /// Transforma a seleção em lacuna. Grava na hora — o cartão nasceu de um clique só, e esperar o
     /// autosave deixaria uma janela em que fechar a aba o perderia.
     /// </summary>
+    /// <summary>Tira o cartão da fila, ou o devolve — com o histórico dele intacto.</summary>
+    private async Task SuspenderAsync(Cartao cartao, bool suspenso)
+    {
+        if (_aberta is null) return;
+
+        var r = await Cartoes.SuspenderAsync(_aberta.Nota.Caminho, cartao.Linha, suspenso);
+        if (!r.Ok) { Avisos.Add(r.Mensagem ?? "Não consegui.", Severity.Warning); return; }
+
+        // Recarrega a nota inteira, e não só a lista: a marca foi gravada NO ARQUIVO, e o editor na tela
+        // está com o texto de antes — a próxima digitação gravaria por cima e desfaria a suspensão.
+        await AbrirAsync(_aberta.Nota.Caminho);
+    }
+
     private async Task VirarLacunaAsync()
     {
         if (_aberta is null || _sessao is null) return;

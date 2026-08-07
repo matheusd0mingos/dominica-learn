@@ -492,3 +492,23 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
 .cartao-item:last-of-type {
     border-bottom: none;
 }
+
+/* Cartão suspenso: presente e claramente fora do ciclo. Esmaecido em vez de escondido — escondê-lo
+   tornaria suspender indistinguível de apagar, que é justamente a diferença que o recurso existe
+   para oferecer. */
+.cartao-suspenso {
+    opacity: .55;
+}
+
+.cartao-suspenso::before {
+    content: "suspenso";
+    display: inline-block;
+    font-size: .7rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    border: 1px solid var(--linha);
+    border-radius: 999px;
+    padding: 0 6px;
+    margin-bottom: 2px;
+}

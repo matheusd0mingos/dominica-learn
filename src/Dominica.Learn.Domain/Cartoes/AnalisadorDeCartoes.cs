@@ -14,7 +14,9 @@ public sealed record Cartao(
     string Verso,
     int Linha,
     int LinhasOcupadas,
-    Agendamento? Agendamento)
+    Agendamento? Agendamento,
+    /// <summary>Fora da fila, mas guardado com o histórico intacto. Ver <see cref="Suspensao"/>.</summary>
+    bool Suspenso = false)
 {
     /// <summary>Cartão sem agendamento legível é novo — vence hoje e entra na fila.</summary>
     public Agendamento AgendamentoOu(DateOnly hoje) => Agendamento ?? Cartoes.Agendamento.Novo(hoje);
@@ -113,6 +115,9 @@ public static class AnalisadorDeCartoes
     {
         var (texto, agendamento, ocupadas) = SepararAgendamento(linhas, i, linhas[i]);
 
+        var suspenso = Suspensao.Tem(texto);
+        texto = Suspensao.Remover(texto);
+
         var pedacos = texto.Split(Lacuna);
 
         // Split por "==" dá partes ímpares quando os delimitadores estão emparelhados: fora, dentro,
@@ -148,7 +153,7 @@ public static class AnalisadorDeCartoes
         // cartão sem pergunta. Isso é destaque de Markdown comum, não cartão.
         if (textoFrente.Replace("[…]", "").Trim().Length == 0) return null;
 
-        return new Cartao(nota, textoFrente, LimparMarcadores(verso.ToString()), i, ocupadas, agendamento);
+        return new Cartao(nota, textoFrente, LimparMarcadores(verso.ToString()), i, ocupadas, agendamento, suspenso);
     }
 
     private static bool EhSeparadorDeBloco(string linha)
@@ -165,6 +170,11 @@ public static class AnalisadorDeCartoes
         // dependendo da versão. Ler os dois evita reagendar do zero um cartão que já tem histórico.
         var (texto, agendamento, ocupadas) = SepararAgendamento(linhas, i, linha);
 
+        // A marca de suspensão fica no FIM da linha, ao lado do agendamento — sem tirá-la aqui, ela
+        // apareceria colada na resposta do cartão, na tela de revisão.
+        var suspenso = Suspensao.Tem(texto);
+        texto = Suspensao.Remover(texto);
+
         var posicao = texto.IndexOf(InlineDuplo, StringComparison.Ordinal);
         var tamanho = InlineDuplo.Length;
         if (posicao < 0)
@@ -180,12 +190,15 @@ public static class AnalisadorDeCartoes
 
         // Uma linha que é só um cabeçalho ou item de lista com "::" ainda é cartão — o plugin aceita, e
         // quem escreve "- Prazo::10 dias" está escrevendo um cartão dentro de uma lista, de propósito.
-        return new Cartao(nota, LimparMarcadores(frente), verso, i, ocupadas, agendamento);
+        return new Cartao(nota, LimparMarcadores(frente), verso, i, ocupadas, agendamento, suspenso);
     }
 
     private static Cartao? LerBloco(CaminhoNota nota, string[] linhas, int i)
     {
-        var frente = linhas[i].Trim();
+        // No cartão de bloco a marca de suspensão vai na linha da PERGUNTA, que é onde Suspensao.Definir
+        // a escreve — a linha do agendamento fica depois do verso e pode nem existir ainda.
+        var suspenso = Suspensao.Tem(linhas[i]);
+        var frente = Suspensao.Remover(linhas[i]).Trim();
         if (frente.Length == 0) return null;
 
         var verso = new List<string>();
@@ -206,7 +219,7 @@ public static class AnalisadorDeCartoes
         var ocupadas = fim - i;
         if (fim < linhas.Length && MarcaDeAgendamento.TentarLer(linhas[fim], out agendamento)) ocupadas++;
 
-        return new Cartao(nota, LimparMarcadores(frente), string.Join('\n', verso).Trim(), i, ocupadas, agendamento);
+        return new Cartao(nota, LimparMarcadores(frente), string.Join('\n', verso).Trim(), i, ocupadas, agendamento, suspenso);
     }
 
     private static (string Texto, Agendamento? Agendamento, int Ocupadas) SepararAgendamento(
