@@ -323,4 +323,100 @@ public class ServicoDeNotasTests
         Assert.False(r.Ok);
         Assert.Equal(MotivoDaFalha.NaoEncontrada, r.Motivo);
     }
+
+    // —— LIGAR DUAS NOTAS PELO BOTÃO ——————————————————————————————————————————————————
+    //
+    // A costura: resolver o texto mais curto, escrever na seção, e passar pelo caminho que reindexa.
+    // A regra de ONDE escrever é do domínio e tem teste lá (SecaoDeRelacionadasTests); aqui se prova
+    // que o caso de uso liga as peças certas — e, principalmente, que a ligação chega ao ÍNDICE, que
+    // é de onde o grafo sai. Uma ligação que existe no arquivo e não no índice é uma linha que não
+    // aparece no grafo, e é o defeito que este recurso não pode ter.
+
+    private static ServicoDeConhecimento Conhecimento(Cenario c) =>
+        new(c.Vault, c.Indice, null!, null!, c.Servico, null!,
+            NullLogger<ServicoDeConhecimento>.Instance);
+
+    [Fact]
+    public async Task Ligar_escreve_na_nota_e_a_ligacao_chega_ao_indice()
+    {
+        var c = Montar();
+        await c.Servico.CriarAsync(CaminhoNota.De("Direito/Mapa.md"), "# Mapa\n");
+        await c.Servico.CriarAsync(CaminhoNota.De("Direito/Crase.md"), "# Crase\n");
+
+        var r = await Conhecimento(c).LigarAsync(CaminhoNota.De("Direito/Mapa.md"), CaminhoNota.De("Direito/Crase.md"));
+
+        Assert.True(r.Ok);
+        Assert.False(r.Valor!.JaHavia);
+        Assert.Equal("- [[Crase]]", r.Valor.Linha);
+        Assert.Contains("## Relacionadas\n- [[Crase]]", c.Vault.Arquivos["Direito/Mapa.md"]);
+
+        // O grafo sai do índice, não do arquivo.
+        var ligacoes = await c.Indice.LigacoesDeAsync(CaminhoNota.De("Direito/Mapa.md"));
+        Assert.Equal("Direito/Crase.md", Assert.Single(ligacoes).Destino?.Valor);
+    }
+
+    [Fact]
+    public async Task Com_homonimas_a_ligacao_leva_o_caminho()
+    {
+        // "[[Crase]]" com duas notas de mesmo nome resolveria para qualquer uma das duas — e o
+        // resolvedor desempata por proximidade, o que faria o botão ligar para a nota errada em
+        // silêncio. O texto tem de ser o caminho.
+        var c = Montar();
+        await c.Servico.CriarAsync(CaminhoNota.De("Direito/Mapa.md"), "# Mapa\n");
+        await c.Servico.CriarAsync(CaminhoNota.De("Direito/Crase.md"), "# Crase\n");
+        await c.Servico.CriarAsync(CaminhoNota.De("Português/Crase.md"), "# Crase\n");
+
+        var r = await Conhecimento(c).LigarAsync(
+            CaminhoNota.De("Direito/Mapa.md"), CaminhoNota.De("Português/Crase.md"));
+
+        Assert.Equal("- [[Português/Crase]]", r.Valor!.Linha);
+        var ligacoes = await c.Indice.LigacoesDeAsync(CaminhoNota.De("Direito/Mapa.md"));
+        Assert.Equal("Português/Crase.md", Assert.Single(ligacoes).Destino?.Valor);
+    }
+
+    [Fact]
+    public async Task Ligar_de_novo_nao_escreve_e_avisa()
+    {
+        var c = Montar();
+        await c.Servico.CriarAsync(CaminhoNota.De("A.md"), "# A\n");
+        await c.Servico.CriarAsync(CaminhoNota.De("B.md"), "# B\n");
+        var conhecimento = Conhecimento(c);
+
+        await conhecimento.LigarAsync(CaminhoNota.De("A.md"), CaminhoNota.De("B.md"));
+        var antes = c.Vault.Arquivos["A.md"];
+        var r = await conhecimento.LigarAsync(CaminhoNota.De("A.md"), CaminhoNota.De("B.md"));
+
+        Assert.True(r.Ok);
+        Assert.True(r.Valor!.JaHavia);
+        Assert.Equal(antes, c.Vault.Arquivos["A.md"]);
+    }
+
+    [Fact]
+    public async Task A_OUTRA_direcao_e_o_mesmo_metodo()
+    {
+        // "faça B apontar para cá" é escrever em B. Um método só para as duas direções — dois seriam
+        // duas cópias das mesmas regras para manter iguais.
+        var c = Montar();
+        await c.Servico.CriarAsync(CaminhoNota.De("Aberta.md"), "# Aberta\n");
+        await c.Servico.CriarAsync(CaminhoNota.De("Outra.md"), "# Outra\n");
+
+        var r = await Conhecimento(c).LigarAsync(CaminhoNota.De("Outra.md"), CaminhoNota.De("Aberta.md"));
+
+        Assert.Equal(CaminhoNota.De("Outra.md"), r.Valor!.Nota);   // a tela precisa dizer ONDE escreveu
+        Assert.Contains("- [[Aberta]]", c.Vault.Arquivos["Outra.md"]);
+        Assert.DoesNotContain("Relacionadas", c.Vault.Arquivos["Aberta.md"]);
+    }
+
+    [Fact]
+    public async Task Nota_nao_aponta_para_ela_mesma()
+    {
+        var c = Montar();
+        await c.Servico.CriarAsync(CaminhoNota.De("A.md"), "# A\n");
+
+        var r = await Conhecimento(c).LigarAsync(CaminhoNota.De("A.md"), CaminhoNota.De("A.md"));
+
+        Assert.False(r.Ok);
+        Assert.DoesNotContain("Relacionadas", c.Vault.Arquivos["A.md"]);
+    }
+
 }

@@ -14,6 +14,16 @@ public sealed record TemplateDisponivel(CaminhoNota Caminho, string Nome);
 /// <summary>Uma matéria e quantas notas ela tem — o que o painel lateral e a legenda do grafo mostram.</summary>
 public sealed record MateriaContada(Materia Materia, int Notas);
 
+/// <summary>
+/// Onde a ligação foi escrita e como. A tela precisa dos três para não mentir: em qual nota mexeu, o
+/// que apareceu lá dentro, e se de fato houve mudança.
+/// </summary>
+public sealed record LigacaoEscrita(CaminhoNota Nota, string Texto, bool JaHavia)
+{
+    /// <summary>A linha como ela ficou no arquivo — é isto que a mensagem mostra.</summary>
+    public string Linha => $"- [[{Texto}]]";
+}
+
 
 /// <summary>
 /// Tudo que a tela do grafo precisa numa consulta só.
@@ -212,6 +222,53 @@ public sealed class ServicoDeConhecimento(
         return materia.Existe
             && caminho.Segmentos.Count == 1
             && string.Equals(caminho.Nome, materia.Nome, StringComparison.Ordinal);
+    }
+
+    // —— LIGAR DUAS NOTAS ——————————————————————————————————————————————————————————————
+    /// <summary>
+    /// Escreve em <paramref name="dentroDe"/> uma ligação para <paramref name="apontarPara"/>.
+    ///
+    /// UM MÉTODO PARA AS DUAS DIREÇÕES, e é isso que o torna simples. "Esta nota aponta para X" e
+    /// "faça X apontar para cá" parecem dois recursos e são o mesmo: escrever um wikilink DENTRO de uma
+    /// nota. O que muda é qual das duas é a de dentro. Dois métodos aqui seriam duas cópias das mesmas
+    /// regras para manter iguais.
+    ///
+    /// ESCREVER NUMA NOTA QUE NÃO ESTÁ ABERTA é legítimo e não pode ser silencioso: num produto cujo
+    /// lema é "o vault é seu", editar arquivo por baixo do pano é grave. Por isso o resultado diz em
+    /// QUAL nota escreveu e O QUE escreveu — é a tela que conta, mas quem sabe é aqui.
+    ///
+    /// PASSA PELO ServicoDeNotas.SalvarAsync, e não grava direto: é ele quem arquiva no histórico e
+    /// reindexa. Gravar por fora faria a ligação existir no arquivo e não no grafo — que é justamente
+    /// a tela que este recurso existe para alimentar.
+    /// </summary>
+    public async Task<Resultado<LigacaoEscrita>> LigarAsync(
+        CaminhoNota dentroDe, CaminhoNota apontarPara, CancellationToken ct = default)
+    {
+        if (dentroDe == apontarPara)
+            return Resultado<LigacaoEscrita>.Invalida("Uma nota não aponta para ela mesma.");
+
+        var nota = await repositorio.LerAsync(dentroDe, ct);
+        if (nota is null) return Resultado<LigacaoEscrita>.NaoEncontrada($"A nota \"{dentroDe}\"");
+
+        // O TEXTO MAIS CURTO QUE AINDA RESOLVE: só o nome quando ele é único no vault, o caminho quando
+        // há homônimas. Escrever sempre o caminho funcionaria e deixaria a nota feia de ler no Obsidian,
+        // que é onde ela vai ser lida.
+        var todas = await indice.TodosOsCaminhosAsync(ct);
+        var texto = EscritaDeLigacao.MaisCurta(apontarPara, todas);
+
+        var (conteudo, oQueHouve) = SecaoDeRelacionadas.Ligar(
+            nota.Conteudo, texto, nota.Analise.Ligacoes.Select(l => l.Alvo));
+
+        if (oQueHouve == SecaoDeRelacionadas.Resultado.JaHavia)
+            return Resultado<LigacaoEscrita>.Sucesso(new LigacaoEscrita(dentroDe, texto, JaHavia: true));
+
+        var salva = await notas.SalvarAsync(dentroDe, conteudo, nota.Impressao, autor: null, ct);
+        if (!salva.Ok)
+            return Resultado<LigacaoEscrita>.Falha(salva.Motivo ?? MotivoDaFalha.Invalida,
+                salva.Mensagem ?? "Não consegui escrever a ligação.");
+
+        log.LogInformation("Liguei {Origem} → {Alvo}.", dentroDe, apontarPara);
+        return Resultado<LigacaoEscrita>.Sucesso(new LigacaoEscrita(dentroDe, texto, JaHavia: false));
     }
 
     // —— MATÉRIA DE REFERÊNCIA ————————————————————————————————————————————————————————
