@@ -1,6 +1,7 @@
 using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Web.Components.Account;
 using Dominica.Learn.Web.Data;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Dominica.Learn.Web.Tests;
 
@@ -27,7 +28,31 @@ public class EmailDoIdentityTests
     private static (EmailDoIdentity email, EnviadorDeMentira caixa) Montar()
     {
         var caixa = new EnviadorDeMentira();
-        return (new EmailDoIdentity(caixa), caixa);
+        return (new EmailDoIdentity(caixa, NullLogger<EmailDoIdentity>.Instance), caixa);
+    }
+
+    /// <summary>Um enviador que sempre falha — é o servidor SMTP recusando.</summary>
+    private sealed class EnviadorQueFalha : IEnviadorDeEmail
+    {
+        public bool Ligado => true;
+        public Task EnviarAsync(MensagemDeEmail m, CancellationToken ct = default) =>
+            throw new InvalidOperationException("servidor recusou");
+    }
+
+    [Fact]
+    public async Task Falha_no_envio_nao_derruba_quem_chamou()
+    {
+        // O DEFEITO QUE ISTO PEGA JÁ ACONTECEU EM PRODUÇÃO: com o SMTP configurado e o servidor
+        // recusando, a exceção subia da tela de CADASTRO — depois de a conta já ter sido criada. A
+        // pessoa via "esta tela quebrou" e ficava sem saber se tinha conta.
+        //
+        // O contrato do Identity não tem canal de falha, então o adaptador não pode ter um: e-mail é
+        // best-effort, cadastro é o que importa. A falha vira erro no log.
+        var email = new EmailDoIdentity(new EnviadorQueFalha(), NullLogger<EmailDoIdentity>.Instance);
+
+        await email.SendConfirmationLinkAsync(new ApplicationUser(), "eu@exemplo.com", "https://x/y");
+        await email.SendPasswordResetLinkAsync(new ApplicationUser(), "eu@exemplo.com", "https://x/y");
+        await email.SendPasswordResetCodeAsync(new ApplicationUser(), "eu@exemplo.com", "123");
     }
 
     // O link que o Identity entrega já vem passado por HtmlEncoder na tela que pediu o envio: os `&`

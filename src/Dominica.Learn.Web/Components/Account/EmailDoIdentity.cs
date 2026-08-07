@@ -2,6 +2,7 @@ using System.Net;
 using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Web.Data;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Logging;
 
 namespace Dominica.Learn.Web.Components.Account;
 
@@ -18,10 +19,37 @@ namespace Dominica.Learn.Web.Components.Account;
 /// curta, dizer quem mandou, e dizer o que fazer se não foi a pessoa que pediu — porque um e-mail
 /// desses que chega sem ninguém ter pedido é o primeiro sinal de que alguém está tentando entrar.
 /// </summary>
-public sealed class EmailDoIdentity(IEnviadorDeEmail enviador) : IEmailSender<ApplicationUser>
+/// <remarks>
+/// FALHA DE ENVIO NÃO PODE DERRUBAR A TELA, e esta é a diferença entre a porta e este adaptador.
+///
+/// O <see cref="EmailPorSmtp"/> relança de propósito: engolir lá transformaria "não chegou" em "não
+/// aconteceu nada", que é indepurável. Mas o contrato do Identity NÃO TEM canal de falha — quem chama
+/// é a tela de cadastro, que já criou a conta quando manda o e-mail. Deixar a exceção subir dali
+/// quebrava a tela DEPOIS de a conta existir, e a pessoa ficava sem saber se ela existe ou não.
+/// Aconteceu em produção, com o SMTP configurado e o servidor recusando.
+///
+/// Então a decisão é: o e-mail é BEST-EFFORT e o cadastro é o que importa. A falha vira erro no log,
+/// com destino e assunto, e o fluxo segue. Quem não recebeu tem "reenviar confirmação" e
+/// "esqueci minha frase" — os dois caminhos existem e funcionam.
+/// </remarks>
+public sealed class EmailDoIdentity(IEnviadorDeEmail enviador, ILogger<EmailDoIdentity> log) : IEmailSender<ApplicationUser>
 {
+    /// <summary>Manda, e se não der, registra e segue. Ver o comentário da classe.</summary>
+    private async Task TentarAsync(MensagemDeEmail mensagem)
+    {
+        try
+        {
+            await enviador.EnviarAsync(mensagem);
+        }
+        catch (Exception e)
+        {
+            log.LogError(e, "Não consegui enviar \"{Assunto}\" para {Destino}. O fluxo seguiu sem o e-mail.",
+                mensagem.Assunto, mensagem.Para);
+        }
+    }
+
     public Task SendConfirmationLinkAsync(ApplicationUser user, string email, string confirmationLink) =>
-        enviador.EnviarAsync(new MensagemDeEmail(
+        TentarAsync(new MensagemDeEmail(
             email,
             "Confirme seu e-mail — Dominica Learn",
             Corpo(
@@ -32,7 +60,7 @@ public sealed class EmailDoIdentity(IEnviadorDeEmail enviador) : IEmailSender<Ap
                 "Se não foi você que criou esta conta, ignore esta mensagem — nada acontece sem o clique.")));
 
     public Task SendPasswordResetLinkAsync(ApplicationUser user, string email, string resetLink) =>
-        enviador.EnviarAsync(new MensagemDeEmail(
+        TentarAsync(new MensagemDeEmail(
             email,
             "Redefinir sua frase secreta — Dominica Learn",
             Corpo(
@@ -45,7 +73,7 @@ public sealed class EmailDoIdentity(IEnviadorDeEmail enviador) : IEmailSender<Ap
 
     // O `resetCode` vem do Identity, e não deste arquivo: é o único valor aqui que precisa ser escapado.
     public Task SendPasswordResetCodeAsync(ApplicationUser user, string email, string resetCode) =>
-        enviador.EnviarAsync(new MensagemDeEmail(
+        TentarAsync(new MensagemDeEmail(
             email,
             "Seu código de redefinição — Dominica Learn",
             $"""
