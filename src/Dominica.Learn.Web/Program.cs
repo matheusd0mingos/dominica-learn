@@ -8,6 +8,7 @@ using Dominica.Learn.Web.Components.Account;
 using Dominica.Learn.Web.Data;
 using Dominica.Learn.Web.Interop;
 using Dominica.Learn.Web.Seguranca;
+using Dominica.Learn.Web.Vault;
 using Dominica.Learn.Web.Tema;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -28,6 +29,7 @@ builder.Services.AddScoped<IRenderizadorDoCliente, RenderizadorDoCliente>();
 // Escopo de circuito: o tema é de quem está com a aba aberta, não do servidor.
 builder.Services.AddScoped<EstadoDoTema>();
 // A ÚNICA tradução de "existe cookie válido" para "este vault é do fulano". Tudo o mais recebe apelido.
+builder.Services.AddScoped<ApelidoDeQuemEntrou>();
 builder.Services.AddScoped<IUsuarioAtual, UsuarioAtualDoCircuito>();
 
 // —— IDENTIDADE ——————————————————————————————————————————————————————————————————————
@@ -189,6 +191,7 @@ app.UseRateLimiter();
 
 app.MapHealthChecks("/saude");
 app.MapearAnexos();               // /anexos/** — autenticado, lista de permissão, sem sair da raiz
+app.MapearPacoteDoVault();        // /vault.zip — o download do vault inteiro, fora do circuito
 app.MapStaticAssets();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.MapAdditionalIdentityEndpoints();

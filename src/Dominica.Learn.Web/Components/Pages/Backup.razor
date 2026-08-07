@@ -1,0 +1,162 @@
+@page "/backup"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Domain.Vault
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+@inject IEmpacotadorDoVault Empacotador
+@inject ReconciliarVault Reconciliacao
+@inject ISnackbar Avisos
+
+<PageTitle>Backup do vault — Dominica Learn</PageTitle>
+
+<ProvedoresDoMud />
+
+<MudPaper Class="pa-4" Elevation="0" Outlined="true" Style="max-width:780px;margin:0 auto">
+    <MudText Typo="Typo.h5" GutterBottom="true">Backup do vault</MudText>
+
+    @* ESTA TELA É A PROVA DA PROMESSA DO PRODUTO. "O vault é seu" só vale se você conseguir levá-lo
+       embora sem pedir nada a ninguém — sem acesso ao servidor, sem SQL, sem suporte. *@
+    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+        Seu vault são arquivos <b>.md</b> no disco. Aqui você leva todos embora, ou traz os de outro
+        lugar. O que sai daqui abre no Obsidian sem conversão nenhuma.
+    </MudText>
+
+    <MudDivider Class="my-4" />
+
+    <MudText Typo="Typo.subtitle1">Baixar tudo</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+        Um <b>.zip</b> com as notas, os anexos e o agendamento dos flashcards — que mora dentro dos
+        próprios arquivos. Não há nada seu neste servidor que não venha neste pacote.
+    </MudText>
+    @* href="vault.zip" sem barra inicial: com barra, o download sairia do sub-caminho e daria 404.
+       Ver Rotas e o DEPLOY.md. *@
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Download"
+               Href="vault.zip" Target="_self">Baixar o vault (.zip)</MudButton>
+
+    <MudDivider Class="my-4" />
+
+    <MudText Typo="Typo.subtitle1">Trazer de outro lugar</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+        Um <b>.zip</b> de vault — do Obsidian, do seu backup, ou do resumo que um colega mandou.
+        <b>Nada é sobrescrito:</b> tudo aterrissa numa pasta com a data de hoje, e de lá você move
+        para onde quiser — os <b>[[links]]</b> são consertados quando você move.
+    </MudText>
+
+    @* CustomContent e não ActivatorContent: é o padrão que o MudFileUpload desta versão aceita, e o
+       mesmo já usado na tela de notas para anexar arquivo. *@
+    <MudFileUpload @ref="_seletor" T="IBrowserFile" FilesChanged="ImportarAsync" Accept=".zip"
+                   MaxFileSize="RegrasDeImportacao.TamanhoMaximoDescompactadoBytes">
+        <CustomContent Context="seletor">
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Upload"
+                       Disabled="_importando"
+                       OnClick="@(() => seletor.OpenFilePickerAsync())">Escolher um .zip…</MudButton>
+        </CustomContent>
+    </MudFileUpload>
+
+    @if (_importando)
+    {
+        <div class="d-flex align-center gap-2 mt-3">
+            <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+            <MudText Typo="Typo.body2">Lendo o pacote…</MudText>
+        </div>
+    }
+
+    @if (_resultado is not null)
+    {
+        <MudAlert Severity="@(_resultado.Aceitas > 0 ? Severity.Success : Severity.Warning)"
+                  Dense="true" Class="mt-4">
+            @_resultado.Aceitas arquivo(s) importado(s) em <b>@_resultado.PastaDeChegada</b>.
+        </MudAlert>
+
+        @* O QUE FOI RECUSADO APARECE, item a item. Descartar em silêncio faria a pessoa procurar por
+           semanas uma nota que ela acha que importou. *@
+        @if (_resultado.Recusadas.Count > 0)
+        {
+            <MudText Typo="Typo.subtitle2" Class="mt-4">
+                @_resultado.Recusadas.Count item(ns) ficaram de fora
+            </MudText>
+            <MudSimpleTable Dense="true" Striped="true" Class="mt-2">
+                <tbody>
+                    @foreach (var r in _resultado.Recusadas.Take(50))
+                    {
+                        <tr>
+                            <td style="word-break:break-all">@r.NomeNoPacote</td>
+                            <td class="mud-text-secondary">@Explicar(r.Recusa)</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            @if (_resultado.Recusadas.Count > 50)
+            {
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    …e mais @(_resultado.Recusadas.Count - 50).
+                </MudText>
+            }
+        }
+    }
+</MudPaper>
+
+@code {
+    private MudFileUpload<IBrowserFile>? _seletor;
+    private bool _importando;
+    private ResultadoDaImportacao? _resultado;
+
+    private async Task ImportarAsync(IBrowserFile? arquivo)
+    {
+        if (arquivo is null || _importando) return;
+
+        _importando = true;
+        _resultado = null;
+        StateHasChanged();
+
+        try
+        {
+            // O fluxo do navegador é lido direto pelo empacotador — sem passo intermediário em
+            // memória, que num pacote grande derrubaria o servidor antes de a primeira nota entrar.
+            await using var fluxo = arquivo.OpenReadStream(
+                maxAllowedSize: RegrasDeImportacao.TamanhoMaximoDescompactadoBytes);
+
+            // ZipArchive precisa poder BUSCAR posição no fluxo, e o do navegador não permite. Copiar
+            // para um temporário EM DISCO — e não para a memória — é o que mantém o custo constante.
+            var temporario = Path.GetTempFileName();
+            try
+            {
+                await using (var arquivoTemp = File.Create(temporario))
+                    await fluxo.CopyToAsync(arquivoTemp);
+
+                await using var paraLer = File.OpenRead(temporario);
+                _resultado = await Empacotador.ImportarAsync(paraLer);
+            }
+            finally
+            {
+                File.Delete(temporario);
+            }
+
+            // O índice é derivado do disco; sem reconciliar, as notas importadas existem em arquivo e
+            // não aparecem em lugar nenhum da interface — o que parece que o import não funcionou.
+            await Reconciliacao.ExecutarAsync();
+
+            Avisos.Add($"{_resultado.Aceitas} arquivo(s) importado(s).", Severity.Success);
+        }
+        catch (Exception e)
+        {
+            Avisos.Add($"Não consegui ler o pacote: {e.Message}", Severity.Error);
+        }
+        finally
+        {
+            _importando = false;
+        }
+    }
+
+    private static string Explicar(MotivoDaRecusa? motivo) => motivo switch
+    {
+        MotivoDaRecusa.CaminhoEscapa => "o caminho tentava sair da pasta do vault",
+        MotivoDaRecusa.TipoNaoPermitido => "tipo de arquivo não aceito no vault",
+        MotivoDaRecusa.PacoteGrandeDemais => "o pacote passou do tamanho máximo",
+        MotivoDaRecusa.ArquivoGrandeDemais => "arquivo grande demais para uma nota",
+        _ => "nome inválido",
+    };
+}

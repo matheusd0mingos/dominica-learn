@@ -49,6 +49,7 @@ public static class RegistroDaInfraestrutura
         servicos.AddScoped<RaizDoVaultDoUsuario>();
         servicos.AddScoped<IRepositorioDeNotas, RepositorioDeNotasEmDisco>();
         servicos.AddScoped<IArmazemDeAnexos, ArmazemDeAnexosEmDisco>();
+        servicos.AddScoped<IEmpacotadorDoVault, EmpacotadorEmZip>();
         servicos.AddScoped<IIndiceDoVault, IndiceEmPostgres>();
         servicos.AddScoped<IHistoricoDeNotas, HistoricoEmPostgres>();
 
