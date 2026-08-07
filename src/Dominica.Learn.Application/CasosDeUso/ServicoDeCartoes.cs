@@ -9,6 +9,18 @@ namespace Dominica.Learn.Application.CasosDeUso;
 public sealed record CartoesDaMateria(Materia Materia, int Vencidos, int Total);
 
 /// <summary>
+/// A fila de hoje, e o que o teto diário segurou.
+///
+/// <see cref="IneditosSegurados"/> é mostrado na tela de propósito: sem ele, quem escreveu 37 cartões
+/// veria 20 e concluiria que os outros se perderam. Um limite que age em silêncio vira defeito aos olhos
+/// de quem o sofre, mesmo estando certo.
+/// </summary>
+public sealed record FilaDeRevisao(IReadOnlyList<Cartao> Cartoes, int IneditosSegurados, int Teto)
+{
+    public static readonly FilaDeRevisao Vazia = new([], 0, 0);
+}
+
+/// <summary>
 /// A fila de revisão e a resposta a um cartão.
 ///
 /// O SERVIÇO NÃO GUARDA ESTADO DE SESSÃO. A fila é recalculada a partir dos arquivos toda vez que se
@@ -19,6 +31,7 @@ public sealed class ServicoDeCartoes(
     IRepositorioDeNotas repositorio,
     IIndiceDoVault indice,
     ServicoDeNotas notas,
+    IPreferenciasDoUsuario preferencias,
     IRelogio relogio,
     ILogger<ServicoDeCartoes> log)
 {
@@ -31,11 +44,15 @@ public sealed class ServicoDeCartoes(
     /// primeiro; dentro de uma mesma data, um cartão de cada nota por rodada, para que a sessão não vire
     /// um bloco de cartões da mesma nota (onde a pessoa lembra do que leu, não do conceito).
     /// </summary>
-    public async Task<IReadOnlyList<Cartao>> FilaAsync(
+    public async Task<FilaDeRevisao> FilaAsync(
         Materia? materia = null, int limite = 100, CancellationToken ct = default)
     {
         var hoje = Hoje;
         var fila = new List<Cartao>();
+
+        // TODOS os cartões, e não só os vencidos: o teto diário precisa saber quantos inéditos JÁ foram
+        // respondidos hoje, e esses saíram da fila justamente por terem sido respondidos.
+        var todos = new List<Cartao>();
 
         foreach (var caminho in await CaminhosAsync(materia, ct))
         {
@@ -43,11 +60,24 @@ public sealed class ServicoDeCartoes(
             if (nota is null) continue;
 
             foreach (var cartao in AnalisadorDeCartoes.Analisar(caminho, nota.Conteudo))
-                if (cartao.AgendamentoOu(hoje).Vencido(hoje))
-                    fila.Add(cartao);
+            {
+                todos.Add(cartao);
+                if (cartao.AgendamentoOu(hoje).Vencido(hoje)) fila.Add(cartao);
+            }
         }
 
-        return OrdemDaFila.Intercalar(fila, hoje).Take(limite).ToList();
+        var teto = await preferencias.CartoesNovosPorDiaAsync(ct);
+        var ordenada = OrdemDaFila.Intercalar(fila, hoje);
+
+        // O TETO VEM DEPOIS DA INTERCALAÇÃO, e não antes: cortando primeiro, os inéditos escolhidos
+        // sairiam da ordem por caminho — todos da mesma nota — e a intercalação não teria mais o que
+        // intercalar.
+        var comTeto = TetoDeCartoesNovos.Aplicar(ordenada, todos, hoje, teto);
+
+        var segurados = ordenada.Count(TetoDeCartoesNovos.EhInedito)
+                        - comTeto.Count(TetoDeCartoesNovos.EhInedito);
+
+        return new FilaDeRevisao(comTeto.Take(limite).ToList(), segurados, teto);
     }
 
     /// <summary>Quantos cartões cada matéria tem vencidos. É o painel do "por onde começo hoje".</summary>

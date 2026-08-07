@@ -31,6 +31,7 @@ builder.Services.AddScoped<EstadoDoTema>();
 // A ÚNICA tradução de "existe cookie válido" para "este vault é do fulano". Tudo o mais recebe apelido.
 builder.Services.AddScoped<ApelidoDeQuemEntrou>();
 builder.Services.AddScoped<IUsuarioAtual, UsuarioAtualDoCircuito>();
+builder.Services.AddScoped<IPreferenciasDoUsuario, PreferenciasNoIdentity>();
 
 // —— IDENTIDADE ——————————————————————————————————————————————————————————————————————
 // Banco SEPARADO do índice de propósito: identidade não é conhecimento do usuário e não pode ser

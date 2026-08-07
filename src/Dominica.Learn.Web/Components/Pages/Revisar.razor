@@ -6,7 +6,9 @@
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
 @rendermode InteractiveServer
+@using Dominica.Learn.Application.Portas
 @inject ServicoDeCartoes Cartoes
+@inject IPreferenciasDoUsuario Preferencias
 @inject NavigationManager Navegacao
 @inject ISnackbar Avisos
 
@@ -41,6 +43,20 @@
             </MudMenu>
         }
 
+        @* O TETO DIÁRIO fica aqui, ao lado da fila, e não escondido numa tela de configurações: é o
+           parâmetro que decide se a rotina sobrevive, e ele precisa ser ajustável no dia em que a
+           sessão ficou pesada demais — que é justamente quando a pessoa está nesta tela. *@
+        <MudMenu Label="@($"Novos por dia: {(_teto == 0 ? "sem teto" : _teto.ToString())}")"
+                 Size="Size.Small" Variant="Variant.Text"
+                 EndIcon="@Icons.Material.Filled.ArrowDropDown" Dense="true">
+            @foreach (var opcao in new[] { 5, 10, 20, 30, 50, 0 })
+            {
+                <MudMenuItem OnClick="@(() => DefinirTetoAsync(opcao))">
+                    @(opcao == 0 ? "Sem teto" : $"{opcao} por dia")
+                </MudMenuItem>
+            }
+        </MudMenu>
+
         <MudSpacer />
         @if (_fila.Count > 0)
         {
@@ -58,6 +74,16 @@
             @(_revisados > 0
                 ? $"Acabou por hoje — {_revisados} cartão(ões) revisado(s)."
                 : "Nenhum cartão vencido agora.")
+
+            @* Dizer que sobraram inéditos é o que impede o teto de parecer um defeito. Sem esta linha,
+               alguém que escreveu 37 cartões veria 20 e acharia que os outros se perderam. *@
+            @if (_teto > 0 && _ineditosSegurados > 0)
+            {
+                <div class="mt-2">
+                    <b>@_ineditosSegurados cartão(ões) inédito(s)</b> ficaram para os próximos dias — é o
+                    teto de @_teto por dia segurando a dívida de revisão. Dá para mudá-lo ali em cima.
+                </div>
+            }
         </MudAlert>
 
         @* A lista por matéria é o "por onde começo hoje". Fica aqui, e não numa tela à parte, porque é
@@ -145,6 +171,8 @@
 
     private Materia? _materia;
     private IReadOnlyList<Cartao> _fila = [];
+    private int _teto = TetoDeCartoesNovos.Padrao;
+    private int _ineditosSegurados;
     private IReadOnlyList<CartoesDaMateria> _porMateria = [];
     private Cartao? _atual;
     private bool _revelado;
@@ -165,10 +193,23 @@
     private async Task CarregarAsync()
     {
         _carregando = true;
-        _fila = await Cartoes.FilaAsync(_materia);
+        var hoje = await Cartoes.FilaAsync(_materia);
+        _fila = hoje.Cartoes;
+        _teto = hoje.Teto;
+        _ineditosSegurados = hoje.IneditosSegurados;
         _porMateria = await Cartoes.PorMateriaAsync();
         Avancar();
         _carregando = false;
+    }
+
+    /// <summary>
+    /// Muda o teto e recarrega. Recarregar é obrigatório: o teto define QUANTOS inéditos entram, então o
+    /// valor novo só significa alguma coisa depois de a fila ser remontada com ele.
+    /// </summary>
+    private async Task DefinirTetoAsync(int quantos)
+    {
+        await Preferencias.DefinirCartoesNovosPorDiaAsync(quantos);
+        await CarregarAsync();
     }
 
     private void Avancar()
@@ -221,7 +262,7 @@
             // é o ponto de errar. Por isso a fila é recarregada em vez de só avançar o índice.
             if (resposta == Resposta.Errei)
             {
-                _fila = await Cartoes.FilaAsync(_materia);
+                _fila = (await Cartoes.FilaAsync(_materia)).Cartoes;
                 // ...mas não imediatamente: reencontrar o mesmo cartão no clique seguinte é decorar a
                 // resposta de dois segundos atrás, não lembrar. Ele vai para o fim da fila.
                 _fila = [.. _fila.Where(c => !(c.Nota.Equals(_atual.Nota) && c.Linha == _atual.Linha)),
