@@ -35,10 +35,22 @@ public sealed class IsolamentoEntreUsuariosTests : IDisposable
     private ContextoDoIndice Contexto() =>
         new(new DbContextOptionsBuilder<ContextoDoIndice>().UseSqlite(_conexao).Options);
 
+    /// <summary>
+    /// O adaptador abre UM CONTEXTO POR OPERAÇÃO (ver IndiceEmPostgres.AbrirAsync), então o teste
+    /// precisa entregar uma fábrica e não um contexto. Todos apontam para a MESMA conexão Sqlite, que é
+    /// quem guarda a base — é assim que o isolamento continua sendo testado contra dados de verdade,
+    /// e não contra o cache de identidade de um contexto que ninguém fecha.
+    /// </summary>
+    private sealed class FabricaDeTeste(SqliteConnection conexao) : IDbContextFactory<ContextoDoIndice>
+    {
+        public ContextoDoIndice CreateDbContext() =>
+            new(new DbContextOptionsBuilder<ContextoDoIndice>().UseSqlite(conexao).Options);
+    }
+
     private (ContextoDoIndice Db, IndiceEmPostgres Indice) Para(string apelido)
     {
         var db = Contexto();
-        return (db, new IndiceEmPostgres(db, new UsuarioDeTeste(apelido)));
+        return (db, new IndiceEmPostgres(new FabricaDeTeste(_conexao), new UsuarioDeTeste(apelido)));
     }
 
     public void Dispose() => _conexao.Dispose();

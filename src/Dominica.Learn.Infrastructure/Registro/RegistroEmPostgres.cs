@@ -14,17 +14,27 @@ namespace Dominica.Learn.Infrastructure.Registro;
 /// quando o presente muda. "Fiz 40 questões de Direito Tributário em março" continua verdade mesmo que a
 /// pasta hoje se chame outra coisa.
 /// </summary>
-public sealed class RegistroEmPostgres(ContextoDoRegistro db, IUsuarioAtual usuario) : IRegistroDeEstudo
+public sealed class RegistroEmPostgres(IDbContextFactory<ContextoDoRegistro> fabrica, IUsuarioAtual usuario) : IRegistroDeEstudo
 {
-    private async Task<string> EuAsync(CancellationToken ct)
+    /// <summary>
+    /// Abre um contexto SÓ PARA ESTA CHAMADA, já sabendo de quem é o registro. Mesmo motivo e mesma
+    /// forma do índice — ver <c>IndiceEmPostgres.AbrirAsync</c>, onde a razão está escrita por inteiro.
+    ///
+    /// Aqui ela pesa ainda mais desde que a fila de revisão passou a ler o desempenho: o painel e a
+    /// revisão consultam este banco na mesma tela, e um contexto por circuito seria duas operações
+    /// sobrepostas esperando para acontecer.
+    /// </summary>
+    private async Task<ContextoDoRegistro> AbrirAsync(CancellationToken ct)
     {
-        if (db.UsuarioAtual.Length == 0) db.UsuarioAtual = (await usuario.ApelidoAsync(ct)).Valor;
-        return db.UsuarioAtual;
+        var db = await fabrica.CreateDbContextAsync(ct);
+        db.UsuarioAtual = (await usuario.ApelidoAsync(ct)).Valor;
+        return db;
     }
 
     public async Task RegistrarQuestoesAsync(LoteDeQuestoes lote, CancellationToken ct = default)
     {
-        var eu = await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
+        var eu = db.UsuarioAtual;
         db.Lotes.Add(new LoteNoRegistro
         {
             Usuario = eu,
@@ -40,7 +50,8 @@ public sealed class RegistroEmPostgres(ContextoDoRegistro db, IUsuarioAtual usua
 
     public async Task RegistrarSessaoAsync(SessaoDeEstudo sessao, CancellationToken ct = default)
     {
-        var eu = await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
+        var eu = db.UsuarioAtual;
         db.Sessoes.Add(new SessaoNoRegistro
         {
             Usuario = eu,
@@ -54,7 +65,7 @@ public sealed class RegistroEmPostgres(ContextoDoRegistro db, IUsuarioAtual usua
 
     public async Task<IReadOnlyList<LoteDeQuestoes>> QuestoesAsync(DateTimeOffset desde, CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
         var linhas = await db.Lotes.AsNoTracking()
             .Where(l => l.Em >= desde).OrderByDescending(l => l.Em).ToListAsync(ct);
 
@@ -70,7 +81,7 @@ public sealed class RegistroEmPostgres(ContextoDoRegistro db, IUsuarioAtual usua
 
     public async Task<IReadOnlyList<SessaoDeEstudo>> SessoesAsync(DateTimeOffset desde, CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
         var linhas = await db.Sessoes.AsNoTracking()
             .Where(s => s.Inicio >= desde).OrderByDescending(s => s.Inicio).ToListAsync(ct);
 
@@ -85,7 +96,7 @@ public sealed class RegistroEmPostgres(ContextoDoRegistro db, IUsuarioAtual usua
     public async Task<IReadOnlyList<LancamentoRegistrado>> UltimosAsync(
         int limite, CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
 
         // DUAS CONSULTAS E UMA JUNÇÃO NA MEMÓRIA, e não um UNION no banco. São duas tabelas com colunas
         // diferentes; uni-las em SQL exigiria projetar as duas para um formato comum e escrever o texto da
@@ -108,7 +119,7 @@ public sealed class RegistroEmPostgres(ContextoDoRegistro db, IUsuarioAtual usua
 
     public async Task<bool> ApagarAsync(TipoDeLancamento tipo, int id, CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
 
         // O filtro global por usuário AINDA VALE aqui, e é ele que faz o `id` de outra pessoa
         // simplesmente não ser encontrado. Sem ele, um identificador chutado apagaria o registro alheio —

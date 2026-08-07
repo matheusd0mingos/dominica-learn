@@ -424,37 +424,6 @@
     /// </summary>
     private string? _textoNoDisco;
 
-    /// <summary>
-    /// UMA OPERAÇÃO DE BANCO POR VEZ, nesta tela.
-    ///
-    /// O DbContext do índice é ESCOPADO — no Blazor Server, isso quer dizer um por circuito, ou seja, um
-    /// para a aba inteira. Duas operações sobrepostas nele não devolvem dado errado: o EF lança "a second
-    /// operation was started on this context instance", a exceção sobe pela renderização e O CIRCUITO
-    /// MORRE. A tela continua desenhada, o autosave nunca mais chega ao servidor, e o que foi digitado
-    /// depois disso some sem aviso.
-    ///
-    /// Era exatamente o que acontecia ao trocar de nota logo depois de digitar: a busca de menções da
-    /// nota anterior ainda estava correndo (ela era disparada e esquecida, de propósito, para não segurar
-    /// a abertura) quando a abertura da nova nota começou.
-    ///
-    /// A REGRA DE USO É UMA SÓ, E NÃO PODE SER QUEBRADA: este cadeado protege CHAMADAS DE SERVIÇO
-    /// FOLHA — nunca um bloco que chame outro método que também o pegue. Aninhar trava a tela para
-    /// sempre, e o sintoma seria pior que o defeito que ele conserta.
-    ///
-    /// O conserto duradouro é registrar o contexto por FÁBRICA (AddDbContextFactory), que é a receita da
-    /// própria Microsoft para Blazor Server; isto aqui resolve a tela onde o problema aparece hoje.
-    /// </summary>
-    private readonly SemaphoreSlim _umaPorVez = new(1, 1);
-
-    private async Task<T> SozinhoAsync<T>(Func<Task<T>> operacao)
-    {
-        await _umaPorVez.WaitAsync();
-        try { return await operacao(); }
-        finally { _umaPorVez.Release(); }
-    }
-
-    private async Task SozinhoAsync(Func<Task> operacao) =>
-        await SozinhoAsync<object?>(async () => { await operacao(); return null; });
     private bool _lendo;
     private bool _favorita;
     private bool _anexando;
@@ -653,7 +622,7 @@
         if (_aberta is null) return;
         _textoPendente = texto;
 
-        var resultado = await SozinhoAsync(() => Servico.SalvarAsync(_aberta.Nota.Caminho, texto, _impressaoCarregada));
+        var resultado = await Servico.SalvarAsync(_aberta.Nota.Caminho, texto, _impressaoCarregada);
         if (resultado.Ok)
         {
             _impressaoCarregada = resultado.Valor!.Impressao;
@@ -704,7 +673,7 @@
         // toa a cada troca de nota.
         if (string.Equals(texto, _textoNoDisco, StringComparison.Ordinal)) return;
 
-        var r = await SozinhoAsync(() => Servico.SalvarAsync(_aberta.Nota.Caminho, texto, _impressaoCarregada));
+        var r = await Servico.SalvarAsync(_aberta.Nota.Caminho, texto, _impressaoCarregada);
         if (r.Ok) { _textoNoDisco = texto; return; }
 
         // DIZ, e não engole. Trocar de nota apagando o que se escreveu porque houve conflito seria
@@ -729,7 +698,7 @@
         _textoPendente = null;
         _textoNoDisco = null;
 
-        var resultado = await SozinhoAsync(() => Servico.AbrirAsync(caminho));
+        var resultado = await Servico.AbrirAsync(caminho);
         if (!resultado.Ok)
         {
             Avisos.Add(resultado.Mensagem ?? "Nota não encontrada.", Severity.Warning);
@@ -790,7 +759,7 @@
     {
         try
         {
-            var achadas = await SozinhoAsync(() => Conhecimento.MencoesNaoLigadasAsync(caminho));
+            var achadas = await Conhecimento.MencoesNaoLigadasAsync(caminho);
             if (_aberta?.Nota.Caminho != caminho) return;
             _mencoes = achadas;
         }
@@ -978,7 +947,7 @@
     {
         _acertos = string.IsNullOrWhiteSpace(_termo)
             ? []
-            : await SozinhoAsync(() => Servico.BuscarAsync(new ConsultaDeBusca { Texto = _termo }));
+            : await Servico.BuscarAsync(new ConsultaDeBusca { Texto = _termo });
     }
 
     /// <summary>
@@ -1006,16 +975,11 @@
 
     private async Task RecarregarLateraisAsync()
     {
-        // Um cadeado para as cinco, e não cinco cadeados: elas são um bloco só de leitura, e soltar o
-        // cadeado entre uma e outra abriria a mesma janela que este arquivo inteiro existe para fechar.
-        await SozinhoAsync(async () =>
-        {
-            _recentes = await Servico.RecentesAsync();
-            _etiquetas = await Servico.EtiquetasAsync();
-            _favoritas = await Conhecimento.FavoritasAsync();
-            _materias = await Conhecimento.MateriasAsync();
-            _templates = await Conhecimento.TemplatesAsync();
-        });
+        _recentes = await Servico.RecentesAsync();
+        _etiquetas = await Servico.EtiquetasAsync();
+        _favoritas = await Conhecimento.FavoritasAsync();
+        _materias = await Conhecimento.MateriasAsync();
+        _templates = await Conhecimento.TemplatesAsync();
     }
 
     // Rotas.Nota e NÃO $"/notas/{...}": a barra inicial descarta o sub-caminho onde o app é servido,

@@ -10,24 +10,39 @@ namespace Dominica.Learn.Infrastructure.Indice;
 /// <summary>
 /// O índice, em Postgres. Adaptador de <see cref="IIndiceDoVault"/> — o domínio não sabe que ele existe.
 /// </summary>
-public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario) : IIndiceDoVault
+public sealed class IndiceEmPostgres(IDbContextFactory<ContextoDoIndice> fabrica, IUsuarioAtual usuario) : IIndiceDoVault
 {
     /// <summary>
-    /// Diz ao contexto de quem é o vault desta chamada. Todo método público começa por aqui.
+    /// Abre um contexto SÓ PARA ESTA CHAMADA, já sabendo de quem é o vault.
     ///
-    /// Parece repetitivo e é justamente o oposto de repetir a regra: a REGRA está uma vez só, no filtro
-    /// global do <see cref="ContextoDoIndice"/>. Aqui só se informa o sujeito. Esquecer esta linha faz a
-    /// consulta devolver vazio, não a nota de outra pessoa — ver o comentário de UsuarioAtual lá.
+    /// UM CONTEXTO POR OPERAÇÃO, E NÃO UM POR ESCOPO. No Blazor Server o escopo é o CIRCUITO — ou seja,
+    /// um contexto para a aba inteira, vivo por horas. Duas operações que se sobreponham nele não
+    /// devolvem dado errado: o EF lança "a second operation was started on this context instance", a
+    /// exceção sobe pela renderização e O CIRCUITO MORRE. A tela continua desenhada, o autosave nunca
+    /// mais chega ao servidor, e o que for digitado dali em diante some sem uma única mensagem.
+    ///
+    /// Isso não é hipótese: aconteceu ao trocar de nota logo depois de digitar, e custou uma sessão
+    /// inteira de depuração até o log do servidor mostrar. A tela foi remendada com um cadeado; ISTO
+    /// AQUI é o conserto — é a recomendação da própria Microsoft para Blazor Server, e ela tira a
+    /// classe inteira do defeito em vez de tapar o buraco onde ele apareceu.
+    ///
+    /// O PREÇO, dito às claras: um contexto por chamada não tem cache de identidade entre chamadas, e
+    /// abrir custa uma conexão do pool. Para este app — consultas curtas, poucos usuários — isso não se
+    /// mede. Para o defeito que ele evita, mede-se em trabalho perdido.
+    ///
+    /// A REGRA DE USUÁRIO NÃO MUDOU: quem decide é o filtro global do contexto; aqui só se informa o
+    /// sujeito. Esquecer esta linha devolve vazio, nunca o vault de outra pessoa.
     /// </summary>
-    private async Task<string> EuAsync(CancellationToken ct)
+    private async Task<ContextoDoIndice> AbrirAsync(CancellationToken ct)
     {
-        if (db.UsuarioAtual.Length == 0) db.UsuarioAtual = (await usuario.ApelidoAsync(ct)).Valor;
-        return db.UsuarioAtual;
+        var db = await fabrica.CreateDbContextAsync(ct);
+        db.UsuarioAtual = (await usuario.ApelidoAsync(ct)).Valor;
+        return db;
     }
 
     public async Task<IReadOnlyList<EstadoDaNota>> EstadoAtualAsync(CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
         var linhas = await db.Notas.AsNoTracking()
             .Select(n => new { n.Caminho, n.ModificadoEm, n.Impressao })
             .ToListAsync(ct);
@@ -41,7 +56,8 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario)
 
     public async Task IndexarAsync(Nota nota, IReadOnlyList<LigacaoResolvida> ligacoes, CancellationToken ct = default)
     {
-        var eu = await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
+        var eu = db.UsuarioAtual;
         var entidade = await db.Notas
             .Include(n => n.Ligacoes).Include(n => n.Etiquetas)
             .FirstOrDefaultAsync(n => n.Caminho == nota.Caminho.Valor, ct);
@@ -102,13 +118,13 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario)
 
     public async Task RemoverAsync(CaminhoNota caminho, CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
         await db.Notas.Where(n => n.Caminho == caminho.Valor).ExecuteDeleteAsync(ct);
     }
 
     public async Task RenomearAsync(CaminhoNota de, CaminhoNota para, CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
         // Atualiza em vez de apagar+criar para preservar o Id — é dele que penduram histórico, favoritos e
         // (no futuro) estatísticas de estudo. Recriar a linha perderia tudo isso em silêncio.
         await db.Notas.Where(n => n.Caminho == de.Valor)
@@ -121,7 +137,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario)
 
     public async Task<NotaIndexada?> ObterAsync(CaminhoNota caminho, CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
         var n = await db.Notas.AsNoTracking().Include(x => x.Etiquetas)
             .FirstOrDefaultAsync(x => x.Caminho == caminho.Valor, ct);
         return n is null ? null : Projetar(n);
@@ -129,7 +145,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario)
 
     public async Task<IReadOnlyList<NotaConhecida>> NotasConhecidasAsync(CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
         var linhas = await db.Notas.AsNoTracking().Select(n => new { n.Caminho, n.Apelidos }).ToListAsync(ct);
         var conhecidas = new List<NotaConhecida>(linhas.Count);
         foreach (var l in linhas)
@@ -140,7 +156,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario)
 
     public async Task<IReadOnlyList<Acerto>> BuscarAsync(ConsultaDeBusca consulta, CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
         var q = db.Notas.AsNoTracking().Include(n => n.Etiquetas).AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(consulta.Pasta))
@@ -176,7 +192,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario)
 
     public async Task<IReadOnlyList<LigacaoResolvida>> BacklinksAsync(CaminhoNota caminho, CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
         var linhas = await db.Ligacoes.AsNoTracking().Include(l => l.Nota)
             .Where(l => l.Destino == caminho.Valor)
             .OrderBy(l => l.Nota.Caminho).ThenBy(l => l.Posicao)
@@ -186,7 +202,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario)
 
     public async Task<IReadOnlyList<LigacaoResolvida>> LigacoesDeAsync(CaminhoNota caminho, CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
         var linhas = await db.Ligacoes.AsNoTracking().Include(l => l.Nota)
             .Where(l => l.Nota.Caminho == caminho.Valor).OrderBy(l => l.Posicao)
             .ToListAsync(ct);
@@ -195,7 +211,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario)
 
     public async Task<IReadOnlyList<EtiquetaContada>> EtiquetasAsync(CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
         var linhas = await db.Etiquetas.AsNoTracking()
             .GroupBy(e => e.Valor)
             .Select(g => new { Valor = g.Key, Notas = g.Select(x => x.NotaId).Distinct().Count() })
@@ -211,7 +227,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario)
 
     public async Task<IReadOnlyList<IReadOnlyList<Etiqueta>>> EtiquetasPorNotaAsync(CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
         // Só as ESCRITAS. Os ancestrais são recriados pela árvore, que sabe não contar a mesma nota duas
         // vezes; trazê-los daqui faria "quantas notas param neste nó" ser sempre igual ao total do galho.
         var linhas = await db.Etiquetas.AsNoTracking()
@@ -231,7 +247,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario)
 
     public async Task<IReadOnlyList<NotaIndexada>> RecentesAsync(int limite, CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
         var notas = await db.Notas.AsNoTracking().Include(n => n.Etiquetas)
             .OrderByDescending(n => n.ModificadoEm).Take(limite).ToListAsync(ct);
         return notas.Select(Projetar).ToList();
@@ -239,7 +255,7 @@ public sealed class IndiceEmPostgres(ContextoDoIndice db, IUsuarioAtual usuario)
 
     public async Task<IReadOnlyList<CaminhoNota>> TodosOsCaminhosAsync(CancellationToken ct = default)
     {
-        await EuAsync(ct);
+        await using var db = await AbrirAsync(ct);
         var caminhos = await db.Notas.AsNoTracking().OrderBy(n => n.Caminho).Select(n => n.Caminho).ToListAsync(ct);
         return caminhos
             .Select(c => CaminhoNota.TentarCriar(c, out var k, out _) ? k : null)
