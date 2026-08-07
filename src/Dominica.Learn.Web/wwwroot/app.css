@@ -696,3 +696,14 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
     cursor: pointer;
 }
 .erro-de-tela-botao:hover { background: #16304f; }
+
+/* O intervalo entre "a nota abriu" e "o editor existe". Pela internet ele dura segundos, e uma div
+   vazia nesse tempo é lida como "o teclado não funciona" — que foi exatamente o relato. */
+.editor-carregando {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 55vh;
+    justify-content: center;
+    color: var(--ink-faint);
+}

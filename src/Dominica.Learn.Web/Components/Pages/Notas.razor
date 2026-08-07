@@ -254,6 +254,18 @@
                    passa a rolar DENTRO da caixa, aparece a barra de rolagem nativa colada na margem
                    direita (escura, quando o sistema está no escuro) e o cartão para de acompanhar o
                    conteúdo. Nota de estudo é longa; quem tem de rolar é a página. *@
+                @* ENQUANTO O EDITOR NÃO CHEGA, A DIV NÃO PODE FICAR MUDA.
+                   Pela internet o CodeMirror leva SEGUNDOS até existir — circuito, interop, e o
+                   download das bibliotecas. Nesse intervalo a div é um retângulo vazio: quem clica e
+                   digita ali não digita em lugar nenhum, porque não há editor ainda. Sem este aviso,
+                   a conclusão de quem usa é "o teclado não funciona". *@
+                @if (!_lendo && _sessao is null)
+                {
+                    <div class="editor-carregando">
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+                        <span>Abrindo o editor…</span>
+                    </div>
+                }
                 <div id="@IdDoEditor" style="@(_lendo ? "display:none" : null)"></div>
                 <div id="@IdDaLeitura" class="nota-lida" style="@(_lendo ? "min-height:56vh" : "display:none")">
                     @((MarkupString)(_renderizada?.Html ?? string.Empty))
@@ -468,6 +480,11 @@
                 _sessao = await Editor.AbrirAsync(IdDoEditor, _aberta.Nota.Conteudo,
                     DotNetObjectReference.Create<object>(this));
                 await _sessao.FocarAsync();
+
+                // UM RENDER A MAIS, de propósito: `_sessao` acabou de deixar de ser nulo, e é ele que
+                // esconde o "Abrindo o editor…". Sem esta linha o aviso fica na tela para sempre, por
+                // cima de um editor que já está pronto — medido, não suposto.
+                StateHasChanged();
             }
             finally
             {

@@ -19,8 +19,16 @@ public interface IEditorDeTexto : IAsyncDisposable
     Task<SessaoDeEdicao> AbrirAsync(string idDoElemento, string conteudo, DotNetObjectReference<object> ouvinte);
 }
 
-/// <summary>Um editor vivo na tela. Some quando a nota é fechada.</summary>
-public sealed class SessaoDeEdicao(IJSObjectReference modulo, string idDoElemento) : IAsyncDisposable
+/// <summary>
+/// Um editor vivo na tela. Some quando a nota é fechada.
+///
+/// <paramref name="geracao"/> É UM CRACHÁ, e ele existe por causa de um defeito que só a latência de rede
+/// revela: a div do editor tem id constante, e o Blazor descarta o componente antigo de forma assíncrona,
+/// sem esperar, enquanto o novo já criou o seu editor. O descarte atrasado do antigo apagava o editor do
+/// novo — div vazia, sem cursor, teclado sem destino. Com o crachá, destruir só vale para quem criou.
+/// Ver o comentário da geração em editor.js.
+/// </summary>
+public sealed class SessaoDeEdicao(IJSObjectReference modulo, string idDoElemento, int geracao) : IAsyncDisposable
 {
     public Task<string> LerAsync() => modulo.InvokeAsync<string>("ler", idDoElemento).AsTask();
     public Task EscreverAsync(string conteudo) => modulo.InvokeVoidAsync("escrever", idDoElemento, conteudo).AsTask();
@@ -49,7 +57,7 @@ public sealed class SessaoDeEdicao(IJSObjectReference modulo, string idDoElement
     {
         // O editor vive no navegador; se ninguém o destruir, cada troca de nota deixa um CodeMirror órfão
         // segurando memória. Numa sessão de estudo de horas, isso é o navegador engasgando.
-        try { await modulo.InvokeVoidAsync("destruir", idDoElemento); }
+        try { await modulo.InvokeVoidAsync("destruir", idDoElemento, geracao); }
         catch (JSDisconnectedException) { /* o circuito já caiu: não há navegador para limpar */ }
     }
 }
@@ -105,8 +113,12 @@ public sealed class EditorCodeMirror(IJSRuntime js) : IEditorDeTexto
         // Import por módulo ES, e não script global: o navegador só baixa o editor quando alguém abre uma
         // nota. Quem entra para procurar algo e não edita nada não paga por ele.
         _modulo ??= await js.InvokeAsync<IJSObjectReference>("import", "./js/editor.js");
-        await _modulo.InvokeVoidAsync("criar", idDoElemento, conteudo, ouvinte);
-        return new SessaoDeEdicao(_modulo, idDoElemento);
+
+        // O `criar` DEVOLVE o número da geração — o crachá desta sessão. Zero quer dizer que ela
+        // desistiu no meio (outra criação mais nova começou), e uma sessão com crachá zero nunca destrói
+        // nada de ninguém, que é exatamente o que se quer nesse caso.
+        var geracao = await _modulo.InvokeAsync<int>("criar", idDoElemento, conteudo, ouvinte);
+        return new SessaoDeEdicao(_modulo, idDoElemento, geracao);
     }
 
     public async ValueTask DisposeAsync()

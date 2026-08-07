@@ -33,12 +33,25 @@ function carregarCodeMirror() {
     // sintoma seria "o editor abriu sem estilo nenhum" — só em PRODUÇÃO, porque em
     // desenvolvimento o app também atende na raiz e a barra funciona por acidente. Foi assim
     // que estava. Ver OpcoesDeHospedagem e learn/docs/DEPLOY.md.
-    await css('lib/codemirror/codemirror.css')
-    await script('lib/codemirror/codemirror.js')
-    // xml vem antes do markdown: o modo markdown o usa para destacar HTML embutido
+    // EM PARALELO ATÉ ONDE A DEPENDÊNCIA PERMITE, e a diferença é a que se sente.
+    //
+    // Isto era cinco `await` em fila. Cada um é uma ida e volta na rede: em localhost, microssegundos;
+    // pela internet, com 300 ms de latência, ~1,5 s SÓ para baixar os cinco — e nesse tempo a div do
+    // editor fica vazia. Quem clica e digita ali não está digitando em lugar nenhum, porque o editor
+    // ainda não existe. Medido: 3,5 s até o editor aparecer, com 300 ms de latência.
+    //
+    // As dependências são reais e continuam respeitadas: o modo markdown usa o xml para destacar HTML
+    // embutido, e os dois modos precisam do codemirror.js. O que NÃO era real é a fila: o CSS não
+    // depende de nada, e o continuelist não depende do xml. Três rodadas em vez de cinco.
+    await Promise.all([
+      css('lib/codemirror/codemirror.css'),
+      script('lib/codemirror/codemirror.js'),
+    ])
     await script('lib/codemirror/xml.js')
-    await script('lib/codemirror/markdown.js')
-    await script('lib/codemirror/continuelist.js')
+    await Promise.all([
+      script('lib/codemirror/markdown.js'),
+      script('lib/codemirror/continuelist.js'),
+    ])
   })()
   return carregado
 }
@@ -66,12 +79,35 @@ function css(href) {
   })
 }
 
+// A GERAÇÃO DO EDITOR — e ela existe por causa de um defeito que só aparece com latência de rede.
+//
+// A div do editor tem id CONSTANTE ("editor-da-nota"): é sempre a mesma para toda nota e para toda
+// visita à tela. Quando se sai de /notas e volta, o Blazor DESCARTA o componente antigo de forma
+// ASSÍNCRONA e cria o novo sem esperar o descarte terminar. Em localhost isso dura microssegundos e
+// nunca se cruza. Pela internet, o descarte leva centenas de milissegundos — e a ordem que sai é:
+//
+//     novo: destruir(id) → cria o editor → registra
+//     ANTIGO (atrasado): destruir(id) → APAGA O EDITOR DO NOVO
+//
+// O resultado é uma div vazia: sem editor, sem textarea, sem cursor. A tela parece carregada, o texto
+// que ficou desenhado é lixo do render anterior, e o teclado não vai a lugar nenhum. Reproduzido aqui
+// com 300 ms de latência: seis idas e voltas, seis divs vazias.
+//
+// A geração conserta pela raiz: quem cria recebe um número, e DESTRUIR SÓ VALE PARA QUEM O CRIOU. Um
+// descarte atrasado do componente antigo chega com um número velho e não mexe em nada.
+let geracao = 0
+
 export async function criar(id, conteudo, ouvinte) {
   const alvo = document.getElementById(id)
-  if (!alvo) return
+  if (!alvo) return 0
 
-  destruir(id)
+  const minha = ++geracao
+  esvaziar(id, alvo)
   await carregarCodeMirror()
+
+  // Alguém mais novo começou enquanto o CodeMirror carregava. Seguir criaria DOIS editores na mesma
+  // div — o de baixo desenhando e o de cima comendo as teclas, que é o outro rosto do mesmo defeito.
+  if (minha !== geracao) return 0
 
   const cm = window.CodeMirror(alvo, {
     value: conteudo ?? '',
@@ -166,8 +202,21 @@ export async function criar(id, conteudo, ouvinte) {
 
   editores.set(id, {
     cm,
+    geracao: minha,
     limpar: () => { clearTimeout(temporizador); completar.limpar(); observador.disconnect() },
   })
+
+  // O número volta para o C#, que o guarda na sessão e o devolve ao destruir. É o crachá.
+  return minha
+}
+
+/// Tira da div QUALQUER editor que esteja lá — o registrado e os órfãos que uma corrida anterior possa
+/// ter deixado. É a rede de segurança: mesmo que a contabilidade da geração falhe um dia, a div nunca
+/// acumula dois CodeMirror.
+function esvaziar(id, alvo) {
+  const e = editores.get(id)
+  if (e) { e.limpar(); e.cm.getWrapperElement()?.remove(); editores.delete(id) }
+  alvo.querySelectorAll(':scope > .CodeMirror').forEach((n) => n.remove())
 }
 
 // ——————————————————————————————————————————————————————————————————————————————————————————
@@ -489,9 +538,15 @@ export function focar(id) {
   editores.get(id)?.cm.focus()
 }
 
-export function destruir(id) {
+export function destruir(id, geracaoEsperada) {
   const e = editores.get(id)
   if (!e) return
+
+  // O CRACHÁ. Sem esta linha, o descarte atrasado de uma tela que já saiu apaga o editor da tela que
+  // acabou de entrar — ver o comentário da geração, acima. Zero e indefinido querem dizer "destrua o
+  // que estiver aí", que é o que se quer quando ninguém chegou a criar nada.
+  if (geracaoEsperada && e.geracao !== geracaoEsperada) return
+
   e.limpar()
   // O editor vive no DOM do navegador; sem limpar, cada troca de nota deixa um CodeMirror órfão segurando
   // memória. Numa sessão de estudo de horas, isso é o navegador engasgando.
