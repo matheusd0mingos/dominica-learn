@@ -229,6 +229,9 @@
                                    Href="@($"revisar?etiqueta={Uri.EscapeDataString(_selecionada.Valor)}")">
                             Revisar estas notas
                         </MudButton>
+                        <MudButton Size="Size.Small" Variant="Variant.Text"
+                                   StartIcon="@Icons.Material.Filled.AccountTree" Disabled="_criandoIndice"
+                                   OnClick="CriarIndiceAsync">Nota-índice</MudButton>
                         @* A LISTA COMPLETA CONTINUA EXISTINDO — este painel é o atalho de quem explora;
                            a aba Lista é a casa de quem organiza (árvore, filtro, hierarquia). *@
                         <MudButton Size="Size.Small" Variant="Variant.Text"
@@ -321,6 +324,13 @@ else
                     <MudButton Size="Size.Small" Variant="Variant.Text"
                                StartIcon="@Icons.Material.Filled.DriveFileRenameOutline"
                                OnClick="RenomearEtiquetaAsync">Renomear…</MudButton>
+                    @* A NOTA-ÍNDICE (MOC): a etiqueta vira uma nota comum, cheia de links — o centro do
+                       assunto no grafo, aberta à curadoria. É a estrutura emergindo de baixo, sem pasta
+                       nenhuma no caminho. Ver NotaIndice. Se já existe, o botão só ABRE — regenerar por
+                       cima apagaria a curadoria, que é a parte que vale. *@
+                    <MudButton Size="Size.Small" Variant="Variant.Text"
+                               StartIcon="@Icons.Material.Filled.AccountTree" Disabled="_criandoIndice"
+                               OnClick="CriarIndiceAsync">Nota-índice</MudButton>
                 </div>
                 <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
                     @_notas.Count nota(s), contando as marcadas com etiquetas abaixo desta.
@@ -541,6 +551,34 @@ else
     /// Renomeia/mescla a etiqueta escolhida e RECARREGA TUDO: árvore, lista e a seleção — que passa a
     /// ser o nome novo, porque é lá que a pessoa está olhando.
     /// </summary>
+    /// <summary>O botão "Nota-índice" trava enquanto cria — clicar duas vezes não pode criar corrida.</summary>
+    private bool _criandoIndice;
+
+    /// <summary>
+    /// Cria (ou só abre, se já existe) a nota-índice da etiqueta escolhida e navega até ela — o MOC
+    /// nasce e a pessoa já cai dentro, pronta para a curadoria. Ver NotaIndice.
+    /// </summary>
+    private async Task CriarIndiceAsync()
+    {
+        if (_selecionada is null || _criandoIndice) return;
+
+        _criandoIndice = true;
+        try
+        {
+            var r = await Conhecimento.CriarIndiceAsync(_selecionada);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui criar o índice.", Severity.Warning);
+                return;
+            }
+            Navegacao.NavigateTo(Rotas.Nota(r.Valor!));
+        }
+        finally
+        {
+            _criandoIndice = false;
+        }
+    }
+
     private async Task RenomearEtiquetaAsync()
     {
         if (_selecionada is null) return;

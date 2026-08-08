@@ -147,6 +147,88 @@ public sealed partial class ServicoDeConhecimento(
             : Resultado.Falha(r.Motivo ?? MotivoDaFalha.Invalida, r.Mensagem ?? "Não consegui salvar o plano.");
     }
 
+    // —— A NOTA DIÁRIA E A CAPTURA RÁPIDA ————————————————————————————————————————————
+    // A espinha dorsal da captura (ver NotaDiaria). A regra dos dois métodos: NUNCA falhar por a nota
+    // ainda não existir — o primeiro uso do dia é que a cria, e exigir um passo de criação seria
+    // devolver o atrito que a captura existe para eliminar.
+
+    /// <summary>O caminho da nota de hoje, criada agora se ainda não existia.</summary>
+    public async Task<Resultado<CaminhoNota>> NotaDeHojeAsync(CancellationToken ct = default)
+    {
+        var hoje = DateOnly.FromDateTime(relogio.Agora.ToLocalTime().DateTime);
+        var caminho = NotaDiaria.CaminhoDe(hoje);
+
+        if (await repositorio.LerAsync(caminho, ct) is not null)
+            return Resultado<CaminhoNota>.Sucesso(caminho);
+
+        var criada = await notas.CriarAsync(caminho, NotaDiaria.ConteudoInicial(hoje), ct);
+        return criada.Ok
+            ? Resultado<CaminhoNota>.Sucesso(caminho)
+            : Resultado<CaminhoNota>.Falha(criada.Motivo ?? MotivoDaFalha.Invalida,
+                criada.Mensagem ?? "Não consegui criar a nota de hoje.");
+    }
+
+    /// <summary>
+    /// Guarda um pensamento na nota de hoje, com a hora. É o gesto de menor cerimônia do produto:
+    /// nenhuma decisão de pasta, título ou matéria — capturar é já, organizar é depois.
+    /// </summary>
+    public async Task<Resultado<CaminhoNota>> CapturarAsync(string texto, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(texto))
+            return Resultado<CaminhoNota>.Invalida("Escreva o pensamento antes de guardar.");
+
+        var de = await NotaDeHojeAsync(ct);
+        if (!de.Ok) return de;
+        var caminho = de.Valor!;
+
+        var nota = await repositorio.LerAsync(caminho, ct);
+        if (nota is null) return Resultado<CaminhoNota>.NaoEncontrada("A nota de hoje");
+
+        var agora = relogio.Agora.ToLocalTime();
+        var conteudo = NotaDiaria.Capturar(nota.Conteudo, TimeOnly.FromDateTime(agora.DateTime), texto);
+
+        var salva = await notas.SalvarAsync(caminho, conteudo, nota.Impressao, autor: null, ct);
+        if (!salva.Ok)
+            return Resultado<CaminhoNota>.Falha(salva.Motivo ?? MotivoDaFalha.Invalida,
+                salva.Mensagem ?? "Não consegui guardar a captura.");
+
+        log.LogInformation("Captura guardada na nota de hoje.");
+        return Resultado<CaminhoNota>.Sucesso(caminho);
+    }
+
+    // —— A NOTA-ÍNDICE (MOC) ——————————————————————————————————————————————————————————
+
+    /// <summary>
+    /// Cria a nota-índice de uma etiqueta — o mapa do assunto, com um link por nota (ver NotaIndice).
+    /// Se já existe, DEVOLVE o caminho sem tocar nela: o índice é do usuário depois que nasce, e
+    /// regenerá-lo por cima apagaria a curadoria — a parte que vale.
+    /// </summary>
+    public async Task<Resultado<CaminhoNota>> CriarIndiceAsync(Etiqueta etiqueta, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(etiqueta);
+        var caminho = NotaIndice.CaminhoDe(etiqueta);
+
+        if (await repositorio.LerAsync(caminho, ct) is not null)
+            return Resultado<CaminhoNota>.Sucesso(caminho);
+
+        var acertos = await indice.BuscarAsync(new ConsultaDeBusca { Etiqueta = etiqueta, Limite = 500 }, ct);
+        var todos = await indice.TodosOsCaminhosAsync(ct);
+        var links = acertos
+            .Select(a => a.Nota.Caminho)
+            .Where(c => c != caminho)
+            .OrderBy(c => c.Nome, StringComparer.CurrentCultureIgnoreCase)
+            .Select(c => EscritaDeLigacao.MaisCurta(c, todos))
+            .ToList();
+
+        var criada = await notas.CriarAsync(caminho, NotaIndice.Conteudo(etiqueta, links), ct);
+        if (!criada.Ok)
+            return Resultado<CaminhoNota>.Falha(criada.Motivo ?? MotivoDaFalha.Invalida,
+                criada.Mensagem ?? "Não consegui criar o índice.");
+
+        log.LogInformation("Índice criado para {Etiqueta} com {Quantas} nota(s).", etiqueta, links.Count);
+        return Resultado<CaminhoNota>.Sucesso(caminho);
+    }
+
     // —— RENDERIZAÇÃO ————————————————————————————————————————————————————————————————
     public async Task<NotaRenderizada> RenderizarAsync(string markdown, CancellationToken ct = default)
     {

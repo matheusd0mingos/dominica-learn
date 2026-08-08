@@ -476,6 +476,71 @@ public class ServicoDeConhecimentoTests
         Assert.Contains("[[Prescrição|prescrição]]", c.Vault.Arquivos["Tributário.md"]);
     }
 
+    // —— NOTA DIÁRIA, CAPTURA E NOTA-ÍNDICE ——————————————————————————————————————————
+
+    [Fact]
+    public async Task Capturar_cria_a_nota_de_hoje_sozinho_e_escreve_com_hora()
+    {
+        // O relógio do cenário: sábado, 08/08/2026, 09:00. A captura não pode exigir passo de criação —
+        // o primeiro uso do dia cria a nota, senão o atrito volta.
+        var c = Montar();
+
+        var r = await c.Conhecimento.CapturarAsync("Ideia solta");
+
+        Assert.True(r.Ok, r.Mensagem);
+        Assert.Equal("Diário/2026-08-08.md", r.Valor!.Valor);
+        var texto = c.Vault.Arquivos["Diário/2026-08-08.md"];
+        Assert.Contains("# sábado, 08/08/2026", texto);
+        Assert.Contains("- **09:00** — Ideia solta", texto);
+    }
+
+    [Fact]
+    public async Task Duas_capturas_no_dia_entram_na_MESMA_nota()
+    {
+        var c = Montar();
+        await c.Conhecimento.CapturarAsync("Primeira");
+        await c.Conhecimento.CapturarAsync("Segunda");
+
+        var texto = c.Vault.Arquivos["Diário/2026-08-08.md"];
+        Assert.Contains("Primeira", texto);
+        Assert.Contains("Segunda", texto);
+    }
+
+    [Fact]
+    public async Task O_indice_lista_as_notas_da_etiqueta()
+    {
+        var c = Montar();
+        await Criar(c, "Direito/Prescrição.md", "# Prescrição\n\n#prazo\n");
+        await Criar(c, "Tributário/Decadência.md", "# Decadência\n\n#prazo\n");
+
+        var r = await c.Conhecimento.CriarIndiceAsync(Etiqueta.TentarCriar("prazo")!);
+
+        Assert.True(r.Ok, r.Mensagem);
+        var texto = c.Vault.Arquivos["Índice — prazo.md"];
+        Assert.Contains("- [[Prescrição]]", texto);
+        Assert.Contains("- [[Decadência]]", texto);
+    }
+
+    [Fact]
+    public async Task Criar_de_novo_NAO_regenera_por_cima_da_curadoria()
+    {
+        var c = Montar();
+        await Criar(c, "A.md", "# A\n\n#prazo\n");
+        var primeiro = await c.Conhecimento.CriarIndiceAsync(Etiqueta.TentarCriar("prazo")!);
+        Assert.True(primeiro.Ok);
+
+        // A pessoa CUROU o índice — reordena, comenta. Regenerar por cima apagaria a parte que vale.
+        var caminho = primeiro.Valor!;
+        var nota = await c.Notas.AbrirAsync(caminho);
+        var salva = await c.Notas.SalvarAsync(caminho, "# Meu índice curado\n\n#prazo\n", nota.Valor!.Nota.Impressao, autor: null);
+        Assert.True(salva.Ok, salva.Mensagem);
+
+        var segundo = await c.Conhecimento.CriarIndiceAsync(Etiqueta.TentarCriar("prazo")!);
+
+        Assert.True(segundo.Ok);
+        Assert.Contains("Meu índice curado", c.Vault.Arquivos["Índice — prazo.md"]);
+    }
+
     // —— PARECIDAS AINDA NÃO LIGADAS ——————————————————————————————————————————————————
     // A conexão que SURGE: mesmas etiquetas ou mesmos alvos, sem link em nenhuma direção. O risco é
     // sugerir o que já está ligado (ruído) ou a própria nota (absurdo).

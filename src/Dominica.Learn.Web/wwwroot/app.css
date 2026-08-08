@@ -1079,6 +1079,20 @@ kbd.tecla {
 /* Bloco já feito nesta volta: riscado e apagado, como tarefa concluída. */
 .ciclo-feito { text-decoration: line-through; color: var(--ink-soft); }
 
+/* ——— A CAPTURA RÁPIDA ———————————————————————————————————————————————————————————————
+   Canto inferior ESQUERDO, espelhando o cronômetro à direita: os dois gestos que precisam existir em
+   toda tela — medir o estudo e salvar a ideia antes de ela morrer. */
+.captura {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    z-index: 1400;
+}
+
+.captura-caixa {
+    width: min(360px, calc(100vw - 32px));
+}
+
 /* ——— O PLANO DA SEMANA ——————————————————————————————————————————————————————————————— */
 /* Cada meta é uma linha com uma barra de progresso feito/meta — o "quanto falta" da semana. */
 .plano-linha {

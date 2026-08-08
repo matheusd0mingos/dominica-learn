@@ -66,6 +66,16 @@
             <MudButton StartIcon="@Icons.Material.Filled.Add" Variant="Variant.Text" Class="mt-2"
                        OnClick="@(() => CriarAsync())">Nota nova</MudButton>
 
+            @* HOJE E ALEATÓRIA, lado a lado — dois hábitos do Obsidian que não tinham porta de entrada.
+               "Hoje" é a nota diária (cria se preciso, ver NotaDiaria); "Aleatória" é a serendipidade:
+               reencontrar o que você esqueceu que escreveu é como nota antiga volta a receber link. *@
+            <div class="d-flex gap-1">
+                <MudButton StartIcon="@Icons.Material.Filled.Today" Variant="Variant.Text" Size="Size.Small"
+                           OnClick="AbrirHojeAsync">Hoje</MudButton>
+                <MudButton StartIcon="@Icons.Material.Filled.Casino" Variant="Variant.Text" Size="Size.Small"
+                           OnClick="AbrirAleatoriaAsync">Aleatória</MudButton>
+            </div>
+
             @if (_acertos.Count > 0)
             {
                 <MudText Typo="Typo.overline" Class="mt-3 d-block">Resultados</MudText>
@@ -1021,6 +1031,34 @@
             Log.LogWarning(e, "Não consegui procurar menções para {Caminho}.", caminho.Valor);
         }
         await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Abre (criando se preciso) a nota diária de hoje. Ver NotaDiaria.</summary>
+    private async Task AbrirHojeAsync()
+    {
+        var r = await Conhecimento.NotaDeHojeAsync();
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui abrir a nota de hoje.", Severity.Warning);
+            return;
+        }
+        Ir(r.Valor!);
+    }
+
+    /// <summary>
+    /// Abre uma nota QUALQUER — a serendipidade do Obsidian. Revisitar o que se esqueceu de ter escrito
+    /// é como nota antiga ganha link novo; sem isto, o vault velho vira arquivo morto por gravidade.
+    /// </summary>
+    private async Task AbrirAleatoriaAsync()
+    {
+        var todos = (await Conhecimento.TodosOsCaminhosAsync())
+            .Where(c => _aberta is null || c != _aberta.Nota.Caminho).ToList();
+        if (todos.Count == 0)
+        {
+            Avisos.Add("O vault ainda não tem outra nota para sortear.", Severity.Info);
+            return;
+        }
+        Ir(todos[Random.Shared.Next(todos.Count)]);
     }
 
     /// <summary>
