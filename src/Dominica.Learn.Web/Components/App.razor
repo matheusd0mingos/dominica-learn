@@ -26,6 +26,22 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="icon" type="image/png" href="favicon.png" />
 
+    @* —— PWA INSTALÁVEL (fase 1) ——
+       Ícone na tela inicial, janela própria, splash — o app com cara de app no celular, que é onde a
+       revisão diária acontece. SÓ ISSO: o Learn é Blazor Server, e "funcionar offline" não existe
+       aqui por arquitetura — ver o comentário no sw.js, que existe apenas para a página de queda.
+       Os href são RELATIVOS e SEM fingerprint de propósito: resolvem contra o <base> (o app vive num
+       sub-caminho) e o endereço do manifest/worker precisa ser estável entre deploys. *@
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#0E1E33" />
+    @* O iOS ignora os ícones do manifest — o da tela inicial sai DESTA tag, e sem canto arredondado
+       no arquivo: quem arredonda é o iPhone, e um PNG já arredondado ganharia cantos pretos. *@
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Learn" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
     @* Reaplica o tema ANTES da primeira pintura. Sem isto, quem escolheu escuro vê a página nascer
        creme e piscar para escuro quando o circuito conecta — no escuro de um quarto, é um flash na
        cara. É `<script>` inline no <head> de propósito: qualquer arquivo externo chegaria tarde
@@ -47,6 +63,16 @@
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
     <script src="@Assets["Components/Account/Shared/PasskeySubmit.razor.js"]" type="module"></script>
+
+    @* Registra o service worker da página offline (ver sw.js — ele NÃO cacheia o app). O caminho é
+       resolvido contra o <base>, e não contra a URL da página: registrar "sw.js" de dentro de
+       /notas/Direito/… tentaria /notas/Direito/sw.js, e o escopo sairia errado. *@
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register(new URL('sw.js', document.baseURI).pathname)
+                .catch(function () { /* sem worker, o app segue igual — só perde a página de queda */ });
+        }
+    </script>
 </body>
 
 </html>
