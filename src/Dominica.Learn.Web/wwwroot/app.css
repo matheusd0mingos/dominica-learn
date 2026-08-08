@@ -1106,6 +1106,18 @@ kbd.tecla {
 .roteiro { max-height: 240px; overflow-y: auto; }
 .roteiro-item { padding-top: 2px; padding-bottom: 2px; line-height: 1.3; cursor: pointer; }
 
+/* ——— O MANUAL ————————————————————————————————————————————————————————————————————————
+   Largura de leitura: manual é texto corrido, e linha de 1400px não se lê. */
+.manual { max-width: 860px; margin: 0 auto; }
+.manual .manual-passo { margin-top: 20px; margin-bottom: 6px; }
+.manual .manual-lista { margin: 4px 0 12px 22px; }
+.manual .manual-lista li { margin-bottom: 6px; font-size: 0.875rem; line-height: 1.5; }
+.manual code {
+    background: color-mix(in srgb, var(--ouro) 12%, transparent);
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+
 /* ——— A CAPTURA RÁPIDA ———————————————————————————————————————————————————————————————
    Canto inferior ESQUERDO, espelhando o cronômetro à direita: os dois gestos que precisam existir em
    toda tela — medir o estudo e salvar a ideia antes de ela morrer. */

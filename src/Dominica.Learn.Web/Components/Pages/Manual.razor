@@ -1,0 +1,132 @@
+@page "/manual"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+@* O MANUAL — a rotina de uso, não a lista de recursos.
+
+   Manual de recurso ("o botão X faz Y") ninguém lê, e quem lê não muda de hábito. Este é organizado
+   pelo DIA DE ESTUDO: o que fazer de manhã, durante o bloco, quando erra, no fim de semana. Cada seção
+   diz o gesto E o porquê — a regra de comentário do código, aplicada à interface. *@
+
+<PageTitle>Manual · Dominica Learn</PageTitle>
+
+<ProvedoresDoMud />
+
+<div class="manual">
+<MudPaper Class="pa-6" Elevation="0" Outlined="true">
+    <MudText Typo="Typo.h5" GutterBottom="true">Como usar — a rotina que funciona</MudText>
+    <MudText Typo="Typo.body1" Class="mud-text-secondary mb-4">
+        O Dominica Learn é duas coisas casadas: um <b>vault de notas</b> (o seu Obsidian na nuvem — tudo
+        vive em arquivos .md que o Obsidian de verdade abre) e uma <b>máquina de estudar</b> (cartões,
+        ciclo, plano, registro). A rotina abaixo é o jeito de as duas trabalharem juntas. Não precisa
+        adotar tudo no primeiro dia: comece pelos passos 1–3, o resto entra sozinho.
+    </MudText>
+
+    @* —— 1. O DIA COMEÇA NO PAINEL —— *@
+    <MudText Typo="Typo.h6" Class="manual-passo">1 · Abra o dia no Painel</MudText>
+    <MudText Typo="Typo.body2" Class="mb-1">
+        O <MudLink Href="painel">Painel</MudLink> responde <b>"o que agora?"</b> por você: quais cartões
+        vencem hoje, qual matéria está custando mais, prazos chegando. Clique <b>Começar a revisão</b> e
+        responda os cartões do dia — 10 a 20 minutos. É o gesto de maior retorno do produto inteiro:
+        revisar no dia certo é o que fixa; adiar dois dias é reaprender.
+    </MudText>
+    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-4">
+        Na revisão: <b>tente lembrar antes de virar</b> o cartão — o esforço de puxar da memória é o
+        mecanismo, não a leitura da resposta. Espaço vira; 1/2/3/4 respondem. Errou o clique? Desfazer.
+    </MudText>
+
+    @* —— 2. ESTUDAR COM O CICLO E O CRONÔMETRO —— *@
+    <MudText Typo="Typo.h6" Class="manual-passo">2 · Estude pelo Ciclo, com o cronômetro correndo</MudText>
+    <MudText Typo="Typo.body2" Class="mb-1">
+        O <MudLink Href="ciclo">Ciclo</MudLink> é a fila de blocos (Direito 50min, Português 30min…) que
+        mata a paralisia do "o que eu estudo agora?". Monte a fila uma vez — matéria que cai mais, ou que
+        você mais erra, entra mais vezes — e daí em diante só obedeça: <b>Estudar agora</b> liga o
+        cronômetro do canto na matéria do bloco. Terminou, <b>Concluí este bloco</b> e o ciclo aponta o
+        próximo. Ao parar o cronômetro, a sessão é registrada sozinha — são essas horas que alimentam o
+        histórico do painel e o progresso do Plano.
+    </MudText>
+    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-4">
+        O <MudLink Href="plano">Plano da semana</MudLink> é a meta por matéria ("Tributário 5h"), proposta
+        pela sua fraqueza — <b>Sugerir pela minha fraqueza</b> — e é sugestão, não jaula: estudar fora do
+        plano conta igual. Ajuste as metas como quiser; a barra mostra o feito contra a meta.
+    </MudText>
+
+    @* —— 3. ESCREVER NOTAS QUE VIRAM MEMÓRIA —— *@
+    <MudText Typo="Typo.h6" Class="manual-passo">3 · Escreva a nota pensando em ligações e cartões</MudText>
+    <MudText Typo="Typo.body2" Class="mb-1">
+        Em <MudLink Href="notas">Notas</MudLink>, escreva <b>com as suas palavras</b> — é a elaboração que
+        aprende, não a cópia. Três hábitos enquanto escreve:
+    </MudText>
+    <ul class="manual-lista">
+        <li><b>Ligue com <code>[[</code></b> — digitou <code>[[</code>, o autocompletar lista as notas.
+            Cada link é uma conexão que o grafo desenha e as "Parecidas" reforçam. Escreveu "prescrição"?
+            Ligue em [[Prescrição]] na hora — é assim que a estrutura emerge.</li>
+        <li><b>Grife o que é fato de prova com <code>==assim==</code></b> — e selecione o trecho e use
+            <i>Virar lacuna</i>: o grifo vira cartão de completar num clique.</li>
+        <li><b>Cartão direto: <code>Pergunta::Resposta</code></b> numa linha própria. É o formato do
+            plugin de repetição espaçada do Obsidian — os mesmos cartões funcionam lá.</li>
+    </ul>
+    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-4">
+        A coluna da direita é o seu radar: quem aponta para a nota, quem a <i>menciona sem ligar</i>
+        (um clique liga), as <i>parecidas ainda não ligadas</i>, os cartões dela — e <b>Revisar esta
+        nota</b> quando há vencidos. Nota longa ganha o índice "Nesta nota". Destaques:
+        <code>&gt; [!warning] Cuidado</code> vira bloco âmbar; <code>[!tip]</code> verde;
+        <code>[!danger]</code> vermelho.
+    </MudText>
+
+    @* —— 4. A CAPTURA E A NOTA DIÁRIA —— *@
+    <MudText Typo="Typo.h6" Class="manual-passo">4 · Ideia solta? Capturar — e siga em frente</MudText>
+    <MudText Typo="Typo.body2" Class="mb-4">
+        A pílula <b>Capturar</b> (canto inferior esquerdo, em toda tela) existe para a ideia que aparece
+        no meio de outra coisa: "cai muito ADI × ADC", "reler o art. 173". Escreva e <b>Guardar</b> — o
+        pensamento cai na <b>nota de hoje</b> (pasta Diário) com a hora, e você não interrompe o que
+        estava fazendo. <b>Capturar é já; organizar é depois</b>: à noite, abra a nota do dia
+        (<MudLink Href="hoje">/hoje</MudLink> ou o botão <i>Hoje</i> em Notas), releia as capturas e
+        transforme o que valeu em nota de verdade, link ou cartão.
+    </MudText>
+
+    @* —— 5. ERROU? REGISTRE O ERRO —— *@
+    <MudText Typo="Typo.h6" Class="manual-passo">5 · Errou questão? "Errei uma questão", sempre</MudText>
+    <MudText Typo="Typo.body2" Class="mb-4">
+        O erro é o momento mais valioso do estudo — é onde a banca te pega. Na tela de
+        <MudLink Href="revisar">Revisar</MudLink>, o botão <b>Errei uma questão</b> grava o erro como
+        cartão na nota "Errei na prova" da matéria, com a etiqueta <code>#errei-na-prova</code>. Depois,
+        <b>Revisar meus erros</b> (na barra da revisão e no painel) monta a sessão só com eles. Fez um
+        lote de questões fora (QConcursos, PDF)? Registre o placar no painel — <b>Registrar</b> — para o
+        "onde você mais perde" dizer a verdade.
+    </MudText>
+
+    @* —— 6. O RITUAL DE FIM DE SEMANA —— *@
+    <MudText Typo="Typo.h6" Class="manual-passo">6 · No fim de semana, olhe os mapas</MudText>
+    <ul class="manual-lista">
+        <li><b><MudLink Href="grafo">Grafo</MudLink></b>: anel <span style="color:#c94f42">vermelho</span> =
+            nota com cartão vencido (dívida de memória — clique e revise dali); anel tracejado = nota órfã,
+            conhecimento que você escreveu e nunca ligou a nada. Ligue-as ou deixe-as morrer conscientemente.</li>
+        <li><b><MudLink Href="etiquetas">Etiquetas</MudLink></b>: o mapa mostra o que anda junto. Um assunto
+            cresceu? <b>Nota-índice</b> cria o mapa dele (uma nota comum, cheia de links — cure-a: reordene,
+            comente). Clicar na linha entre duas etiquetas revisa a interseção.</li>
+        <li><b>Prazos</b>: escreva <code>prazo: 2026-09-01</code> no frontmatter de qualquer nota
+            (inscrição, recurso) e o painel cobra até o dia passar.</li>
+        <li><b>Nota Aleatória</b> (em Notas): reencontre o que esqueceu que escreveu — é como nota antiga
+            volta a ganhar link.</li>
+    </ul>
+
+    <MudDivider Class="my-4" />
+
+    @* —— A REGRA DE OURO —— *@
+    <MudText Typo="Typo.h6" Class="manual-passo">A regra de ouro</MudText>
+    <MudText Typo="Typo.body2" Class="mb-2">
+        <b>Nota que não vira cartão é texto que você leu duas vezes.</b> Reler dá sensação de saber sem
+        saber — é o efeito mais documentado da ciência do aprender. O fluxo inteiro daqui existe para
+        empurrar o que você escreve para dentro da revisão espaçada: grifo → lacuna, fato → cartão,
+        erro → #errei-na-prova. Os grafos mostram onde está o buraco; quem fixa é o cartão respondido
+        no dia certo.
+    </MudText>
+    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+        E o vault é SEU: são arquivos .md numa pasta por usuário. O Obsidian Desktop abre a mesma pasta
+        (via sincronização sua), com os mesmos links, cartões e agendamentos — nada existe só aqui dentro.
+        A tela de <MudLink Href="backup">Backup</MudLink> leva tudo embora num zip quando você quiser.
+    </MudText>
+</MudPaper>
+</div>
