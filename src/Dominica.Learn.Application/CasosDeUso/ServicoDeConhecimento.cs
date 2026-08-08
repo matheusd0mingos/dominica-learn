@@ -156,7 +156,7 @@ public sealed partial class ServicoDeConhecimento(
     /// <summary>O caminho da nota de hoje, criada agora se ainda não existia.</summary>
     public async Task<Resultado<CaminhoNota>> NotaDeHojeAsync(CancellationToken ct = default)
     {
-        var hoje = DateOnly.FromDateTime(relogio.Agora.ToLocalTime().DateTime);
+        var hoje = DateOnly.FromDateTime(relogio.Agora.DateTime);
         var caminho = NotaDiaria.CaminhoDe(hoje);
 
         if (await repositorio.LerAsync(caminho, ct) is not null)
@@ -185,7 +185,7 @@ public sealed partial class ServicoDeConhecimento(
         var nota = await repositorio.LerAsync(caminho, ct);
         if (nota is null) return Resultado<CaminhoNota>.NaoEncontrada("A nota de hoje");
 
-        var agora = relogio.Agora.ToLocalTime();
+        var agora = relogio.Agora;
         var conteudo = NotaDiaria.Capturar(nota.Conteudo, TimeOnly.FromDateTime(agora.DateTime), texto);
 
         var salva = await notas.SalvarAsync(caminho, conteudo, nota.Impressao, autor: null, ct);
@@ -206,7 +206,7 @@ public sealed partial class ServicoDeConhecimento(
     /// </summary>
     public async Task<IReadOnlyList<PrazoDaNota>> PrazosAsync(CancellationToken ct = default)
     {
-        var hoje = DateOnly.FromDateTime(relogio.Agora.ToLocalTime().DateTime);
+        var hoje = DateOnly.FromDateTime(relogio.Agora.DateTime);
         var achados = new List<PrazoDaNota>();
 
         foreach (var caminho in await indice.TodosOsCaminhosAsync(ct))

@@ -58,6 +58,13 @@ public sealed class SessaoNoRegistro
 /// </summary>
 public sealed class ContextoDoRegistro(DbContextOptions<ContextoDoRegistro> opcoes) : DbContext(opcoes)
 {
+    /// <summary>Todo DateTimeOffset atravessa a borda em UTC — ver <see cref="InstanteParaUtc"/>.</summary>
+    protected override void ConfigureConventions(ModelConfigurationBuilder b)
+    {
+        base.ConfigureConventions(b);
+        b.Properties<DateTimeOffset>().HaveConversion<InstanteParaUtc>();
+    }
+
     /// <summary>De quem é a consulta. Ver o comentário homônimo em ContextoDoIndice.</summary>
     public string UsuarioAtual { get; set; } = string.Empty;
 

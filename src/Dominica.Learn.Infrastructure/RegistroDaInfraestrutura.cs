@@ -12,10 +12,44 @@ using Microsoft.Extensions.Logging;
 
 namespace Dominica.Learn.Infrastructure;
 
-/// <summary>Relógio de verdade. Único lugar do sistema autorizado a perguntar as horas ao sistema.</summary>
+/// <summary>
+/// Relógio de verdade. Único lugar do sistema autorizado a perguntar as horas ao sistema — e o único
+/// que sabe o FUSO DO PRODUTO.
+///
+/// O fuso vem da configuração (Hospedagem:FusoHorario, id IANA) com padrão America/Sao_Paulo: este é um
+/// produto para concurseiro brasileiro, e o servidor quase sempre roda em UTC. Sem isso, quem estudasse
+/// às 21h de Brasília teria o dia virado pelo relógio do contêiner — nota diária de amanhã, heatmap no
+/// dia errado, cartão vencendo à noite. Ver IRelogio.Agora, onde a regra está por escrito.
+/// </summary>
 public sealed class RelogioDoSistema : IRelogio
 {
-    public DateTimeOffset Agora => DateTimeOffset.UtcNow;
+    public const string ChaveDoFuso = "Hospedagem:FusoHorario";
+    public const string FusoPadrao = "America/Sao_Paulo";
+
+    private readonly TimeZoneInfo _fuso;
+
+    public RelogioDoSistema(IConfiguration configuracao, ILogger<RelogioDoSistema> log)
+    {
+        var id = configuracao[ChaveDoFuso];
+        if (string.IsNullOrWhiteSpace(id)) id = FusoPadrao;
+        try
+        {
+            _fuso = TimeZoneInfo.FindSystemTimeZoneById(id);
+        }
+        catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            // Sem tzdata na imagem (ou id errado na config), rodar em UTC é degradação HONESTA — pior
+            // seria subir com um fuso inventado. O log é o que puxa o fio no dia em que alguém notar
+            // o heatmap deslocado.
+            log.LogWarning(e, "Fuso \"{Id}\" não encontrado; o relógio segue em UTC. " +
+                              "Confira Hospedagem:FusoHorario e o tzdata da imagem.", id);
+            _fuso = TimeZoneInfo.Utc;
+        }
+    }
+
+    public DateTimeOffset Agora => TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, _fuso);
+
+    public TimeZoneInfo Fuso => _fuso;
 }
 
 /// <summary>

@@ -53,7 +53,7 @@ public sealed class ServicoDeCartoes(
     IRelogio relogio,
     ILogger<ServicoDeCartoes> log)
 {
-    private DateOnly Hoje => DateOnly.FromDateTime(relogio.Agora.ToLocalTime().DateTime);
+    private DateOnly Hoje => DateOnly.FromDateTime(relogio.Agora.DateTime);
 
     /// <summary>
     /// Os cartões vencidos, prontos para revisar. <paramref name="materia"/> nulo = o vault inteiro.

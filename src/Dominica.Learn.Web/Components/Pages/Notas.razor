@@ -24,6 +24,7 @@
 @inject ISnackbar Avisos
 @inject IDialogService Dialogos
 @inject ILogger<Notas> Log
+@inject IRelogio Relogio
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
@@ -512,7 +513,7 @@
                analisador que monta a fila, então o que aparece aqui é exatamente o que vai ser revisado. *@
             @if (_cartoes.Count > 0)
             {
-                var hoje = DateOnly.FromDateTime(DateTime.Today);
+                var hoje = DateOnly.FromDateTime(Relogio.Agora.DateTime);
                 var vencidos = _cartoes.Count(c => !c.Suspenso && c.AgendamentoOu(hoje).Vencido(hoje));
                 <MudText Typo="Typo.overline" Class="mt-4 d-block">Cartões desta nota (@_cartoes.Count)</MudText>
 

@@ -42,19 +42,22 @@ public static class MapaDeHoras
     public const int SemanasPadrao = 8;
 
     public static HistoricoDeHoras Montar(
-        IEnumerable<SessaoDeEstudo> sessoes, DateOnly hoje, int semanas = SemanasPadrao)
+        IEnumerable<SessaoDeEstudo> sessoes, DateOnly hoje, int semanas = SemanasPadrao,
+        TimeZoneInfo? fuso = null)
     {
         ArgumentNullException.ThrowIfNull(sessoes);
+        fuso ??= TimeZoneInfo.Local;
         var dias = Math.Max(1, semanas) * 7;
         var inicio = hoje.AddDays(1 - dias);
 
-        // O DIA É O LOCAL de quem estudou: a sessão que começou 23h de quinta pertence à quinta. Carimbar
-        // em UTC empurraria o fim da noite para o dia seguinte e o "estudei todo dia" mentiria. Mesma regra
-        // do MapaDeCalor — se as duas grades usassem fusos diferentes, um dia acenderia numa e não na outra.
+        // O DIA É O DO FUSO DE QUEM ESTUDOU (por parâmetro — o servidor quase sempre roda em UTC): a
+        // sessão que começou 23h de quinta pertence à quinta. Carimbar no fuso do servidor empurraria o
+        // fim da noite para o dia seguinte e o "estudei todo dia" mentiria. Mesma regra do MapaDeCalor —
+        // se as duas grades usassem fusos diferentes, um dia acenderia numa e não na outra.
         var porDia = new Dictionary<DateOnly, TimeSpan>();
         foreach (var s in sessoes)
         {
-            var dia = DateOnly.FromDateTime(s.Inicio.ToLocalTime().DateTime);
+            var dia = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(s.Inicio, fuso).DateTime);
             if (dia < inicio || dia > hoje) continue;
             porDia[dia] = porDia.GetValueOrDefault(dia) + s.Duracao;
         }

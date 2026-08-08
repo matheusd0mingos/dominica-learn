@@ -111,6 +111,13 @@ public sealed class RevisaoNoIndice
 /// </summary>
 public sealed class ContextoDoIndice(DbContextOptions<ContextoDoIndice> opcoes) : DbContext(opcoes)
 {
+    /// <summary>Todo DateTimeOffset atravessa a borda em UTC — ver <see cref="InstanteParaUtc"/>.</summary>
+    protected override void ConfigureConventions(ModelConfigurationBuilder b)
+    {
+        base.ConfigureConventions(b);
+        b.Properties<DateTimeOffset>().HaveConversion<InstanteParaUtc>();
+    }
+
     /// <summary>
     /// De quem é o vault que este contexto enxerga. Todo filtro global desta classe compara com ele.
     ///

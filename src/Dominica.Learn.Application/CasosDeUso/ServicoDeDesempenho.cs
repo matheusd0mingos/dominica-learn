@@ -69,10 +69,10 @@ public sealed class ServicoDeDesempenho(
     public async Task<(IReadOnlyList<DiaDeCalor> Dias, int PorCentoLembrado, int Total)> CalorAsync(
         int semanas = MapaDeCalor.SemanasPadrao, CancellationToken ct = default)
     {
-        var hoje = DateOnly.FromDateTime(relogio.Agora.ToLocalTime().DateTime);
+        var hoje = DateOnly.FromDateTime(relogio.Agora.DateTime);
         var desde = relogio.Agora - TimeSpan.FromDays(semanas * 7);
         var revisoes = await registro.RevisoesAsync(desde, ct);
-        return (MapaDeCalor.Montar(revisoes, hoje, semanas), MapaDeCalor.PorCentoLembrado(revisoes), revisoes.Count);
+        return (MapaDeCalor.Montar(revisoes, hoje, semanas, relogio.Fuso), MapaDeCalor.PorCentoLembrado(revisoes), revisoes.Count);
     }
 
     /// <summary>
@@ -83,9 +83,9 @@ public sealed class ServicoDeDesempenho(
     public async Task<HistoricoDeHoras> HorasAsync(
         int semanas = MapaDeHoras.SemanasPadrao, CancellationToken ct = default)
     {
-        var hoje = DateOnly.FromDateTime(relogio.Agora.ToLocalTime().DateTime);
+        var hoje = DateOnly.FromDateTime(relogio.Agora.DateTime);
         var desde = relogio.Agora - TimeSpan.FromDays(semanas * 7);
-        return MapaDeHoras.Montar(await registro.SessoesAsync(desde, ct), hoje, semanas);
+        return MapaDeHoras.Montar(await registro.SessoesAsync(desde, ct), hoje, semanas, relogio.Fuso);
     }
 
     /// <summary>
@@ -94,7 +94,7 @@ public sealed class ServicoDeDesempenho(
     /// </summary>
     public async Task<IReadOnlyDictionary<Materia, TimeSpan>> HorasPorMateriaNaSemanaAsync(CancellationToken ct = default)
     {
-        var hoje = DateOnly.FromDateTime(relogio.Agora.ToLocalTime().DateTime);
+        var hoje = DateOnly.FromDateTime(relogio.Agora.DateTime);
         var recuo = ((int)hoje.DayOfWeek + 6) % 7;   // segunda → 0, domingo → 6
         var segunda = hoje.AddDays(-recuo);
         var desde = new DateTimeOffset(segunda.ToDateTime(TimeOnly.MinValue), relogio.Agora.Offset);

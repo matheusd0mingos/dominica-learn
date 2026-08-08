@@ -11,6 +11,7 @@
 @inject ServicoDeConhecimento Conhecimento
 @inject ServicoDeCartoes Cartoes
 @inject ServicoDeDesempenho Desempenho
+@inject IRelogio Relogio
 @inject IDialogService Dialogos
 @inject NavigationManager Navegacao
 @inject ISnackbar Avisos
@@ -171,7 +172,7 @@ else
                Só aparece quando existe prazo declarado: seção vazia ensinaria a ignorar o painel. *@
             @if (_prazos.Count > 0)
             {
-                var hoje = DateOnly.FromDateTime(DateTime.Today);
+                var hoje = DateOnly.FromDateTime(Relogio.Agora.DateTime);
                 <MudText Typo="Typo.overline" Class="d-block">Prazos</MudText>
                 <MudList T="string" Dense="true" Class="mb-2">
                     @foreach (var p in _prazos.Take(6))

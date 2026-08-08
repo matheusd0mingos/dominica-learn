@@ -11,6 +11,7 @@
 @implements IAsyncDisposable
 @using Dominica.Learn.Application.Portas
 @inject ServicoDeCartoes Cartoes
+@inject IRelogio Relogio
 @inject IPreferenciasDoUsuario Preferencias
 @inject NavigationManager Navegacao
 @inject ISnackbar Avisos
@@ -653,9 +654,10 @@
     /// que vai gravar. Não é enfeite: sem isso a pessoa aperta os botões no escuro e nunca entende por
     /// que um cartão voltou no dia seguinte — e deixa de confiar no agendamento.
     /// </summary>
-    private static string Prever(Cartao cartao)
+    private string Prever(Cartao cartao)
     {
-        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        // O relógio do PRODUTO, não o do servidor: às 21h de Brasília ainda é hoje. Ver IRelogio.
+        var hoje = DateOnly.FromDateTime(Relogio.Agora.DateTime);
         var atual = cartao.AgendamentoOu(hoje);
 
         string Dias(Resposta r)

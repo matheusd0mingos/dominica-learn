@@ -31,16 +31,19 @@ public static class MapaDeCalor
     public const int SemanasPadrao = 8;
 
     public static IReadOnlyList<DiaDeCalor> Montar(
-        IEnumerable<RevisaoDeCartao> revisoes, DateOnly hoje, int semanas = SemanasPadrao)
+        IEnumerable<RevisaoDeCartao> revisoes, DateOnly hoje, int semanas = SemanasPadrao,
+        TimeZoneInfo? fuso = null)
     {
         ArgumentNullException.ThrowIfNull(revisoes);
+        fuso ??= TimeZoneInfo.Local;
         var dias = Math.Max(1, semanas) * 7;
         var inicio = hoje.AddDays(1 - dias);
 
-        // O DIA É O LOCAL de quem estudou: a revisão de 23h de quinta pertence à quinta — carimbar em
-        // UTC empurraria o fim da noite para o dia seguinte e o "estudei todo dia" mentiria.
+        // O DIA É O DO FUSO DE QUEM ESTUDOU (vem por parâmetro — o servidor quase sempre roda em UTC):
+        // a revisão de 23h de quinta pertence à quinta — carimbar no fuso do servidor empurraria o fim
+        // da noite para o dia seguinte e o "estudei todo dia" mentiria.
         var porDia = revisoes
-            .Select(r => DateOnly.FromDateTime(r.Em.ToLocalTime().DateTime))
+            .Select(r => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(r.Em, fuso).DateTime))
             .Where(d => d >= inicio && d <= hoje)
             .GroupBy(d => d)
             .ToDictionary(g => g.Key, g => g.Count());

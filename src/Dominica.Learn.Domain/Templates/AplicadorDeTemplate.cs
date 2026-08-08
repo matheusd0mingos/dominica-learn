@@ -58,7 +58,7 @@ public static class AplicadorDeTemplate
 
         // O horário é LOCAL, e é intencional: quem escreve "criado em {{hora}}" quer a hora do relógio
         // dele, não UTC. O armazenamento continua em UTC; só a apresentação converte.
-        var local = c.Agora.ToLocalTime();
+        var local = c.Agora;
 
         return nome switch
         {

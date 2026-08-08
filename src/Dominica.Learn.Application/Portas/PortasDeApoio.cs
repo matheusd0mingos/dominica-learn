@@ -12,7 +12,22 @@ namespace Dominica.Learn.Application.Portas;
 /// </summary>
 public interface IRelogio
 {
+    /// <summary>
+    /// Agora, JÁ NO FUSO DO USUÁRIO — o deslocamento embutido é o do concurseiro, não o do servidor.
+    ///
+    /// A regra nasceu de um defeito conceitual achado na auditoria de deploy: o relógio devolvia UTC e
+    /// o código fazia `.ToLocalTime()`, que num contêiner sem fuso É o próprio UTC. Para quem estuda em
+    /// Brasília, às 21h o sistema virava o dia — a nota diária abria com a data de amanhã, o heatmap
+    /// marcava o dia errado e os cartões de amanhã venciam à noite. Quem consome esta porta NUNCA deve
+    /// chamar `.ToLocalTime()` no resultado: ele já vem no fuso certo, e reconverter estraga.
+    /// </summary>
     DateTimeOffset Agora { get; }
+
+    /// <summary>
+    /// O fuso do produto — para converter TIMESTAMPS GUARDADOS (sessões, revisões) para o dia local de
+    /// quem estudou. Padrão UTC nas implementações que não configuram: é o comportamento dos testes.
+    /// </summary>
+    TimeZoneInfo Fuso => TimeZoneInfo.Utc;
 }
 
 /// <summary>Uma revisão arquivada de uma nota.</summary>
