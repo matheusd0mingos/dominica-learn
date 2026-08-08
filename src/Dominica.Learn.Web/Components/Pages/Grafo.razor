@@ -160,16 +160,17 @@
                             stroke="@(atual ? "var(--mud-palette-text-primary)" : no.Orfa ? CorDaOrfa : "none")"
                             stroke-width="@(atual ? "2.5" : no.Orfa ? "2" : "0")"
                             stroke-dasharray="@(!atual && no.Orfa ? "3 2" : "")" />
-                    @* Rótulo só nos nós que importam: escrever o nome dos 400 pontos de um vault de anos
-                       transforma o grafo numa mancha de texto. *@
-                    @if (atual || no.Grau >= _grauParaRotular || no.Orfa)
+                    @* Rótulo só onde ele CABE — ver RotulosDoGrafo. A regra antiga contava nós ("até 25,
+                       rotule todos") e por isso enchia justamente o recorte mais apertado: o grafo de uma
+                       matéria tem poucas notas e elas estão amontoadas porque se citam. *@
+                    @if (_comRotulo.TryGetValue(p.Indice, out var lado))
                     {
                         @* O <g> não é decorativo: o Razor trata "<text>" no início de um bloco de código
                            como a TAG DE ESCAPE dele (RZ1023). Abrir markup antes faz o <text> do SVG ser
                            lido como elemento. *@
                         <g>
-                            <text x="@N(p.X)" y="@N(p.Y + p.Raio + 11)" text-anchor="middle"
-                                  font-size="10" fill="var(--mud-palette-text-secondary)">@Curto(no.Titulo)</text>
+                            <text x="@N(p.X)" y="@N(RotulosDoGrafo.LinhaDeBase(p, lado))" text-anchor="middle"
+                                  font-size="@N(TamanhoDoRotulo)" fill="var(--mud-palette-text-secondary)">@Curto(no.Titulo)</text>
                         </g>
                     }
                 </g>
@@ -250,8 +251,17 @@
 
     private bool _carregando = true;
     private int _orfas;
-    private int _grauParaRotular = 1;
     private Dictionary<Materia, int> _slots = [];
+
+    /// <summary>Os nós que ganharam vaga de rótulo nesta visão. Ver <see cref="EscolherRotulos"/>.</summary>
+    private IReadOnlyDictionary<int, LadoDoRotulo> _comRotulo = new Dictionary<int, LadoDoRotulo>();
+
+    /// <summary>
+    /// O tamanho do rótulo, em unidades do viewBox. Fica aqui, e não solto no atributo, porque quem
+    /// DECIDE quais rótulos cabem precisa saber deste número — decidir com um tamanho e desenhar com
+    /// outro é o mesmo que não decidir.
+    /// </summary>
+    private const double TamanhoDoRotulo = 10;
 
     private GrafoDoVault _grafo => _visao.Posicionado.Grafo;
     private Materia? _filtrada => _visao.Filtrada;
@@ -360,14 +370,7 @@
             .Select((m, i) => (m.Materia, Slot: i))
             .ToDictionary(t => t.Materia, t => t.Slot);
 
-        // Quantos rótulos cabem depende do tamanho do grafo, não de um número fixo: num grafo de 12 notas
-        // dá para nomear todas; num de 300, só os polos.
-        _grauParaRotular = _grafo.Nos.Count switch
-        {
-            <= 25 => 0,
-            <= 80 => 3,
-            _ => 8,
-        };
+        EscolherRotulos();
         _carregando = false;
     }
 
@@ -377,7 +380,41 @@
         await CarregarAsync();
     }
 
-    private void AoAlternarOrfas(bool valor) => _soOrfas = valor;
+    private void AoAlternarOrfas(bool valor)
+    {
+        _soOrfas = valor;
+        // Com metade dos pontos fora da tela, sobra espaço: recalcular deixa aparecer o nome de órfã que
+        // antes perdia a vaga para um vizinho que agora nem está desenhado.
+        EscolherRotulos();
+    }
+
+    /// <summary>
+    /// QUEM GANHA RÓTULO. A conta é do domínio (<see cref="RotulosDoGrafo"/>); aqui só se decide a
+    /// PRIORIDADE, que é uma escolha de produto:
+    ///
+    ///   • a nota aberta vem sempre — é a única que a pessoa está procurando na tela;
+    ///   • a ÓRFÃ vem antes das ligadas, e isto é o oposto do que a intuição pede. Ela é o achado mais
+    ///     valioso do desenho — conhecimento que você escreveu e nunca mais encontrou —, e é também a
+    ///     que ninguém acha por outro caminho: uma nota bem ligada se alcança pelos vizinhos;
+    ///   • depois, o grau. Ponto grande com nome é o que dá forma ao mapa.
+    /// </summary>
+    private void EscolherRotulos()
+    {
+        var candidatos = _visao.Posicionado.Posicoes
+            .Where(p => !_soOrfas || _grafo.Nos[p.Indice].Orfa)
+            .Select(p =>
+            {
+                var no = _grafo.Nos[p.Indice];
+                var prioridade =
+                    _centro is not null && no.Caminho.Equals(_centro) ? 1_000_000
+                    : no.Orfa ? 1_000 + no.Grau
+                    : no.Grau;
+                return new CandidatoARotulo(p.Indice, Curto(no.Titulo), prioridade);
+            })
+            .ToList();
+
+        _comRotulo = RotulosDoGrafo.Escolher(_visao.Posicionado.Posicoes, candidatos, TamanhoDoRotulo);
+    }
 
     // Rotas.Nota e NÃO $"/notas/{...}": a barra inicial descarta o sub-caminho onde o app é servido,
     // e a navegação cai em dominio.com/notas/... — 404. Ver Rotas.

@@ -97,12 +97,17 @@
                                 stroke="@(e.Vizinhas == 0 ? "var(--mud-palette-warning)" : "none")"
                                 stroke-width="@(e.Vizinhas == 0 ? "2" : "0")"
                                 stroke-dasharray="@(e.Vizinhas == 0 ? "3 2" : "")" />
-                        @* TODA ETIQUETA LEVA RÓTULO, ao contrário das notas: ponto sem nome aqui não é
-                           nada — o valor deste mapa é ler os nomes juntos e reconhecer o padrão. *@
-                        <g>
-                            <text x="@N(p.X)" y="@N(p.Y + p.Raio + 11)" text-anchor="middle"
-                                  font-size="10" fill="var(--mud-palette-text-secondary)">#@e.Etiqueta.Valor</text>
-                        </g>
+                        @* AQUI O RÓTULO IMPORTA MAIS que no grafo de notas: ponto de etiqueta sem nome
+                           não é nada, porque o valor deste mapa é ler os nomes juntos e reconhecer o
+                           padrão. Por isso todos são candidatos — e só perde a vaga quem de fato não
+                           cabe. Com poucas etiquetas, que é o caso comum, nada muda. Ver RotulosDoGrafo. *@
+                        @if (_comRotulo.TryGetValue(p.Indice, out var lado))
+                        {
+                            <g>
+                                <text x="@N(p.X)" y="@N(RotulosDoGrafo.LinhaDeBase(p, lado))" text-anchor="middle"
+                                      font-size="@N(TamanhoDoRotulo)" fill="var(--mud-palette-text-secondary)">#@e.Etiqueta.Valor</text>
+                            </g>
+                        }
                     </g>
                 }
             </svg>
@@ -193,6 +198,12 @@ else
     private string _filtro = string.Empty;
     private MapaDeEtiquetas? _mapa;
 
+    /// <summary>As etiquetas cujo nome coube. Ver <see cref="RotulosDoGrafo"/>.</summary>
+    private IReadOnlyDictionary<int, LadoDoRotulo> _comRotulo = new Dictionary<int, LadoDoRotulo>();
+
+    /// <summary>Em unidades do viewBox. Quem decide o que cabe precisa do MESMO número que desenha.</summary>
+    private const double TamanhoDoRotulo = 10;
+
     /// <summary>
     /// "mapa", ou nada para a lista. Qualquer outra coisa cai na lista de propósito: a rota é aberta
     /// (<c>{Modo?}</c>) e um endereço datilografado errado tem de mostrar a tela, não um erro.
@@ -234,7 +245,18 @@ else
     /// </summary>
     protected override async Task OnParametersSetAsync()
     {
-        if (EhMapa && _mapa is null) _mapa = await Conhecimento.MapaDeEtiquetasAsync();
+        if (EhMapa && _mapa is null)
+        {
+            _mapa = await Conhecimento.MapaDeEtiquetasAsync();
+
+            // A ETIQUETA MAIS USADA GANHA A VAGA quando dois nomes não cabem juntos: é a que a pessoa
+            // reconhece e a que ancora a leitura do mapa. O "#" entra na conta da largura porque ele é
+            // desenhado — medir sem ele subestimaria todo rótulo em um caractere.
+            _comRotulo = RotulosDoGrafo.Escolher(
+                _mapa.Posicoes,
+                [.. _mapa.Nos.Select((e, i) => new CandidatoARotulo(i, $"#{e.Etiqueta.Valor}", e.Notas))],
+                TamanhoDoRotulo);
+        }
 
         // A ESCOLHA VEM DA URL. Etiqueta inválida na query não é erro: cai na tela sem nada escolhido,
         // que é o que um endereço datilografado errado deve mostrar.

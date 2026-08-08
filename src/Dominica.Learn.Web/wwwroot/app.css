@@ -106,6 +106,18 @@ html, body {
     color: var(--ink);
     margin: 0;
     -webkit-font-smoothing: antialiased;
+
+    /* O SAFARI DO iPHONE INFLA TEXTO SOZINHO, e foi isso que embaralhou o grafo no celular.
+       O "text autosizing" aumenta o texto que ele julga pequeno demais para ler — SEM aumentar o resto
+       do desenho. Num parágrafo isso é ajuda; num SVG é destruição: as bolinhas ficam do tamanho que
+       estavam e os nomes triplicam, então rótulo entra por cima de rótulo e o mapa vira uma mancha.
+       Medido: os mesmos 36 nós vão de 9 para 27 pares de rótulos sobrepostos só com o texto inflado.
+
+       100% e não "none": "none" também desliga o ajuste quando a pessoa gira o telefone, e aí o texto
+       de leitura fica pequeno de verdade na horizontal. Aqui só se pede para o navegador não inventar
+       um tamanho — o nosso já é escolhido, e o desenho depende dele. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
 }
 
 /* O serifado é da marca — títulos e wordmark, nunca corpo de texto. */
