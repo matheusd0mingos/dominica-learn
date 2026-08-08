@@ -59,8 +59,17 @@
         }
 
         <MudSpacer />
-        <MudSwitch T="bool" Value="_soOrfas" ValueChanged="AoAlternarOrfas" Color="Color.Warning"
-                   Label="Só as órfãs" />
+        @* DOIS MAPAS, E NÃO UM COM DOIS TIPOS DE BICHO DENTRO. O de notas responde "isto aponta para
+           aquilo" — hierarquia, cada ponto tem conteúdo. O de etiquetas responde "isto costuma
+           aparecer junto com aquilo" — vizinhança, e etiqueta não tem conteúdo, é rótulo. Misturar
+           daria um desenho onde a mesma linha significa duas coisas. Ver GrafoDeEtiquetas. *@
+        <MudSwitch T="bool" Value="_mapaDeEtiquetas" ValueChanged="AoAlternarMapa" Color="Color.Primary"
+                   Label="Mapa das etiquetas" />
+        @if (!_mapaDeEtiquetas)
+        {
+            <MudSwitch T="bool" Value="_soOrfas" ValueChanged="AoAlternarOrfas" Color="Color.Warning"
+                       Label="Só as órfãs" />
+        }
     </div>
 
     @if (_carregando)
@@ -95,8 +104,43 @@
              aria-label="@($"Grafo de ligações — {TituloDaPagina}")">
             @* Com "só as órfãs" ligado não há aresta a desenhar — órfã é, por definição, a nota de grau
                zero. Deixar as linhas na tela mostraria ligações entre pontos que sumiram. *@
+            @if (_mapaDeEtiquetas)
+            {
+                <g stroke="var(--mud-palette-lines-default)">
+                    @foreach (var par in _etiquetas.Pares)
+                    {
+                        var de = _etiquetas.Posicoes[par.De];
+                        var para = _etiquetas.Posicoes[par.Para];
+                        <line x1="@N(de.X)" y1="@N(de.Y)" x2="@N(para.X)" y2="@N(para.Y)"
+                              stroke-width="@N(1.6 + Math.Min(par.Peso, 5) * 0.9)" stroke-opacity="0.75" />
+                    }
+                </g>
+
+                @foreach (var p in _etiquetas.Posicoes)
+                {
+                    var e = _etiquetas.Nos[p.Indice];
+                    <g class="no-do-grafo" style="cursor:pointer" @onclick="@(() => IrParaEtiqueta(e))">
+                        <title>#@e.Etiqueta.Valor — @e.Notas nota(s) · anda com @e.Vizinhas outra(s)</title>
+                        @* UMA COR SÓ. No grafo de notas a cor é a matéria; aqui não há matéria a
+                           representar, e pintar por frequência faria a tela sugerir uma categoria que
+                           não existe. O tamanho já diz o alcance. *@
+                        <circle cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio)" fill="var(--mud-palette-primary)"
+                                stroke="@(e.Vizinhas == 0 ? CorDaOrfa : "none")"
+                                stroke-width="@(e.Vizinhas == 0 ? "2" : "0")"
+                                stroke-dasharray="@(e.Vizinhas == 0 ? "3 2" : "")" />
+                        @* TODA ETIQUETA LEVA RÓTULO, ao contrário das notas: um ponto sem nome aqui não
+                           é nada — no grafo de notas dá para clicar e descobrir, mas o valor deste mapa
+                           é ler os nomes juntos e reconhecer o padrão. E etiquetas são poucas. *@
+                        <g>
+                            <text x="@N(p.X)" y="@N(p.Y + p.Raio + 11)" text-anchor="middle"
+                                  font-size="10" fill="var(--mud-palette-text-secondary)">#@e.Etiqueta.Valor</text>
+                        </g>
+                    </g>
+                }
+            }
+
             <g stroke="var(--mud-palette-lines-default)">
-                @foreach (var a in _soOrfas ? [] : _grafo.Arestas)
+                @foreach (var a in (_soOrfas || _mapaDeEtiquetas) ? [] : _grafo.Arestas)
                 {
                     var de = _visao.Posicionado.Posicoes[a.De];
                     var para = _visao.Posicionado.Posicoes[a.Para];
@@ -117,6 +161,10 @@
 
             @foreach (var p in _visao.Posicionado.Posicoes)
             {
+                @* O outro mapa está na tela: os pontos de NOTA não são desenhados. Sem esta linha os dois
+                   se sobrepõem — e é o que aconteceu na primeira versão, com nota e etiqueta no mesmo
+                   desenho, exatamente o que o mapa separado existia para evitar. *@
+                if (_mapaDeEtiquetas) { continue; }
                 var no = _grafo.Nos[p.Indice];
                 if (_soOrfas && !no.Orfa) { continue; }
                 var atual = _centro is not null && no.Caminho.Equals(_centro);
@@ -219,6 +267,11 @@
     private CaminhoNota? _centro;
     private int _saltos = 2;
     private bool _soOrfas;
+
+    /// <summary>Qual dos dois mapas está na tela. Ver o comentário do alternador, acima.</summary>
+    private bool _mapaDeEtiquetas;
+    private MapaDeEtiquetas _etiquetas = MapaDeEtiquetas.Vazio;
+
     private bool _carregando = true;
     private int _orfas;
     private int _grauParaRotular = 1;
@@ -349,6 +402,24 @@
     }
 
     private void AoAlternarOrfas(bool valor) => _soOrfas = valor;
+
+    /// <summary>
+    /// Troca de mapa. CARREGA SÓ QUANDO PEDEM: quem nunca abre as etiquetas não paga a consulta, e o
+    /// resultado fica guardado — voltar e ir de novo não recalcula o layout, que é O(n²) por iteração.
+    /// </summary>
+    private async Task AoAlternarMapa(bool ligado)
+    {
+        _mapaDeEtiquetas = ligado;
+        if (!ligado || _etiquetas.Nos.Count > 0) return;
+
+        _carregando = true;
+        try { _etiquetas = await Conhecimento.MapaDeEtiquetasAsync(); }
+        finally { _carregando = false; }
+    }
+
+    /// <summary>Clicar numa etiqueta leva à tela dela — é onde as notas com aquele rótulo estão.</summary>
+    private void IrParaEtiqueta(EtiquetaNoGrafo e) =>
+        Navegacao.NavigateTo($"etiquetas/{Uri.EscapeDataString(e.Etiqueta.Valor)}");
 
     // Rotas.Nota e NÃO $"/notas/{...}": a barra inicial descarta o sub-caminho onde o app é servido,
     // e a navegação cai em dominio.com/notas/... — 404. Ver Rotas.

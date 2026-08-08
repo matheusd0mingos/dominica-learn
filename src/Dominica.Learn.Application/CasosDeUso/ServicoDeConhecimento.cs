@@ -26,6 +26,22 @@ public sealed record LigacaoEscrita(CaminhoNota Nota, string Texto, bool JaHavia
 
 
 /// <summary>
+/// O mapa das etiquetas, pronto para desenhar: os nós, as posições e os pares.
+///
+/// As posições vêm do MESMO motor do grafo de notas (LayoutDeForca.Posicionar), que não sabe o que os
+/// nós são. Dois mapas, um layout — e por isso um conserto no desenho vale para os dois.
+/// </summary>
+public sealed record MapaDeEtiquetas(
+    IReadOnlyList<EtiquetaNoGrafo> Nos,
+    IReadOnlyList<PosicaoDoNo> Posicoes,
+    IReadOnlyList<ParDeEtiquetas> Pares,
+    double Largura,
+    double Altura)
+{
+    public static readonly MapaDeEtiquetas Vazio = new([], [], [], 800, 600);
+}
+
+/// <summary>
 /// Tudo que a tela do grafo precisa numa consulta só.
 ///
 /// <see cref="Materias"/> vem SEMPRE do recorte completo, mesmo quando <see cref="Filtrada"/> está
@@ -222,6 +238,33 @@ public sealed class ServicoDeConhecimento(
         return materia.Existe
             && caminho.Segmentos.Count == 1
             && string.Equals(caminho.Nome, materia.Nome, StringComparison.Ordinal);
+    }
+
+    // —— MAPA DAS ETIQUETAS ————————————————————————————————————————————————————————
+    /// <summary>
+    /// O mapa de quem anda com quem.
+    ///
+    /// SAI DO ÍNDICE, numa consulta só: as etiquetas já foram extraídas na indexação, então isto não lê
+    /// arquivo nenhum. É o que permite a tela abrir tão rápido quanto o grafo de notas.
+    /// </summary>
+    public async Task<MapaDeEtiquetas> MapaDeEtiquetasAsync(
+        double largura = 800, double altura = 600, CancellationToken ct = default)
+    {
+        var porNota = await indice.EtiquetasPorNotaAsync(ct);
+        var (nos, pares) = GrafoDeEtiquetas.Montar(porNota);
+        if (nos.Count == 0) return MapaDeEtiquetas.Vazio;
+
+        // GRUPO -1 PARA TODAS: etiqueta não tem matéria, e não há aglomerado a insinuar. Quem forma
+        // aglomerado aqui é a coocorrência, que já é a aresta — inventar um grupo faria o desenho
+        // afirmar um parentesco que ninguém declarou.
+        var posicoes = LayoutDeForca.Posicionar(
+            [.. nos.Select(e => e.Etiqueta.Valor)],
+            [.. nos.Select(e => e.Vizinhas)],
+            [.. nos.Select(_ => -1)],
+            [.. pares.Select(p => new ArestaDoGrafo(p.De, p.Para, p.Peso))],
+            largura, altura);
+
+        return new MapaDeEtiquetas(nos, posicoes, pares, largura, altura);
     }
 
     // —— LIGAR DUAS NOTAS ——————————————————————————————————————————————————————————————

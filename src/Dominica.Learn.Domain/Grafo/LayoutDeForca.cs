@@ -44,11 +44,39 @@ public static class LayoutDeForca
     private const double CoesaoDeMateria = 0.06;
 
     public static GrafoPosicionado Calcular(
-        GrafoDoVault grafo, double largura = 800, double altura = 600, int iteracoes = IteracoesPadrao)
+        GrafoDoVault grafo, double largura = 800, double altura = 600, int iteracoes = IteracoesPadrao) =>
+        new(grafo,
+            Posicionar(
+                [.. grafo.Nos.Select(no => no.Caminho.Valor)],
+                [.. grafo.Nos.Select(no => no.Grau)],
+                IndicesDeMateria(grafo),
+                grafo.Arestas,
+                largura, altura, iteracoes),
+            largura, altura);
+
+    /// <summary>
+    /// O LAYOUT, POR ÍNDICE — sem saber o que os nós são.
+    ///
+    /// Recebe quatro arrays paralelos e devolve posições numeradas. Não há nota, caminho nem matéria
+    /// nesta assinatura, e é isso que permite desenhar mais de um tipo de mapa com o mesmo motor: o
+    /// grafo de notas passa caminho/grau/matéria; o mapa de etiquetas passa valor/vizinhas/-1.
+    ///
+    /// A ALTERNATIVA ERA FABRICAR CaminhoNota FALSO para cada etiqueta, e ela é pior de um jeito que só
+    /// aparece anos depois: quem abrisse o depurador veria "notas" que não existem em disco nenhum e
+    /// passaria uma tarde entendendo por quê. Um parâmetro a mais aqui custa uma linha.
+    /// </summary>
+    /// <param name="sementes">Texto estável por nó — dele sai a posição INICIAL, e é o que faz o mesmo
+    /// conjunto sair sempre com o mesmo desenho.</param>
+    /// <param name="graus">Quantas ligações cada nó tem. Vira o raio do ponto.</param>
+    /// <param name="grupos">A que aglomerado o nó pertence, para a coesão fraca. -1 = nenhum, e
+    /// "nenhum" NÃO é um grupo em comum.</param>
+    public static IReadOnlyList<PosicaoDoNo> Posicionar(
+        string[] sementes, int[] graus, int[] grupos, IReadOnlyList<ArestaDoGrafo> arestas,
+        double largura = 800, double altura = 600, int iteracoes = IteracoesPadrao)
     {
-        var n = grafo.Nos.Count;
-        if (n == 0) return new GrafoPosicionado(grafo, [], largura, altura);
-        if (n == 1) return new GrafoPosicionado(grafo, [new PosicaoDoNo(0, largura / 2, altura / 2, RaioDe(grafo.Nos[0].Grau))], largura, altura);
+        var n = sementes.Length;
+        if (n == 0) return [];
+        if (n == 1) return [new PosicaoDoNo(0, largura / 2, altura / 2, RaioDe(graus[0]))];
 
         var x = new double[n];
         var y = new double[n];
@@ -56,7 +84,7 @@ public static class LayoutDeForca
         {
             // Posição inicial DETERMINÍSTICA, derivada do caminho da nota. Distribuída num círculo para
             // que o grafo não comece colapsado num ponto, o que faria a repulsão explodir na 1ª iteração.
-            var semente = HashEstavel(grafo.Nos[i].Caminho.Valor);
+            var semente = HashEstavel(sementes[i]);
             var angulo = (semente % 10000) / 10000.0 * 2 * Math.PI;
             var raio = 0.25 + ((semente / 10000) % 1000) / 1000.0 * 0.2;
             x[i] = largura / 2 + Math.Cos(angulo) * largura * raio;
@@ -72,7 +100,7 @@ public static class LayoutDeForca
         // comparar registros a cada uma das ~90 000 combinações por iteração, vezes 300 iterações.
         // -1 = sem matéria, e "sem matéria" NÃO é uma matéria em comum: notas soltas na raiz não têm
         // nada a ver umas com as outras só por estarem soltas.
-        var materias = IndicesDeMateria(grafo);
+        var materias = grupos;
 
         var dx = new double[n];
         var dy = new double[n];
@@ -112,7 +140,7 @@ public static class LayoutDeForca
             }
 
             // atração: só entre nós ligados. É o que faz assunto ligado virar aglomerado visível.
-            foreach (var a in grafo.Arestas)
+            foreach (var a in arestas)
             {
                 var vx = x[a.De] - x[a.Para];
                 var vy = y[a.De] - y[a.Para];
@@ -159,14 +187,14 @@ public static class LayoutDeForca
             temperatura -= resfriamento;
         }
 
-        return new GrafoPosicionado(grafo, Enquadrar(grafo, x, y, largura, altura), largura, altura);
+        return Enquadrar(graus, x, y, largura, altura);
     }
 
     /// <summary>
     /// Reescala o resultado para caber na área com margem. Sem isto, um grafo esparso ocuparia um canto
     /// e um denso vazaria da tela — a força dirigida não conhece as bordas.
     /// </summary>
-    private static List<PosicaoDoNo> Enquadrar(GrafoDoVault grafo, double[] x, double[] y, double largura, double altura)
+    private static List<PosicaoDoNo> Enquadrar(int[] graus, double[] x, double[] y, double largura, double altura)
     {
         var margem = 40.0;
         double minX = x.Min(), maxX = x.Max(), minY = y.Min(), maxY = y.Max();
@@ -179,14 +207,14 @@ public static class LayoutDeForca
         var centroX = (minX + maxX) / 2;
         var centroY = (minY + maxY) / 2;
 
-        var posicoes = new List<PosicaoDoNo>(grafo.Nos.Count);
-        for (var i = 0; i < grafo.Nos.Count; i++)
+        var posicoes = new List<PosicaoDoNo>(graus.Length);
+        for (var i = 0; i < graus.Length; i++)
         {
             posicoes.Add(new PosicaoDoNo(
                 i,
                 Arredondar(largura / 2 + (x[i] - centroX) * escala),
                 Arredondar(altura / 2 + (y[i] - centroY) * escala),
-                RaioDe(grafo.Nos[i].Grau)));
+                RaioDe(graus[i])));
         }
         return posicoes;
     }
