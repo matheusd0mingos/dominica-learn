@@ -75,6 +75,19 @@ public sealed class ServicoDeDesempenho(
         return (MapaDeCalor.Montar(revisoes, hoje, semanas), MapaDeCalor.PorCentoLembrado(revisoes), revisoes.Count);
     }
 
+    /// <summary>
+    /// O histórico de HORAS: a grade dia-a-dia mais semana, média e sequência. É a leitura irmã do calor —
+    /// aquele conta revisões, este mede tempo — e usa a mesma janela para as duas grades se lerem juntas.
+    /// Ver <see cref="MapaDeHoras"/>.
+    /// </summary>
+    public async Task<HistoricoDeHoras> HorasAsync(
+        int semanas = MapaDeHoras.SemanasPadrao, CancellationToken ct = default)
+    {
+        var hoje = DateOnly.FromDateTime(relogio.Agora.ToLocalTime().DateTime);
+        var desde = relogio.Agora - TimeSpan.FromDays(semanas * 7);
+        return MapaDeHoras.Montar(await registro.SessoesAsync(desde, ct), hoje, semanas);
+    }
+
     /// <summary>Quantos lançamentos a tela mostra. Uma tela, não um histórico — ver <see cref="UltimosAsync"/>.</summary>
     public const int UltimosPadrao = 12;
 

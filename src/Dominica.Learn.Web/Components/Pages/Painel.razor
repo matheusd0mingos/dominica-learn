@@ -207,6 +207,47 @@ else
                            StartIcon="@Icons.Material.Filled.PostAdd" OnClick="RegistrarAsync">Registrar</MudButton>
             </div>
 
+            @* —— O HISTÓRICO DE HORAS ——
+               O mesmo mapa de calor do GitHub, mas medindo TEMPO. Responde "meu plano é real?" com três
+               leituras — esta semana, média por dia estudado, sequência — e o histórico em quadradinhos.
+               Só aparece com hora registrada: cronômetro parado ou "Registrar" alimentam isto. *@
+            @if (_horas is { Vazio: false })
+            {
+                <div class="mt-2">
+                    <div class="d-flex flex-wrap gap-4 mb-2">
+                        <div>
+                            <MudText Typo="Typo.h5">@Horas(_horas.NestaSemana)</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">esta semana</MudText>
+                        </div>
+                        <div>
+                            <MudText Typo="Typo.h5">@Horas(_horas.MediaPorDia)</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">por dia estudado</MudText>
+                        </div>
+                        <div>
+                            <MudText Typo="Typo.h5">@_horas.Sequencia</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                @(_horas.Sequencia == 1 ? "dia seguido" : "dias seguidos")
+                            </MudText>
+                        </div>
+                    </div>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">
+                        Horas por dia — últimas @(MapaDeHoras.SemanasPadrao) semanas · <b>@Horas(_horas.Total)</b> no período
+                    </MudText>
+                    <div class="calor calor--horas" role="img" aria-label="@RotuloDasHoras()">
+                        @foreach (var semana in _horas.Dias.Chunk(7))
+                        {
+                            <div class="calor-semana">
+                                @foreach (var dia in semana)
+                                {
+                                    <div class="calor-dia calor-@IntensidadeDeHoras(dia.Estudado)"
+                                         title="@($"{dia.Dia:dd/MM} — {Horas(dia.Estudado)}")"></div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
             @* —— O MAPA DE CALOR DAS REVISÕES ——
                A promessa antiga desta tela ("vem quando houver registro"), cumprida: cada resposta de
                cartão é anotada no registro, então o calor aqui é CONTADO, não estimado. Só aparece com
@@ -448,7 +489,40 @@ else
         _d = await Desempenho.ResumoAsync();
         _ultimos = await Desempenho.UltimosAsync();
         (_calor, _calorLembrado, _calorTotal) = await Desempenho.CalorAsync();
+        _horas = await Desempenho.HorasAsync();
     }
+
+    // —— O HISTÓRICO DE HORAS ————————————————————————————————————————————————————————
+    private HistoricoDeHoras? _horas;
+
+    // Degraus fixos por MINUTOS num dia, não relativos ao pico: o mapa compara dias entre si ao longo de
+    // semanas, e uma escala que mudasse com o máximo faria a mesma terça parecer clara numa semana e escura
+    // na outra. Os cortes são de rotina de concurso — 30min, 1h, 2h — e o 4º degrau é "dia cheio".
+    private static int IntensidadeDeHoras(TimeSpan estudado) => estudado.TotalMinutes switch
+    {
+        <= 0 => 0,
+        <= 30 => 1,
+        <= 60 => 2,
+        <= 120 => 3,
+        _ => 4,
+    };
+
+    /// <summary>"1h30" / "45min" — leitura curta, sem "0,75h" que ninguém converte de cabeça.</summary>
+    private static string Horas(TimeSpan t)
+    {
+        var min = (int)Math.Round(t.TotalMinutes);
+        if (min <= 0) return "0min";
+        var h = min / 60;
+        var m = min % 60;
+        if (h == 0) return $"{m}min";
+        return m == 0 ? $"{h}h" : $"{h}h{m:00}";
+    }
+
+    private string RotuloDasHoras() =>
+        _horas is null || _horas.Vazio
+            ? "Histórico de horas: nada registrado ainda."
+            : $"Histórico de horas nas últimas {MapaDeHoras.SemanasPadrao} semanas: {Horas(_horas.Total)} no total, " +
+              $"{Horas(_horas.NestaSemana)} esta semana, sequência de {_horas.Sequencia} dia(s).";
 
     // —— O MAPA DE CALOR ————————————————————————————————————————————————————————————
     private IReadOnlyList<DiaDeCalor> _calor = [];

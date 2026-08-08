@@ -985,6 +985,14 @@ kbd.tecla {
 .calor-3 { background: color-mix(in srgb, var(--ouro) 80%, var(--panel-2)); }
 .calor-4 { background: var(--ouro); }
 
+/* O histórico de HORAS usa a mesma grade, mas verde em vez de dourado: são duas leituras diferentes
+   empilhadas (tempo × revisões) e a cor é o que impede lê-las como a mesma coisa duas vezes. Verde é a
+   convenção de "presença/constância" (o próprio GitHub), que é o que a sequência de dias comemora. */
+.calor--horas .calor-1 { background: color-mix(in srgb, #2f9e57 28%, var(--panel-2)); }
+.calor--horas .calor-2 { background: color-mix(in srgb, #2f9e57 52%, var(--panel-2)); }
+.calor--horas .calor-3 { background: color-mix(in srgb, #2f9e57 78%, var(--panel-2)); }
+.calor--horas .calor-4 { background: #2f9e57; }
+
 /* ——— O CRONÔMETRO DE ESTUDO ———————————————————————————————————————————————————————————
    Fixo no canto inferior direito, longe do alternador de tema (canto superior). É a âncora da "máquina
    de estudar": aparece em toda tela e o tempo continua correndo quando se navega — o estado mora no
