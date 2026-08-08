@@ -1,0 +1,49 @@
+@* Renomear (ou mesclar) uma etiqueta no vault inteiro.
+
+   O produto CRIA etiquetas sozinho e convida a digitá-las — um typo ficava para sempre. O diálogo só
+   coleta o nome novo; quem reescreve as notas é o caso de uso, e quem recarrega a tela é quem abriu.
+
+   MESCLAR NÃO É UM MODO À PARTE: renomear para um nome que já existe É a mesclagem. O aviso deixa isso
+   dito antes do clique, porque juntar duas etiquetas não tem desfazer de um botão — tem o histórico,
+   nota a nota. *@
+
+@using Dominica.Learn.Domain.Analise
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Renomear @Atual.ToString()</MudText>
+    </TitleContent>
+
+    <DialogContent>
+        <MudTextField @bind-Value="_novoNome" Label="Novo nome" Variant="Variant.Outlined"
+                      Margin="Margin.Dense" Immediate="true" Adornment="Adornment.Start" AdornmentText="#"
+                      HelperText="letras, números, hífen e / para hierarquia" autofocus />
+
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mt-3">
+            Toda nota com @Atual.ToString() é reescrita — no frontmatter e no texto — e as etiquetas
+            abaixo dela vão junto: renomear <b>#direito</b> leva <b>#direito/penal</b> para o novo nome.
+        </MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mt-1">
+            Se o novo nome <b>já existir</b>, as duas etiquetas se juntam numa só.
+        </MudText>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialogo.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(!PodeConfirmar)"
+                   OnClick="@(() => Dialogo.Close(DialogResult.Ok(_novoNome)))">Renomear</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    [Parameter] public Etiqueta Atual { get; set; } = default!;
+
+    private string _novoNome = string.Empty;
+
+    protected override void OnInitialized() => _novoNome = Atual.Valor;
+
+    private bool PodeConfirmar =>
+        Etiqueta.TentarCriar(_novoNome) is { } nova && nova != Atual;
+}

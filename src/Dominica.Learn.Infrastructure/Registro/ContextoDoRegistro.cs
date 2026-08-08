@@ -18,6 +18,19 @@ public sealed class LoteNoRegistro
     public string Fonte { get; set; } = string.Empty;
 }
 
+/// <summary>Uma resposta de cartão, como ela mora no banco. Ver RevisaoDeCartao no domínio.</summary>
+public sealed class RevisaoNoRegistro
+{
+    public long Id { get; set; }
+    public string Usuario { get; set; } = string.Empty;
+    public string Vault { get; set; } = string.Empty;
+    public DateTimeOffset Em { get; set; }
+    public string Materia { get; set; } = string.Empty;
+
+    /// <summary>O enum Resposta como número: 0=Errei … 3=Fácil. Número porque a série é para SOMAR.</summary>
+    public int Resposta { get; set; }
+}
+
 /// <summary>Uma sessão de estudo, como ela mora no banco.</summary>
 public sealed class SessaoNoRegistro
 {
@@ -57,6 +70,7 @@ public sealed class ContextoDoRegistro(DbContextOptions<ContextoDoRegistro> opco
 
     public DbSet<LoteNoRegistro> Lotes => Set<LoteNoRegistro>();
     public DbSet<SessaoNoRegistro> Sessoes => Set<SessaoNoRegistro>();
+    public DbSet<RevisaoNoRegistro> Revisoes => Set<RevisaoNoRegistro>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -80,6 +94,16 @@ public sealed class ContextoDoRegistro(DbContextOptions<ContextoDoRegistro> opco
             e.Property(x => x.Materia).HasMaxLength(256);
             e.Property(x => x.Observacao).HasMaxLength(512);
             e.HasIndex(x => new { x.Usuario, x.Inicio });
+            e.HasQueryFilter(x => x.Usuario == UsuarioAtual && x.Vault == VaultAtual);
+        });
+
+        b.Entity<RevisaoNoRegistro>(e =>
+        {
+            e.ToTable("revisoes_de_cartao");
+            e.Property(x => x.Usuario).HasMaxLength(32);
+            e.Property(x => x.Vault).HasMaxLength(32);
+            e.Property(x => x.Materia).HasMaxLength(256);
+            e.HasIndex(x => new { x.Usuario, x.Em });
             e.HasQueryFilter(x => x.Usuario == UsuarioAtual && x.Vault == VaultAtual);
         });
     }

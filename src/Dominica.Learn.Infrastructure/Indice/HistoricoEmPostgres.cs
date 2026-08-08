@@ -102,6 +102,28 @@ public sealed class HistoricoEmPostgres(IDbContextFactory<ContextoDoIndice> fabr
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.Caminho, para.Valor), ct);
     }
 
+    public async Task<IReadOnlyList<RevisaoResumida>> UltimaDeCadaAsync(CancellationToken ct = default)
+    {
+        await using var db = await AbrirAsync(ct);
+
+        // MAX(Id) por caminho, e não MAX(Em): o histórico é só-acrescenta, então o maior Id É o mais
+        // recente — e a agregação por Id traduz para SQL simples em qualquer versão do provedor.
+        var ids = await db.Revisoes.AsNoTracking()
+            .GroupBy(r => r.Caminho)
+            .Select(g => g.Max(r => r.Id))
+            .ToListAsync(ct);
+        if (ids.Count == 0) return [];
+
+        // SEM o Conteudo, de propósito — ver RevisaoResumida.
+        var linhas = await db.Revisoes.AsNoTracking()
+            .Where(r => ids.Contains(r.Id))
+            .Select(r => new { r.Id, r.Caminho, r.Em })
+            .OrderByDescending(r => r.Em)
+            .ToListAsync(ct);
+
+        return [.. linhas.Select(r => new RevisaoResumida(r.Id, CaminhoNota.De(r.Caminho), r.Em))];
+    }
+
     private static Revisao Projetar(RevisaoNoIndice r) =>
         new(r.Id, CaminhoNota.De(r.Caminho), r.Conteudo, r.Em, r.Autor);
 }

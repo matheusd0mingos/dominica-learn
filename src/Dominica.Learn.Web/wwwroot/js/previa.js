@@ -16,7 +16,12 @@
 // dela clica.
 
 const atraso = 350        // ms parado sobre o link antes de buscar — passada de mouse não é intenção
-const cache = new Map()   // href → html; a prévia da mesma nota não é buscada duas vezes por página
+
+// href → { html, quando }. A prévia da mesma nota não é buscada duas vezes por página — mas o cache
+// VENCE: quem edita a nota e paira de novo na mesma visita precisa ver a versão nova, não a de antes
+// do F5. Um minuto cobre a rajada de hovers de uma leitura sem congelar a tarde inteira.
+const cache = new Map()
+const validadeMs = 60_000
 
 let popover = null
 let cronometro = 0
@@ -69,18 +74,46 @@ function esconderSoOPopover() {
 
 async function aoParar(ancora, caminho) {
   const chave = ancora.href
-  if (!cache.has(chave)) {
+  const guardada = cache.get(chave)
+  if (!guardada || Date.now() - guardada.quando > validadeMs) {
     try {
       const resposta = await fetch('previa/' + caminho)
-      if (!resposta.ok) { cache.set(chave, null); return }
-      cache.set(chave, await resposta.text())
+      if (!resposta.ok) { cache.set(chave, { html: null, quando: Date.now() }); return }
+      cache.set(chave, { html: await resposta.text(), quando: Date.now() })
     } catch { return }   // sem rede não há prévia — e não há erro na tela por causa disso
   }
-  const html = cache.get(chave)
+  const html = cache.get(chave)?.html
   if (html) mostrar(ancora, html)
 }
 
 export function ligar() {
+  // O TECLADO TAMBÉM TEM PRÉVIA — e em qualquer aparelho: focar um link de nota (Tab) mostra o
+  // popover, Escape fecha. :focus-visible separa o foco de teclado do foco que um clique deixa —
+  // sem isso, todo clique em link abriria um popover atrás da navegação.
+  document.addEventListener('focusin', (e) => {
+    const ancora = e.target.closest?.('a[href]')
+    if (!ancora || !ancora.matches(':focus-visible')) return
+    const caminho = caminhoDaNota(ancora)
+    if (!caminho) return
+
+    esconder()
+    ancoraAtual = ancora
+    cronometro = setTimeout(() => aoParar(ancora, caminho), 150)   // foco é intenção; espera menos
+  })
+
+  document.addEventListener('focusout', (e) => {
+    if (ancoraAtual && e.target === ancoraAtual) esconder()
+  })
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && popover) esconder()
+  })
+
+  // Navegou (Blazor troca a página sem recarregar): o popover não pode sobreviver à tela que o abriu.
+  document.addEventListener('click', esconder, true)
+  window.addEventListener('scroll', esconderSoOPopover, { passive: true })
+
+  // O hover, só onde hover existe de verdade — no toque, o dedo que encosta é clique.
   if (!window.matchMedia('(hover: hover)').matches) return
 
   document.addEventListener('mouseover', (e) => {
@@ -102,10 +135,6 @@ export function ligar() {
     if (e.target === ancoraAtual || ancoraAtual.contains(e.target) || (popover && popover.contains(e.target)))
       esconder()
   })
-
-  // Navegou (Blazor troca a página sem recarregar): o popover não pode sobreviver à tela que o abriu.
-  document.addEventListener('click', esconder, true)
-  window.addEventListener('scroll', esconderSoOPopover, { passive: true })
 }
 
 ligar()

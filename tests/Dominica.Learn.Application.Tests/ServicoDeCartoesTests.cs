@@ -419,4 +419,58 @@ public class ServicoDeCartoesTests
         Assert.Equal(2, painel.ParaHoje);
         Assert.Equal((await c.Cartoes.FilaAsync()).Cartoes.Count, painel.ParaHoje);
     }
+
+    // —— OS SUSPENSOS TÊM VOLTA ———————————————————————————————————————————————————————
+
+    [Fact]
+    public async Task Suspensos_lista_so_os_suspensos_e_devolver_os_tira_da_lista()
+    {
+        var c = Montar();
+        await Criar(c, "Direito/A.md", "# A\n\nP1::R1\nP2::R2\n");
+        var fila = await c.Cartoes.FilaAsync();
+        await c.Cartoes.SuspenderAsync(fila.Cartoes[0].Nota, fila.Cartoes[0].Linha, suspenso: true);
+
+        var suspensos = await c.Cartoes.SuspensosAsync();
+        Assert.Single(suspensos);
+
+        var devolvido = await c.Cartoes.SuspenderAsync(suspensos[0].Nota, suspensos[0].Linha, suspenso: false);
+        Assert.True(devolvido.Ok);
+        Assert.Empty(await c.Cartoes.SuspensosAsync());
+        // E ele volta para a fila — devolver que não devolve é a porta sem volta de novo.
+        Assert.Equal(2, (await c.Cartoes.FilaAsync()).Cartoes.Count);
+    }
+
+    // —— CADA RESPOSTA VAI PARA O REGISTRO ————————————————————————————————————————————
+
+    [Fact]
+    public async Task Responder_anota_a_revisao_no_registro()
+    {
+        // O .md guarda só a última resposta; a série completa — mapa de calor, retenção real — depende
+        // desta anotação. Sem ela, a promessa antiga do painel continuaria promessa.
+        var c = Montar();
+        await Criar(c, "Direito/A.md", "# A\n\nP::R\n");
+        var cartao = (await c.Cartoes.FilaAsync()).Cartoes[0];
+
+        await c.Cartoes.ResponderAsync(cartao.Nota, cartao.Linha, Resposta.Bom);
+
+        var anotada = Assert.Single(c.Registro.Revisoes);
+        Assert.Equal("Direito", anotada.Materia.Nome);
+        Assert.Equal(Resposta.Bom, anotada.Resposta);
+    }
+
+    // —— EXPORTAR PARA O ANKI ————————————————————————————————————————————————————————
+
+    [Fact]
+    public async Task Exportar_para_o_Anki_leva_todos_os_cartoes()
+    {
+        var c = Montar();
+        await Criar(c, "Direito/A.md", "# A\n\nP1::R1\n");
+        await Criar(c, "Português/B.md", "# B\n\nP2::R2\n");
+
+        var texto = await c.Cartoes.ExportarParaAnkiAsync();
+
+        Assert.StartsWith("#separator:tab", texto);
+        Assert.Contains("P1\tR1\tdominica Direito", texto);
+        Assert.Contains("P2\tR2\tdominica Português", texto);
+    }
 }

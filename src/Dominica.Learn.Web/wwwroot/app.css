@@ -917,3 +917,29 @@ kbd.tecla {
 .previa-de-nota h1 { font-size: 1.1rem; }
 .previa-de-nota h2 { font-size: 1rem; }
 .previa-de-nota img { max-width: 100%; }
+
+/* O mapa de calor das revisões: colunas = semanas (a mais antiga à esquerda), quadradinhos = dias.
+   Degraus de opacidade sobre o dourado da marca — intensidade é quantidade, não categoria. */
+.calor {
+    display: flex;
+    gap: 3px;
+    margin-top: 6px;
+}
+
+.calor-semana {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.calor-dia {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--panel-2);
+}
+
+.calor-1 { background: color-mix(in srgb, var(--ouro) 30%, var(--panel-2)); }
+.calor-2 { background: color-mix(in srgb, var(--ouro) 55%, var(--panel-2)); }
+.calor-3 { background: color-mix(in srgb, var(--ouro) 80%, var(--panel-2)); }
+.calor-4 { background: var(--ouro); }

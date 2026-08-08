@@ -136,6 +136,60 @@ public sealed class ServicoDeNotas(
             : Resultado<Nota>.Sucesso(renomeada);
     }
 
+    // —— VERSÕES E RECUPERAÇÃO ————————————————————————————————————————————————————————
+    //
+    // O histórico JÁ GUARDAVA tudo isto — cada salvamento e cada exclusão arquivam a versão anterior —
+    // mas guardava sem porta: a promessa "quem apagou às onze recupera às nove" estava escrita num
+    // comentário e não existia em tela nenhuma. Estes três métodos são a porta.
+
+    /// <summary>As versões arquivadas da nota, mais recente primeiro.</summary>
+    public Task<IReadOnlyList<Revisao>> VersoesAsync(CaminhoNota caminho, int limite = 50, CancellationToken ct = default) =>
+        historico.ListarAsync(caminho, limite, ct);
+
+    /// <summary>As notas que foram apagadas e ainda têm a última versão guardada.</summary>
+    public async Task<IReadOnlyList<RevisaoResumida>> ApagadasAsync(CancellationToken ct = default)
+    {
+        var ultimas = await historico.UltimaDeCadaAsync(ct);
+        if (ultimas.Count == 0) return [];
+
+        // "Apagada" = o histórico conhece e o ÍNDICE não. O índice é a foto do disco; comparar com ele
+        // evita uma ida ao disco por linha do histórico.
+        var vivas = (await indice.NotasConhecidasAsync(ct)).Select(n => n.Caminho).ToHashSet();
+        return [.. ultimas.Where(r => !vivas.Contains(r.Caminho))];
+    }
+
+    /// <summary>
+    /// Volta a nota para o conteúdo de uma revisão arquivada — tanto a nota que existe (desfazer uma
+    /// edição ruim) quanto a que foi apagada (recuperá-la).
+    ///
+    /// RESTAURAR NÃO APAGA HISTÓRIA: quando a nota existe, o conteúdo atual é arquivado antes de ser
+    /// sobrescrito (é o SalvarAsync de sempre), então restaurar a versão errada também tem volta.
+    /// </summary>
+    public async Task<Resultado<Nota>> RestaurarAsync(CaminhoNota caminho, long idDaRevisao, CancellationToken ct = default)
+    {
+        var revisao = await historico.ObterAsync(idDaRevisao, ct);
+        // A revisão tem de ser DESTA nota: restaurar por id de outra escreveria o texto de uma nota
+        // dentro da outra — e o id vem da tela, que pode estar velha.
+        if (revisao is null || !revisao.Caminho.Equals(caminho))
+            return Resultado<Nota>.NaoEncontrada($"A versão pedida de \"{caminho}\"");
+
+        var atual = await repositorio.LerAsync(caminho, ct);
+        if (atual is not null)
+        {
+            // Impressão do que acabou de ser lido: se alguém escrever entre a leitura e a gravação, o
+            // conflito é recusado como em qualquer salvamento — restaurar não atropela edição viva.
+            var salva = await SalvarAsync(caminho, revisao.Conteudo, atual.Impressao, autor: null, ct);
+            if (salva.Ok) log.LogInformation("Nota {Caminho} restaurada para a versão {Id}.", caminho, idDaRevisao);
+            return salva;
+        }
+
+        // A nota foi apagada: recuperar é criá-la de novo com o conteúdo guardado — pelo CriarAsync,
+        // que reindexa e conserta as ligações que esperavam por ela.
+        var criada = await CriarAsync(caminho, revisao.Conteudo, ct);
+        if (criada.Ok) log.LogInformation("Nota {Caminho} recuperada da exclusão (versão {Id}).", caminho, idDaRevisao);
+        return criada;
+    }
+
     public async Task<Resultado> ApagarAsync(CaminhoNota caminho, CancellationToken ct = default)
     {
         var nota = await repositorio.LerAsync(caminho, ct);

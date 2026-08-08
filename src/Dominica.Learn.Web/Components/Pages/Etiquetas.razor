@@ -19,6 +19,8 @@
 @inject ServicoDeConhecimento Conhecimento
 @inject ServicoDeNotas Servico
 @inject NavigationManager Navegacao
+@inject IDialogService Dialogos
+@inject ISnackbar Avisos
 
 <PageTitle>Etiquetas · Dominica Learn</PageTitle>
 
@@ -200,6 +202,10 @@
                         <MudText Typo="Typo.subtitle1">@_selecionada.ToString()</MudText>
                         <MudText Typo="Typo.caption" Class="mud-text-secondary">
                             @_notas.Count nota(s), contando as marcadas com etiquetas abaixo desta
+                            @if (_notasCortadas)
+                            {
+                                <text> — mostrando as @TetoDaLista primeiras</text>
+                            }
                         </MudText>
                         <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
                                    StartIcon="@Icons.Material.Filled.Style"
@@ -293,9 +299,18 @@ else
                                Href="@($"revisar?etiqueta={Uri.EscapeDataString(_selecionada.Valor)}")">
                         Revisar estas notas
                     </MudButton>
+                    @* Renomear/mesclar — o conserto do typo que ficava para sempre. Mora na LISTA, e não
+                       no mapa: renomear é gesto de organização, e a lista é a casa da organização. *@
+                    <MudButton Size="Size.Small" Variant="Variant.Text"
+                               StartIcon="@Icons.Material.Filled.DriveFileRenameOutline"
+                               OnClick="RenomearEtiquetaAsync">Renomear…</MudButton>
                 </div>
                 <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
                     @_notas.Count nota(s), contando as marcadas com etiquetas abaixo desta.
+                    @if (_notasCortadas)
+                    {
+                        <text> Mostrando as @TetoDaLista primeiras.</text>
+                    }
                 </MudText>
 
                 @if (_notas.Count == 0)
@@ -348,9 +363,13 @@ else
     /// </summary>
     [SupplyParameterFromQuery(Name = "etiqueta")] public string? EtiquetaPedida { get; set; }
 
-    /// <summary>O par escolhido no mapa — a linha clicada. Na query pela mesma razão da etiqueta.</summary>
-    [SupplyParameterFromQuery(Name = "a")] public string? ParAPedido { get; set; }
-    [SupplyParameterFromQuery(Name = "b")] public string? ParBPedido { get; set; }
+    /// <summary>
+    /// O par escolhido no mapa — a linha clicada. Na query pela mesma razão da etiqueta, e com os MESMOS
+    /// nomes da ponte do mapa de matérias (?de=&amp;para=): o mesmo gesto tem de ter o mesmo endereço nos
+    /// dois mapas — quem aprendeu um sabe montar o outro.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "de")] public string? ParAPedido { get; set; }
+    [SupplyParameterFromQuery(Name = "para")] public string? ParBPedido { get; set; }
 
     private Etiqueta? _parA;
     private Etiqueta? _parB;
@@ -442,7 +461,7 @@ else
     /// <summary>A linha clicada: as duas etiquetas na URL, painel da interseção embaixo.</summary>
     private void AbrirPar(Etiqueta a, Etiqueta b) =>
         Navegacao.NavigateTo(
-            $"etiquetas/mapa?a={Uri.EscapeDataString(a.Valor)}&b={Uri.EscapeDataString(b.Valor)}");
+            $"etiquetas/mapa?de={Uri.EscapeDataString(a.Valor)}&para={Uri.EscapeDataString(b.Valor)}");
 
     private bool ParEscolhido(Etiqueta a, Etiqueta b) =>
         _parA is not null && _parB is not null &&
@@ -459,12 +478,46 @@ else
         if (e.Key is "Enter" or "NumpadEnter") AbrirPar(a, b);
     }
 
+    /// <summary>
+    /// Renomeia/mescla a etiqueta escolhida e RECARREGA TUDO: árvore, lista e a seleção — que passa a
+    /// ser o nome novo, porque é lá que a pessoa está olhando.
+    /// </summary>
+    private async Task RenomearEtiquetaAsync()
+    {
+        if (_selecionada is null) return;
+
+        var parametros = new DialogParameters<DialogoDeRenomearEtiqueta> { { d => d.Atual, _selecionada } };
+        var dialogo = await Dialogos.ShowAsync<DialogoDeRenomearEtiqueta>("Renomear etiqueta", parametros);
+        var fechou = await dialogo.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not string novoNome) return;
+
+        var r = await Conhecimento.RenomearEtiquetaAsync(_selecionada, novoNome);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui renomear.", Severity.Warning);
+            return;
+        }
+
+        Avisos.Add($"{r.Valor} nota(s) reescritas.", Severity.Success);
+        _arvore = await Conhecimento.PainelDeEtiquetasAsync();
+        _mapa = null;   // o mapa guardava o nome velho; some para recarregar quando pedirem
+
+        var nova = Etiqueta.TentarCriar(novoNome);
+        _selecionada = null;   // força o OnParametersSet a recarregar a lista da nova
+        Navegacao.NavigateTo(Rota(mapa: false, nova));
+    }
+
+    /// <summary>O teto da lista. O corte existe, então ele é DITO — corte silencioso lê como "é tudo".</summary>
+    private const int TetoDaLista = 200;
+
+    private bool _notasCortadas => _notas.Count >= TetoDaLista;
+
     private async Task<IReadOnlyList<NotaIndexada>> BuscarAsync(Etiqueta etiqueta)
     {
         // A busca por etiqueta já entende a hierarquia (ver Etiqueta.EstaAbaixoDe): escolher #direito
         // traz o que está marcado só como #direito/penal. Sem isso, o pai de uma árvore bem organizada
         // mostraria zero notas — que é o resultado mais confuso possível para quem clicou nele.
-        var acertos = await Servico.BuscarAsync(new ConsultaDeBusca { Etiqueta = etiqueta, Limite = 200 });
+        var acertos = await Servico.BuscarAsync(new ConsultaDeBusca { Etiqueta = etiqueta, Limite = TetoDaLista });
         return acertos.Select(a => a.Nota).ToList();
     }
 }

@@ -345,6 +345,21 @@ public sealed class ServicoDeCartoes(
         log.LogInformation("Cartão de {Nota}:{Linha} revisado ({Resposta}); volta em {Dias} dia(s).",
             caminho, cartao.Linha + 1, resposta, agendamento.IntervaloEmDias);
 
+        // A RESPOSTA VAI PARA O REGISTRO — é o que alimenta o mapa de calor e a retenção real, porque o
+        // .md só guarda a última. NUNCA derruba a revisão: a revisão já está gravada no arquivo, que é a
+        // verdade; o registro é a série histórica, e perder um ponto dela vale um aviso no log, não um
+        // erro na cara de quem está no meio da fila.
+        try
+        {
+            await registro.RegistrarRevisaoAsync(
+                new RevisaoDeCartao(relogio.Agora, Materia.De(caminho), resposta), ct);
+        }
+        catch (Exception e)
+        {
+            log.LogWarning(e, "A revisão de {Nota}:{Linha} foi gravada, mas não entrou no registro.",
+                caminho, cartao.Linha + 1);
+        }
+
         return Resultado<Agendamento>.Sucesso(agendamento);
     }
 
@@ -405,6 +420,45 @@ public sealed class ServicoDeCartoes(
     /// RELÊ O CARTÃO DO DISCO antes de mexer, como o responder faz: o que estava na tela pode ter minutos
     /// de idade, e suspender pela posição antiga suspenderia o cartão vizinho — em silêncio.
     /// </summary>
+    /// <summary>
+    /// Todos os cartões suspensos do vault — a lista que faz o suspender ter volta.
+    ///
+    /// POR QUE ISTO PRECISA EXISTIR: suspender era porta sem volta — o botão existia, e nenhuma tela
+    /// listava os suspensos nem os devolvia. Cartão que some para sempre com um clique não é "guardado",
+    /// é apagado com outro nome; a diferença entre os dois é ESTA consulta.
+    /// </summary>
+    public async Task<IReadOnlyList<Cartao>> SuspensosAsync(CancellationToken ct = default)
+    {
+        var lista = new List<Cartao>();
+        foreach (var caminho in await CaminhosAsync(null, ct))
+        {
+            var nota = await repositorio.LerAsync(caminho, ct);
+            if (nota is null) continue;
+            lista.AddRange(AnalisadorDeCartoes.Analisar(caminho, nota.Conteudo).Where(c => c.Suspenso));
+        }
+        return [.. lista
+            .OrderBy(c => c.Nota.Valor, StringComparer.Ordinal)
+            .ThenBy(c => c.Linha)];
+    }
+
+    /// <summary>
+    /// Todos os cartões do vault no formato de importação do Anki. Ver <see cref="ExportadorDeAnki"/> —
+    /// inclusive por que é texto e não .apkg.
+    /// </summary>
+    public async Task<string> ExportarParaAnkiAsync(CancellationToken ct = default)
+    {
+        var todos = new List<Cartao>();
+        foreach (var caminho in await CaminhosAsync(null, ct))
+        {
+            var nota = await repositorio.LerAsync(caminho, ct);
+            if (nota is null) continue;
+            todos.AddRange(AnalisadorDeCartoes.Analisar(caminho, nota.Conteudo));
+        }
+        return ExportadorDeAnki.Exportar([.. todos
+            .OrderBy(c => c.Nota.Valor, StringComparer.Ordinal)
+            .ThenBy(c => c.Linha)]);
+    }
+
     public async Task<Resultado<bool>> SuspenderAsync(
         CaminhoNota caminho, int linha, bool suspenso, CancellationToken ct = default)
     {

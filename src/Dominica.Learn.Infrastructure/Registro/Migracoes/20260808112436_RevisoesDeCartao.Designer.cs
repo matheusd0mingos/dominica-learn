@@ -3,6 +3,7 @@ using System;
 using Dominica.Learn.Infrastructure.Registro;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Dominica.Learn.Infrastructure.Registro.Migracoes
 {
     [DbContext(typeof(ContextoDoRegistro))]
-    partial class ContextoDoRegistroModelSnapshot : ModelSnapshot
+    [Migration("20260808112436_RevisoesDeCartao")]
+    partial class RevisoesDeCartao
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

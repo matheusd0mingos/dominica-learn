@@ -160,6 +160,12 @@
                     }
                 </div>
             }
+
+            @* No RODAPÉ da coluna, discreto de propósito: recuperar é ação de dia ruim, não de rotina.
+               Mas precisa estar ONDE SE PROCURA — quem apagou uma nota vai olhar a lista de notas. *@
+            <MudButton Size="Size.Small" Variant="Variant.Text" Class="mt-3"
+                       StartIcon="@Icons.Material.Filled.RestorePage"
+                       OnClick="RecuperarApagadaAsync">Recuperar nota apagada…</MudButton>
         </MudPaper>
     </MudItem>
 
@@ -271,6 +277,8 @@
                              aria-label="Mais ações desta nota">
                         <MudMenuItem Icon="@Icons.Material.Filled.DriveFileRenameOutline"
                                      OnClick="RenomearAsync">Renomear ou mover…</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.History"
+                                     OnClick="VerVersoesAsync">Versões…</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Filled.ReportProblem"
                                      OnClick="RegistrarErroAsync">Errei uma questão…</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Filled.DeleteOutline" IconColor="Color.Error"
@@ -1151,6 +1159,55 @@
         Avisos.Add($"Agora é \"{destino.Valor}\".", Severity.Success);
         await RecarregarLateraisAsync();
         Ir(destino);
+    }
+
+    /// <summary>
+    /// As versões guardadas da nota aberta. Restaurar grava por cima (arquivando o de agora antes) e
+    /// reabre a nota — o editor precisa mostrar o texto restaurado, não o que estava na tela.
+    /// </summary>
+    private async Task VerVersoesAsync()
+    {
+        if (_aberta is null) return;
+        var caminho = _aberta.Nota.Caminho;
+
+        var parametros = new DialogParameters<DialogoDeVersoes> { { d => d.Caminho, caminho.Valor } };
+        var dialogo = await Dialogos.ShowAsync<DialogoDeVersoes>("Versões", parametros);
+        var fechou = await dialogo.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not long id) return;
+
+        // O que estiver no editor vai para o histórico junto: restaurar por cima de texto não salvo
+        // não pode perder o texto não salvo — ele vira a versão seguinte da lista.
+        if (_textoPendente is not null)
+            await Servico.SalvarAsync(caminho, _textoPendente, impressaoEsperada: null);
+
+        var r = await Servico.RestaurarAsync(caminho, id);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui restaurar.", Severity.Error);
+            return;
+        }
+
+        Avisos.Add("Versão restaurada — o texto de antes ficou guardado nas versões.", Severity.Success);
+        await AbrirAsync(caminho);
+    }
+
+    /// <summary>Recupera uma nota apagada: recria o arquivo com a última versão guardada e o abre.</summary>
+    private async Task RecuperarApagadaAsync()
+    {
+        var dialogo = await Dialogos.ShowAsync<DialogoDeApagadas>("Recuperar nota apagada");
+        var fechou = await dialogo.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not RevisaoResumida revisao) return;
+
+        var r = await Servico.RestaurarAsync(revisao.Caminho, revisao.Id);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui recuperar.", Severity.Error);
+            return;
+        }
+
+        Avisos.Add($"\"{revisao.Caminho.Valor}\" voltou.", Severity.Success);
+        await RecarregarLateraisAsync();
+        Ir(revisao.Caminho);
     }
 
     /// <summary>

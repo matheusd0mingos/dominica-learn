@@ -19,6 +19,12 @@ public interface IRelogio
 public sealed record Revisao(long Id, CaminhoNota Caminho, string Conteudo, DateTimeOffset Em, string? Autor);
 
 /// <summary>
+/// Uma revisão SEM o conteúdo — para listagens. O conteúdo pode ter megabytes; uma lista que o
+/// carregasse por linha transformaria "ver o que dá para recuperar" numa consulta pesada.
+/// </summary>
+public sealed record RevisaoResumida(long Id, CaminhoNota Caminho, DateTimeOffset Em);
+
+/// <summary>
 /// HISTÓRICO — as versões anteriores de cada nota.
 ///
 /// É porta separada do índice de propósito. O índice é descartável; o histórico NÃO É: ele guarda texto
@@ -33,4 +39,9 @@ public interface IHistoricoDeNotas
     Task<Revisao?> ObterAsync(long id, CancellationToken ct = default);
     /// <summary>Acompanha a nota quando ela muda de lugar — senão renomear apaga a memória dela.</summary>
     Task RenomearAsync(CaminhoNota de, CaminhoNota para, CancellationToken ct = default);
+    /// <summary>
+    /// A revisão MAIS RECENTE de cada caminho que o histórico conhece. É o que permite listar as notas
+    /// apagadas recuperáveis: quem está aqui e não está no índice foi apagado — e ainda tem volta.
+    /// </summary>
+    Task<IReadOnlyList<RevisaoResumida>> UltimaDeCadaAsync(CancellationToken ct = default);
 }

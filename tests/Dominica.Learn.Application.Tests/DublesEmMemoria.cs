@@ -187,6 +187,12 @@ public sealed class HistoricoEmMemoria : IHistoricoDeNotas
     public Task<Revisao?> ObterAsync(long id, CancellationToken ct = default) =>
         Task.FromResult(Revisoes.FirstOrDefault(r => r.Id == id));
 
+    public Task<IReadOnlyList<RevisaoResumida>> UltimaDeCadaAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<RevisaoResumida>>([.. Revisoes
+            .GroupBy(r => r.Caminho)
+            .Select(g => g.OrderByDescending(r => r.Id).First())
+            .Select(r => new RevisaoResumida(r.Id, r.Caminho, r.Em))]);
+
     public Task RenomearAsync(CaminhoNota de, CaminhoNota para, CancellationToken ct = default)
     {
         for (var i = 0; i < Revisoes.Count; i++)
@@ -277,6 +283,7 @@ public sealed class RegistroEmMemoria : IRegistroDeEstudo
 {
     public readonly List<LoteDeQuestoes> Lotes = [];
     public readonly List<SessaoDeEstudo> Sessoes = [];
+    public readonly List<RevisaoDeCartao> Revisoes = [];
     private int _proximo = 1;
 
     public Task RegistrarQuestoesAsync(LoteDeQuestoes lote, CancellationToken ct = default)
@@ -284,6 +291,15 @@ public sealed class RegistroEmMemoria : IRegistroDeEstudo
         Lotes.Add(lote);
         return Task.CompletedTask;
     }
+
+    public Task RegistrarRevisaoAsync(RevisaoDeCartao revisao, CancellationToken ct = default)
+    {
+        Revisoes.Add(revisao);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<RevisaoDeCartao>> RevisoesAsync(DateTimeOffset desde, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<RevisaoDeCartao>>([.. Revisoes.Where(r => r.Em >= desde)]);
 
     public Task RegistrarSessaoAsync(SessaoDeEstudo sessao, CancellationToken ct = default)
     {

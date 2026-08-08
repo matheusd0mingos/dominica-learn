@@ -91,7 +91,7 @@ public sealed partial class RenderizadorMarkdig : IRenderizadorDeMarkdown
         var ancora = t.Secao is null ? string.Empty : "#" + Ancora(t.Secao);
         var moldura =
             $"<section class=\"transclusao\">" +
-            $"<div class=\"transclusao-origem\"><a href=\"/notas/{CaminhoNaUrl(t.Destino)}{ancora}\">{EscaparHtml(t.Titulo)}</a></div>" +
+            $"<div class=\"transclusao-origem\"><a href=\"notas/{CaminhoNaUrl(t.Destino)}{ancora}\">{EscaparHtml(t.Titulo)}</a></div>" +
             $"<div class=\"transclusao-conteudo\">{htmlEmbutido}</div>" +
             $"</section>";
 
@@ -202,10 +202,14 @@ public sealed partial class RenderizadorMarkdig : IRenderizadorDeMarkdown
                     quebradosLocais.Add(alvo);
                     // Link quebrado continua sendo LINK: clicar nele é como se cria a nota que falta.
                     // Virar texto morto tiraria do produto o fluxo "escrevo o link, depois escrevo a nota".
-                    return $"[{texto2}](/notas/novo?nome={Uri.EscapeDataString(alvo)})";
+                    return $"[{texto2}](notas/novo?nome={Uri.EscapeDataString(alvo)})";
                 }
                 var ancora = secao is null ? string.Empty : "#" + Ancora(secao);
-                return $"[{texto2}](/notas/{Uri.EscapeDataString(destino.Valor).Replace("%2F", "/", StringComparison.Ordinal)}{ancora})";
+                // SEM BARRA INICIAL, e isto é a regra mais cara desta classe: com barra, o link ignora o
+                // <base href> e sai do sub-caminho onde o app é servido — clicar num wikilink derrubava
+                // a pessoa na raiz do domínio, deslogada. É a MESMA regra da Rotas.cs e do UrlDoAnexo;
+                // o renderizador era o único que a violava, e foi visto no navegador, não em teste.
+                return $"[{texto2}](notas/{Uri.EscapeDataString(destino.Valor).Replace("%2F", "/", StringComparison.Ordinal)}{ancora})";
             }));
             sb.Append('\n');
         }
@@ -216,7 +220,7 @@ public sealed partial class RenderizadorMarkdig : IRenderizadorDeMarkdown
 
     private static string MarcarLinksQuebrados(string html, HashSet<string> quebrados) =>
         quebrados.Count == 0 ? html
-            : html.Replace("<a href=\"/notas/novo?nome=", "<a class=\"link-quebrado\" href=\"/notas/novo?nome=", StringComparison.Ordinal);
+            : html.Replace("<a href=\"notas/novo?nome=", "<a class=\"link-quebrado\" href=\"notas/novo?nome=", StringComparison.Ordinal);
 
     /// <summary>Âncora no estilo do GitHub/Obsidian: minúsculas, espaços viram hífen.</summary>
     private static string Ancora(string texto) =>

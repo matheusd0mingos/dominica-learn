@@ -343,6 +343,53 @@ public sealed partial class ServicoDeConhecimento(
         return [.. deA.Select(x => x.Nota).Where(n => caminhosDeB.Contains(n.Caminho))];
     }
 
+    /// <summary>
+    /// Renomeia (ou mescla) uma etiqueta NO VAULT INTEIRO — em cada nota que a tem, no frontmatter e no
+    /// texto, com a hierarquia junto. Devolve quantas notas foram reescritas.
+    ///
+    /// GRAVA PELO ServicoDeNotas, nota a nota: cada reescrita arquiva a versão anterior no histórico e
+    /// reindexa — renomear em massa não pode ser menos seguro que editar à mão. Se uma nota falhar (ex.:
+    /// editada em outra aba no meio), as demais seguem: meia mesclagem re-executável é melhor que uma
+    /// mesclagem abortada no meio sem dizer onde parou.
+    /// </summary>
+    public async Task<Resultado<int>> RenomearEtiquetaAsync(Etiqueta de, string? paraBruta, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(de);
+        if (Etiqueta.TentarCriar(paraBruta) is not { } para)
+            return Resultado<int>.Invalida("O novo nome não é uma etiqueta válida. Use letras, números, hífen e \"/\".");
+        if (para == de) return Resultado<int>.Invalida("O novo nome é igual ao atual.");
+
+        var acertos = await indice.BuscarAsync(new ConsultaDeBusca { Etiqueta = de, Limite = int.MaxValue }, ct);
+        var mudadas = 0;
+        var falhas = 0;
+
+        foreach (var acerto in acertos)
+        {
+            var nota = await repositorio.LerAsync(acerto.Nota.Caminho, ct);
+            if (nota is null) continue;
+
+            var novo = RenomeadorDeEtiqueta.Renomear(nota.Conteudo, de, para);
+            if (ReferenceEquals(novo, nota.Conteudo)) continue;
+
+            var salva = await notas.SalvarAsync(acerto.Nota.Caminho, novo, nota.Impressao, autor: null, ct);
+            if (salva.Ok) mudadas++;
+            else
+            {
+                falhas++;
+                log.LogWarning("Renomear #{De}: não consegui reescrever {Caminho}: {Motivo}",
+                    de.Valor, acerto.Nota.Caminho, salva.Mensagem);
+            }
+        }
+
+        log.LogInformation("Etiqueta #{De} → #{Para}: {Mudadas} nota(s) reescritas, {Falhas} falha(s).",
+            de.Valor, para.Valor, mudadas, falhas);
+
+        return falhas == 0
+            ? Resultado<int>.Sucesso(mudadas)
+            : Resultado<int>.Falha(MotivoDaFalha.Conflito,
+                $"{mudadas} nota(s) reescritas, mas {falhas} não deixaram: alguém editava. Rode de novo para terminar.");
+    }
+
     // —— ETIQUETAS DA NOTA ABERTA ——————————————————————————————————————————————————————
     /// <summary>
     /// Põe uma etiqueta na nota, escrevendo no frontmatter dela.

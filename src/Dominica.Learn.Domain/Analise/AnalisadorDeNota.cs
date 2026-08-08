@@ -171,7 +171,11 @@ public static class AnalisadorDeNota
     private static string ImpressaoDigitalNormalizador(string conteudo) =>
         (conteudo ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
 
-    private static string? DetectarCerca(string semIndentacao) =>
+    // INTERNAL, e não private: o RenomeadorDeEtiqueta reescreve etiquetas no texto e precisa achá-las
+    // com AS MESMAS regras com que este analisador as acha — cerca, código em linha, fronteira. Duas
+    // cópias das regras divergiriam na primeira mudança, e a divergência seria "renomeou o que a busca
+    // não via" ou o contrário.
+    internal static string? DetectarCerca(string semIndentacao) =>
         semIndentacao.StartsWith("```", StringComparison.Ordinal) ? "```"
         : semIndentacao.StartsWith("~~~", StringComparison.Ordinal) ? "~~~"
         : null;
@@ -206,7 +210,7 @@ public static class AnalisadorDeNota
     /// Uma craseada abre com N crases e fecha com a próxima sequência de exatamente N — é a regra do
     /// CommonMark, e é o que faz "``código com ` dentro``" funcionar.
     /// </summary>
-    private static List<(int Inicio, int Fim)> TrechosForaDeCodigo(string linha)
+    internal static List<(int Inicio, int Fim)> TrechosForaDeCodigo(string linha)
     {
         var trechos = new List<(int, int)>();
         var cursor = 0;
@@ -323,6 +327,15 @@ public static class AnalisadorDeNota
 
     private static void ExtrairEtiquetas(string trecho, List<Etiqueta> destino)
     {
+        foreach (var achada in EtiquetasPosicionadas(trecho)) destino.Add(achada.Etiqueta);
+    }
+
+    /// <summary>Uma etiqueta achada no texto, com onde ela começa e quantos caracteres ocupa (o "#" incluso).</summary>
+    internal readonly record struct EtiquetaPosicionada(int Inicio, int Comprimento, Etiqueta Etiqueta);
+
+    internal static List<EtiquetaPosicionada> EtiquetasPosicionadas(string trecho)
+    {
+        var achadas = new List<EtiquetaPosicionada>();
         for (var i = 0; i < trecho.Length; i++)
         {
             if (trecho[i] != '#') continue;
@@ -342,9 +355,10 @@ public static class AnalisadorDeNota
 
             // pontuação final não faz parte da etiqueta: "#direito." é a etiqueta seguida de ponto final
             var bruta = trecho[(i + 1)..j].TrimEnd('.', ':');
-            if (Etiqueta.TentarCriar(bruta) is { } e) destino.Add(e);
+            if (Etiqueta.TentarCriar(bruta) is { } e) achadas.Add(new EtiquetaPosicionada(i, 1 + bruta.Length, e));
             i = j - 1;
         }
+        return achadas;
     }
 
     private static int ContarPalavras(string linha)

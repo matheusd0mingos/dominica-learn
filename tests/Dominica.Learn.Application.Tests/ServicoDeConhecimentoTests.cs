@@ -571,4 +571,44 @@ public class ServicoDeConhecimentoTests
         Assert.Empty(await c.Conhecimento.NotasComAmbasAsync(
             Etiqueta.TentarCriar("pegadinha")!, Etiqueta.TentarCriar("decorar")!));
     }
+
+    // —— RENOMEAR/MESCLAR ETIQUETA ————————————————————————————————————————————————————
+
+    [Fact]
+    public async Task Renomear_etiqueta_reescreve_todas_as_notas_e_o_indice_enxerga()
+    {
+        var c = Montar();
+        await Criar(c, "A.md", "# A\n\nsobre #pegadinh\n");
+        await Criar(c, "B.md", "---\ntags: [pegadinh]\n---\n\n# B\n");
+        await Criar(c, "C.md", "# C\n\nsem nada\n");
+
+        var r = await c.Conhecimento.RenomearEtiquetaAsync(Etiqueta.TentarCriar("pegadinh")!, "pegadinha");
+
+        Assert.True(r.Ok, r.Mensagem);
+        Assert.Equal(2, r.Valor);
+        Assert.Contains("#pegadinha", c.Vault.Arquivos["A.md"]);
+        Assert.Contains("pegadinha", c.Vault.Arquivos["B.md"]);
+        Assert.Equal("# C\n\nsem nada\n", c.Vault.Arquivos["C.md"]);
+
+        // A GARANTIA DESTE NÍVEL: passou pelo ServicoDeNotas, então o índice já sabe — a etiqueta velha
+        // sumiu da busca e a nova responde.
+        var comNova = await c.Indice.BuscarAsync(new Application.Portas.ConsultaDeBusca
+        { Etiqueta = Etiqueta.TentarCriar("pegadinha"), Limite = 10 });
+        Assert.Equal(2, comNova.Count);
+        var comVelha = await c.Indice.BuscarAsync(new Application.Portas.ConsultaDeBusca
+        { Etiqueta = Etiqueta.TentarCriar("pegadinh"), Limite = 10 });
+        Assert.Empty(comVelha);
+    }
+
+    [Fact]
+    public async Task Renomear_para_nome_invalido_e_recusado_sem_tocar_em_nada()
+    {
+        var c = Montar();
+        await Criar(c, "A.md", "# A\n\n#pegadinh\n");
+
+        var r = await c.Conhecimento.RenomearEtiquetaAsync(Etiqueta.TentarCriar("pegadinh")!, "###");
+
+        Assert.False(r.Ok);
+        Assert.Contains("#pegadinh", c.Vault.Arquivos["A.md"]);
+    }
 }

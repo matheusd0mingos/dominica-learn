@@ -245,6 +245,58 @@
     }
 </MudPaper>
 
+@* —— OS GUARDADOS ——
+   A volta do suspender. Sem esta seção, suspender era porta sem volta: o botão existia e nenhuma tela
+   listava os suspensos nem os devolvia — cartão que some com um clique não está "guardado", está
+   apagado com outro nome. A lista carrega SÓ quando aberta: é uma varredura do vault, e quem nunca
+   suspendeu nada não paga por ela. *@
+<MudPaper Class="pa-4 mt-3" Elevation="0" Outlined="true">
+    <div class="d-flex align-center gap-2">
+        <MudButton Variant="Variant.Text" Size="Size.Small"
+                   StartIcon="@(_mostrandoSuspensos ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                   OnClick="AlternarSuspensosAsync">
+            Cartões suspensos@(_suspensos is null ? "" : $" ({_suspensos.Count})")
+        </MudButton>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+            guardados fora da fila, com o agendamento intacto
+        </MudText>
+    </div>
+
+    @if (_mostrandoSuspensos)
+    {
+        @if (_carregandoSuspensos)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+        else if (_suspensos is { Count: 0 })
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mt-2">
+                Nenhum. O botão "Suspender" de um cartão aberto o traz para cá.
+            </MudText>
+        }
+        else if (_suspensos is not null)
+        {
+            <MudList T="string" Dense="true" Class="mt-1">
+                @foreach (var s in _suspensos)
+                {
+                    <MudListItem T="string">
+                        <div class="d-flex align-center gap-2 flex-wrap">
+                            <div style="min-width:0">
+                                <MudText Typo="Typo.body2"><b>@CartaoProblema.Resumir(s.Frente)</b></MudText>
+                                <MudLink Typo="Typo.caption" Href="@($"notas/{s.Nota.Valor}")">@s.Nota.Valor</MudLink>
+                            </div>
+                            <MudSpacer />
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Replay" Disabled="_gravando"
+                                       OnClick="@(() => DevolverAFilaAsync(s))">Devolver à fila</MudButton>
+                        </div>
+                    </MudListItem>
+                }
+            </MudList>
+        }
+    }
+</MudPaper>
+
 @code {
     /// <summary>Nome da matéria vindo da rota. Chamado "Nome", e não "Materia", porque um parâmetro
     /// com o nome do tipo o sombreia dentro do componente e "Materia.De(...)" deixa de compilar.</summary>
@@ -323,6 +375,47 @@
         _etiqueta2 = Etiqueta.TentarCriar(Etiqueta2Pedida);
         _revisados = 0;
         await CarregarAsync();
+    }
+
+    // —— OS SUSPENSOS ————————————————————————————————————————————————————————————————
+    private bool _mostrandoSuspensos;
+    private bool _carregandoSuspensos;
+    private IReadOnlyList<Cartao>? _suspensos;
+
+    private async Task AlternarSuspensosAsync()
+    {
+        _mostrandoSuspensos = !_mostrandoSuspensos;
+        if (_mostrandoSuspensos && _suspensos is null) await RecarregarSuspensosAsync();
+    }
+
+    private async Task RecarregarSuspensosAsync()
+    {
+        _carregandoSuspensos = true;
+        try { _suspensos = await Cartoes.SuspensosAsync(); }
+        finally { _carregandoSuspensos = false; }
+    }
+
+    /// <summary>
+    /// Devolve o cartão à fila E RECARREGA A FILA: o devolvido pode estar vencido, e uma tela onde ele
+    /// saiu dos guardados mas não apareceu na fila diria que o cartão evaporou.
+    /// </summary>
+    private async Task DevolverAFilaAsync(Cartao cartao)
+    {
+        if (_gravando) return;
+        _gravando = true;
+        try
+        {
+            var r = await Cartoes.SuspenderAsync(cartao.Nota, cartao.Linha, suspenso: false);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui devolver.", Severity.Warning);
+                return;
+            }
+            Avisos.Add($"\"{CartaoProblema.Resumir(cartao.Frente)}\" voltou à fila.", Severity.Success);
+            await RecarregarSuspensosAsync();
+            await CarregarAsync();
+        }
+        finally { _gravando = false; }
     }
 
     // —— O TECLADO ————————————————————————————————————————————————————————————————————

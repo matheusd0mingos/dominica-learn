@@ -42,8 +42,12 @@ public static class EndpointsDePrevia
             if (!aberta.Ok || aberta.Valor is null) return Results.NotFound();
 
             var renderizada = await conhecimento.RenderizarAsync(aberta.Valor.Nota.Conteudo, ct);
+
+            // O navegador pode segurar a prévia por um minuto — o mesmo prazo do cache do previa.js.
+            // "private" porque a prévia É a nota: cache compartilhado (proxy) não pode guardá-la.
+            ctx.Response.Headers.CacheControl = "private, max-age=60";
             return Results.Content(renderizada.Html, "text/html; charset=utf-8");
-        }).RequireAuthorization();
+        }).RequireAuthorization().RequireRateLimiting("previa");
 
         return rotas;
     }

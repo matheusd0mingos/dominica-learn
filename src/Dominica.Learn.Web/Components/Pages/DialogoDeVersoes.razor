@@ -1,0 +1,104 @@
+@* As versões guardadas de uma nota — a porta do histórico.
+
+   O histórico arquivava cada salvamento desde o primeiro dia, e NADA na interface chegava nele: a
+   promessa "quem apagou às onze recupera às nove" existia só num comentário. Este diálogo é a metade
+   "editei errado"; a outra metade (nota apagada inteira) é o DialogoDeApagadas.
+
+   O diálogo só ESCOLHE a versão — quem restaura é a tela que o abriu, porque é ela que sabe recarregar
+   o editor sem perder o circuito. *@
+
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Domain.Vault
+@inject ServicoDeNotas Servico
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Versões de @CaminhoNota.De(Caminho).Nome</MudText>
+    </TitleContent>
+
+    <DialogContent>
+        @if (_carregando)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+        else if (_versoes.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                Nenhuma versão guardada ainda. O histórico arquiva a versão ANTERIOR a cada salvamento —
+                uma nota que nunca foi editada depois de criada ainda não tem passado.
+            </MudText>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                A versão anterior de cada salvamento, mais recente primeiro. Restaurar NÃO apaga nada:
+                o texto de agora vira a próxima versão desta lista.
+            </MudText>
+            <MudList T="string" Dense="true">
+                @foreach (var v in _versoes)
+                {
+                    <MudListItem T="string">
+                        <div class="d-flex align-center gap-2 flex-wrap">
+                            <div style="min-width:0">
+                                <MudText Typo="Typo.body2">
+                                    <b>@v.Em.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</b>
+                                    <span class="mud-text-secondary"> · @v.Conteudo.Length caractere(s)</span>
+                                </MudText>
+                                @* A primeira linha com conteúdo é o que distingue versões à primeira
+                                   vista — data sozinha não diz qual tinha o parágrafo perdido. *@
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                    @PrimeiraLinha(v.Conteudo)
+                                </MudText>
+                            </div>
+                            <MudSpacer />
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
+                                       OnClick="@(() => Dialogo.Close(DialogResult.Ok(v.Id)))">
+                                Restaurar esta
+                            </MudButton>
+                        </div>
+                    </MudListItem>
+                }
+            </MudList>
+        }
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialogo.Cancel())">Fechar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    [Parameter] public string Caminho { get; set; } = string.Empty;
+
+    private IReadOnlyList<Revisao> _versoes = [];
+    private bool _carregando = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _versoes = await Servico.VersoesAsync(CaminhoNota.De(Caminho));
+        _carregando = false;
+    }
+
+    /// <summary>A primeira linha que diz alguma coisa — pula frontmatter e linhas vazias.</summary>
+    private static string PrimeiraLinha(string conteudo)
+    {
+        var linhas = conteudo.Replace("\r\n", "\n").Split('\n');
+        var i = 0;
+        if (linhas.Length > 0 && linhas[0].TrimEnd() == "---")
+        {
+            i = 1;
+            while (i < linhas.Length && linhas[i].TrimEnd() != "---") i++;
+            i++;   // pula o "---" de fechamento
+        }
+        for (; i < linhas.Length; i++)
+        {
+            var limpa = linhas[i].Trim();
+            if (limpa.Length > 0)
+                return limpa.Length > 90 ? limpa[..90] + "…" : limpa;
+        }
+        return "(vazia)";
+    }
+}

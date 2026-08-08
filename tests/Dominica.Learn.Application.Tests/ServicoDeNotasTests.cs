@@ -299,4 +299,73 @@ public class ServicoDeNotasTests
         Assert.DoesNotContain("Relacionadas", c.Vault.Arquivos["A.md"]);
     }
 
+    // —— VERSÕES E RECUPERAÇÃO ————————————————————————————————————————————————————————
+    //
+    // O histórico guardava tudo e não tinha porta: a promessa "quem apagou às onze recupera às nove"
+    // estava escrita num comentário do ApagarAsync. Estes testes provam a porta.
+
+    [Fact]
+    public async Task Restaurar_volta_o_conteudo_da_versao_e_arquiva_o_de_agora()
+    {
+        var c = Montar();
+        var caminho = CaminhoNota.De("A.md");
+        await c.Servico.CriarAsync(caminho, "versão um");
+        await c.Servico.SalvarAsync(caminho, "versão dois", impressaoEsperada: null);
+
+        var versaoUm = c.Historico.Revisoes.Single(r => r.Conteudo == "versão um");
+        var r = await c.Servico.RestaurarAsync(caminho, versaoUm.Id);
+
+        Assert.True(r.Ok, r.Mensagem);
+        Assert.Equal("versão um", c.Vault.Arquivos["A.md"]);
+        // Restaurar não apaga história: a "versão dois" virou revisão — restaurar errado também tem volta.
+        Assert.Contains(c.Historico.Revisoes, x => x.Conteudo == "versão dois");
+    }
+
+    [Fact]
+    public async Task Recuperar_nota_apagada_a_recria_com_a_ultima_versao()
+    {
+        var c = Montar();
+        var caminho = CaminhoNota.De("Direito/Apagada.md");
+        await c.Servico.CriarAsync(caminho, "conteúdo importante");
+        await c.Servico.ApagarAsync(caminho);
+        Assert.DoesNotContain("Direito/Apagada.md", c.Vault.Arquivos.Keys);
+
+        var guardada = c.Historico.Revisoes.Single(r => r.Caminho.Equals(caminho));
+        var r = await c.Servico.RestaurarAsync(caminho, guardada.Id);
+
+        Assert.True(r.Ok, r.Mensagem);
+        Assert.Equal("conteúdo importante", c.Vault.Arquivos["Direito/Apagada.md"]);
+        // E volta para o índice — recuperada e invisível na busca seria recuperada pela metade.
+        Assert.Contains("Direito/Apagada.md", c.Indice.Notas.Keys);
+    }
+
+    [Fact]
+    public async Task Restaurar_com_id_de_OUTRA_nota_e_recusado()
+    {
+        // O id vem da tela, que pode estar velha. Aceitar escreveria o texto de uma nota dentro da outra.
+        var c = Montar();
+        await c.Servico.CriarAsync(CaminhoNota.De("A.md"), "de A");
+        await c.Servico.SalvarAsync(CaminhoNota.De("A.md"), "de A v2", impressaoEsperada: null);
+        await c.Servico.CriarAsync(CaminhoNota.De("B.md"), "de B");
+
+        var deA = c.Historico.Revisoes.Single(r => r.Conteudo == "de A");
+        var r = await c.Servico.RestaurarAsync(CaminhoNota.De("B.md"), deA.Id);
+
+        Assert.False(r.Ok);
+        Assert.Equal("de B", c.Vault.Arquivos["B.md"]);
+    }
+
+    [Fact]
+    public async Task Apagadas_lista_so_o_que_nao_existe_mais()
+    {
+        var c = Montar();
+        await c.Servico.CriarAsync(CaminhoNota.De("Fica.md"), "fica");
+        await c.Servico.SalvarAsync(CaminhoNota.De("Fica.md"), "fica v2", impressaoEsperada: null);
+        await c.Servico.CriarAsync(CaminhoNota.De("Sai.md"), "sai");
+        await c.Servico.ApagarAsync(CaminhoNota.De("Sai.md"));
+
+        var apagadas = await c.Servico.ApagadasAsync();
+
+        Assert.Equal("Sai.md", Assert.Single(apagadas).Caminho.Valor);
+    }
 }

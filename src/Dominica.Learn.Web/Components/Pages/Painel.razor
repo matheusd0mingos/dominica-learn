@@ -110,6 +110,17 @@ else
                     <MudText Typo="Typo.h4">@_r.TotalDeNotas</MudText>
                     <MudText Typo="Typo.caption" Class="mud-text-secondary">notas</MudText>
                 </div>
+                @* O número já era calculado e NÃO era mostrado — e suspenso invisível é cartão que a
+                   pessoa acha que perdeu. O link leva para onde eles se devolvem à fila. *@
+                @if (_r.Suspensos > 0)
+                {
+                    <div>
+                        <MudText Typo="Typo.h4">@_r.Suspensos</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                            <MudLink Typo="Typo.caption" Href="revisar">suspensos — guardados</MudLink>
+                        </MudText>
+                    </div>
+                }
             </div>
 
             @* —— OS PRÓXIMOS 7 DIAS ——
@@ -195,6 +206,33 @@ else
                 <MudButton Size="Size.Small" Variant="Variant.Text"
                            StartIcon="@Icons.Material.Filled.PostAdd" OnClick="RegistrarAsync">Registrar</MudButton>
             </div>
+
+            @* —— O MAPA DE CALOR DAS REVISÕES ——
+               A promessa antiga desta tela ("vem quando houver registro"), cumprida: cada resposta de
+               cartão é anotada no registro, então o calor aqui é CONTADO, não estimado. Só aparece com
+               revisão registrada — antes disso seria uma grade de zeros, e grade de zeros ensina a
+               ignorar a seção. *@
+            @if (_calorTotal > 0)
+            {
+                <div class="mt-2">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">
+                        Revisões por dia — últimas @(MapaDeCalor.SemanasPadrao) semanas ·
+                        <b>@_calorLembrado%</b> lembrado em @_calorTotal revisão(ões)
+                    </MudText>
+                    <div class="calor" role="img" aria-label="@RotuloDoCalor()">
+                        @foreach (var semana in _calor.Chunk(7))
+                        {
+                            <div class="calor-semana">
+                                @foreach (var dia in semana)
+                                {
+                                    <div class="calor-dia calor-@Intensidade(dia.Revisoes)"
+                                         title="@($"{dia.Dia:dd/MM} — {dia.Revisoes} revisão(ões)")"></div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
 
             @if (_d is null || (_d.Questoes == 0 && _d.Horas == TimeSpan.Zero))
             {
@@ -409,7 +447,28 @@ else
         _r = await Cartoes.PainelAsync();
         _d = await Desempenho.ResumoAsync();
         _ultimos = await Desempenho.UltimosAsync();
+        (_calor, _calorLembrado, _calorTotal) = await Desempenho.CalorAsync();
     }
+
+    // —— O MAPA DE CALOR ————————————————————————————————————————————————————————————
+    private IReadOnlyList<DiaDeCalor> _calor = [];
+    private int _calorLembrado;
+    private int _calorTotal;
+
+    // Degraus fixos, não relativos ao máximo: o calor compara DIAS ENTRE SI ao longo de semanas, e uma
+    // escala que mudasse com o pico faria a mesma quinta parecer clara numa semana e escura na outra.
+    private static int Intensidade(int revisoes) => revisoes switch
+    {
+        0 => 0,
+        <= 4 => 1,
+        <= 9 => 2,
+        <= 19 => 3,
+        _ => 4,
+    };
+
+    private string RotuloDoCalor() =>
+        $"Mapa de calor: {_calorTotal} revisão(ões) nas últimas {MapaDeCalor.SemanasPadrao} semanas, " +
+        $"{_calorLembrado}% lembradas.";
 
     // —— A PREVISÃO DE 7 DIAS ————————————————————————————————————————————————————————
 

@@ -71,6 +71,35 @@ public sealed class RegistroEmPostgres(IDbContextFactory<ContextoDoRegistro> fab
         await db.SaveChangesAsync(ct);
     }
 
+    public async Task RegistrarRevisaoAsync(RevisaoDeCartao revisao, CancellationToken ct = default)
+    {
+        await using var db = await AbrirAsync(ct);
+        db.Revisoes.Add(new RevisaoNoRegistro
+        {
+            Usuario = db.UsuarioAtual,
+            Vault = db.VaultAtual,
+            Em = revisao.Em,
+            Materia = revisao.Materia.Nome,
+            Resposta = (int)revisao.Resposta,
+        });
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<RevisaoDeCartao>> RevisoesAsync(DateTimeOffset desde, CancellationToken ct = default)
+    {
+        await using var db = await AbrirAsync(ct);
+        var linhas = await db.Revisoes.AsNoTracking()
+            .Where(r => r.Em >= desde).OrderByDescending(r => r.Em).ToListAsync(ct);
+
+        // Valor fora do enum (dado velho de uma regra futura) vira Errei — o pior caso, nunca o melhor:
+        // inflar a retenção por causa de lixo seria mentir para cima, que é a mentira que muda decisão.
+        return [.. linhas.Select(r => new RevisaoDeCartao(
+            r.Em, Materia.De(r.Materia),
+            Enum.IsDefined(typeof(Domain.Cartoes.Resposta), r.Resposta)
+                ? (Domain.Cartoes.Resposta)r.Resposta
+                : Domain.Cartoes.Resposta.Errei))];
+    }
+
     public async Task<IReadOnlyList<LoteDeQuestoes>> QuestoesAsync(DateTimeOffset desde, CancellationToken ct = default)
     {
         await using var db = await AbrirAsync(ct);

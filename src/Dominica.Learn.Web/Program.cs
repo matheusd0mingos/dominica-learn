@@ -125,15 +125,22 @@ builder.Services.ConfigureApplicationCookie(o =>
 builder.Services.AdicionarInfraestruturaDoLearn(builder.Configuration);
 
 // —— LIMITE DE REQUISIÇÕES ——————————————————————————————————————————————————————————
-// Protege o login de força bruta. O resto do app é Blazor Server (um circuito WebSocket por sessão), que
-// não se defende com contagem de requisições HTTP — por isso o limite é aplicado só onde ele serve, em
-// vez de globalmente, onde daria falsa sensação de proteção.
+// Protege o login de força bruta, e a prévia de hover de martelo. O resto do app é Blazor Server (um
+// circuito WebSocket por sessão), que não se defende com contagem de requisições HTTP — por isso o
+// limite é aplicado só onde ele serve, em vez de globalmente, onde daria falsa sensação de proteção.
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     o.AddPolicy("autenticacao", ctx => RateLimitPartition.GetFixedWindowLimiter(
         ctx.Connection.RemoteIpAddress?.ToString() ?? "desconhecido",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
+
+    // A PRÉVIA É HTTP FORA DO CIRCUITO — a exceção à regra acima. Cada acerto renderiza uma nota do
+    // disco, com as transclusões dela; sem teto, um script segurando o mouse renderiza o vault em loop.
+    // 120/min é dez vezes o que uma leitura de verdade produz, então usuário nenhum encosta no limite.
+    o.AddPolicy("previa", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        ctx.User.Identity?.Name ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "desconhecido",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1) }));
 });
 
 // —— OBSERVABILIDADE ————————————————————————————————————————————————————————————————
@@ -244,6 +251,7 @@ app.MapHealthChecks("/saude");
 app.MapearAnexos();               // /anexos/** — autenticado, lista de permissão, sem sair da raiz
 app.MapearPrevia();               // /previa/** — o fragmento que o hover de wikilink mostra
 app.MapearPacoteDoVault();        // /vault.zip — o download do vault inteiro, fora do circuito
+app.MapearExportacaoAnki();       // /anki.txt — os cartões no formato de importação do Anki
 app.MapearTrocaDeVault();         // /vault/trocar — o alternador da barra, que é estática
 app.MapStaticAssets();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();

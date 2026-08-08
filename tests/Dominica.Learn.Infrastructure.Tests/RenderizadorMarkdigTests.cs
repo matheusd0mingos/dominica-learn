@@ -56,7 +56,7 @@ public class RenderizadorMarkdigTests
     public void Wikilink_para_nota_existente_vira_link_navegavel()
     {
         var html = Render("ver [[Licitações]]", "Direito/Licitações.md");
-        Assert.Contains("href=\"/notas/Direito/Licita", html);
+        Assert.Contains("href=\"notas/Direito/Licita", html);
         Assert.DoesNotContain("link-quebrado", html);
     }
 
@@ -66,7 +66,7 @@ public class RenderizadorMarkdigTests
         // Link quebrado continua sendo LINK: clicar é como se cria a nota que falta. Virar texto morto
         // tiraria do produto o fluxo "escrevo o link, depois escrevo a nota".
         var html = Render("ver [[Ainda Não Existe]]");
-        Assert.Contains("/notas/novo?nome=", html);
+        Assert.Contains("notas/novo?nome=", html);
         Assert.Contains("link-quebrado", html);
     }
 
@@ -81,7 +81,7 @@ public class RenderizadorMarkdigTests
     public void Wikilink_dentro_de_bloco_de_codigo_nao_vira_link()
     {
         var html = Render("```\n[[NãoÉLink]]\n```", "NãoÉLink.md");
-        Assert.DoesNotContain("href=\"/notas/", html);
+        Assert.DoesNotContain("href=\"notas/", html);
     }
 
     // —— ANEXOS ————————————————————————————————————————————————————————————————————————
@@ -228,7 +228,7 @@ public class RenderizadorMarkdigTests
         Assert.Contains("class=\"transclusao\"", r.Html);
         Assert.Contains("corpo da outra", r.Html);
         // A moldura diz de onde veio, e o link leva lá.
-        Assert.Contains("href=\"/notas/Direito/Outra.md\"", r.Html);
+        Assert.Contains("href=\"notas/Direito/Outra.md\"", r.Html);
     }
 
     [Fact]
@@ -257,7 +257,7 @@ public class RenderizadorMarkdigTests
         Assert.Contains("conteúdo de B", r.Html);
         var aparicoes = r.Html.Split("class=\"transclusao\"").Length - 1;
         Assert.Equal(1, aparicoes);                          // só o embed de fora embutiu
-        Assert.Contains("href=\"/notas/A.md\"", r.Html);     // o de dentro virou link
+        Assert.Contains("href=\"notas/A.md\"", r.Html);     // o de dentro virou link
     }
 
     [Fact]
@@ -273,7 +273,7 @@ public class RenderizadorMarkdigTests
     {
         var caminho = CaminhoNota.De("Outra.md");
         var html = _r.Renderizar("![[Outra]]", _ => caminho).Html;
-        Assert.Contains("href=\"/notas/Outra.md\"", html);
+        Assert.Contains("href=\"notas/Outra.md\"", html);
         Assert.DoesNotContain("transclusao", html);
     }
 
@@ -315,6 +315,6 @@ public class RenderizadorMarkdigTests
         var r = RenderComNotas("![[Outra#Detalhe]]", new() { ["Outra.md"] = "# Detalhe\n\ncorpo" });
 
         Assert.Contains("corpo", r.Html);
-        Assert.Contains("href=\"/notas/Outra.md#detalhe\"", r.Html);
+        Assert.Contains("href=\"notas/Outra.md#detalhe\"", r.Html);
     }
 }

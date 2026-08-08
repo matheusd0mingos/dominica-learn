@@ -25,6 +25,15 @@ public interface IRegistroDeEstudo
 
     Task RegistrarSessaoAsync(SessaoDeEstudo sessao, CancellationToken ct = default);
 
+    /// <summary>
+    /// Anota UMA resposta de cartão. O .md guarda só a última; a série completa — que alimenta o mapa
+    /// de calor e a retenção real — só existe se cada resposta passar por aqui. Ver
+    /// <see cref="RevisaoDeCartao"/>.
+    /// </summary>
+    Task RegistrarRevisaoAsync(RevisaoDeCartao revisao, CancellationToken ct = default);
+
+    Task<IReadOnlyList<RevisaoDeCartao>> RevisoesAsync(DateTimeOffset desde, CancellationToken ct = default);
+
     /// <summary>Os lotes do período, do mais recente para o mais antigo.</summary>
     Task<IReadOnlyList<LoteDeQuestoes>> QuestoesAsync(DateTimeOffset desde, CancellationToken ct = default);
 

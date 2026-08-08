@@ -62,6 +62,19 @@ public sealed class ServicoDeDesempenho(
             await registro.SessoesAsync(desde, ct));
     }
 
+    /// <summary>
+    /// O mapa de calor das revisões e a retenção real do período — o que o registro de respostas compra.
+    /// Ver <see cref="MapaDeCalor"/>.
+    /// </summary>
+    public async Task<(IReadOnlyList<DiaDeCalor> Dias, int PorCentoLembrado, int Total)> CalorAsync(
+        int semanas = MapaDeCalor.SemanasPadrao, CancellationToken ct = default)
+    {
+        var hoje = DateOnly.FromDateTime(relogio.Agora.ToLocalTime().DateTime);
+        var desde = relogio.Agora - TimeSpan.FromDays(semanas * 7);
+        var revisoes = await registro.RevisoesAsync(desde, ct);
+        return (MapaDeCalor.Montar(revisoes, hoje, semanas), MapaDeCalor.PorCentoLembrado(revisoes), revisoes.Count);
+    }
+
     /// <summary>Quantos lançamentos a tela mostra. Uma tela, não um histórico — ver <see cref="UltimosAsync"/>.</summary>
     public const int UltimosPadrao = 12;
 
