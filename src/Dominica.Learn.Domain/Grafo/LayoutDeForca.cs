@@ -44,15 +44,36 @@ public static class LayoutDeForca
     private const double CoesaoDeMateria = 0.06;
 
     public static GrafoPosicionado Calcular(
-        GrafoDoVault grafo, double largura = 800, double altura = 600, int iteracoes = IteracoesPadrao) =>
-        new(grafo,
-            Posicionar(
-                [.. grafo.Nos.Select(no => no.Caminho.Valor)],
-                [.. grafo.Nos.Select(no => no.Grau)],
-                IndicesDeMateria(grafo),
-                grafo.Arestas,
-                largura, altura, iteracoes),
-            largura, altura);
+        GrafoDoVault grafo, double largura = 800, double altura = 600, int iteracoes = IteracoesPadrao)
+    {
+        var posicoes = Posicionar(
+            [.. grafo.Nos.Select(no => no.Caminho.Valor)],
+            [.. grafo.Nos.Select(no => no.Grau)],
+            IndicesDeMateria(grafo),
+            grafo.Arestas,
+            largura, altura, iteracoes);
+        var (larguraReal, alturaReal) = Moldura(posicoes, largura, altura);
+        return new(grafo, posicoes, larguraReal, alturaReal);
+    }
+
+    /// <summary>
+    /// A moldura que REALMENTE contém o desenho, nunca menor que a pedida.
+    ///
+    /// Existe porque a separação de sobrepostos (ver <see cref="Separar"/>) pode empurrar nós para fora
+    /// da área pedida — um aglomerado de mil notas não cabe compactado, e comprimir de volta desfaria a
+    /// separação. Quem enquadra a tela (Enquadramento.Ajustar) usa a moldura como TETO da janela; se ela
+    /// mentisse o tamanho, o teto cortaria as bordas do desenho — foi um corte assim que fez o grafo de
+    /// carga aparecer pela metade.
+    /// </summary>
+    public static (double Largura, double Altura) Moldura(
+        IReadOnlyList<PosicaoDoNo> posicoes, double largura, double altura)
+    {
+        if (posicoes.Count == 0) return (largura, altura);
+        const double margem = 40;
+        var spanX = posicoes.Max(p => p.X + p.Raio) - posicoes.Min(p => p.X - p.Raio) + 2 * margem;
+        var spanY = posicoes.Max(p => p.Y + p.Raio) - posicoes.Min(p => p.Y - p.Raio) + 2 * margem;
+        return (Math.Max(largura, spanX), Math.Max(altura, spanY));
+    }
 
     /// <summary>
     /// O LAYOUT, POR ÍNDICE — sem saber o que os nós são.
@@ -207,16 +228,89 @@ public static class LayoutDeForca
         var centroX = (minX + maxX) / 2;
         var centroY = (minY + maxY) / 2;
 
-        var posicoes = new List<PosicaoDoNo>(graus.Length);
+        var raios = new double[graus.Length];
         for (var i = 0; i < graus.Length; i++)
         {
-            posicoes.Add(new PosicaoDoNo(
-                i,
-                Arredondar(largura / 2 + (x[i] - centroX) * escala),
-                Arredondar(altura / 2 + (y[i] - centroY) * escala),
-                RaioDe(graus[i])));
+            raios[i] = RaioDe(graus[i]);
+            x[i] = largura / 2 + (x[i] - centroX) * escala;
+            y[i] = altura / 2 + (y[i] - centroY) * escala;
         }
+
+        // DEPOIS da escala, não antes: é a escala que comprime — separar antes dela seria desfeito por ela.
+        Separar(x, y, raios);
+
+        var posicoes = new List<PosicaoDoNo>(graus.Length);
+        for (var i = 0; i < graus.Length; i++)
+            posicoes.Add(new PosicaoDoNo(i, Arredondar(x[i]), Arredondar(y[i]), raios[i]));
         return posicoes;
+    }
+
+    /// <summary>
+    /// GARANTE QUE NENHUM NÓ COBRE OUTRO — o passo que a força dirigida não dá.
+    ///
+    /// O defeito que isto conserta apareceu no estresse com mil notas numa matéria: a simulação equilibra
+    /// forças entre CENTROS e não sabe que os pontos têm raio, e o reenquadramento ainda comprime tudo
+    /// para caber na moldura. Resultado: centros a 6 unidades com raios de 9,5 — um disco sólido azul
+    /// onde deveria haver mil pontos, e nenhum zoom resolvia, porque sobreposição sobrevive a zoom.
+    ///
+    /// A separação é o algoritmo clássico de remoção de sobreposição: cada par que se cobre é afastado
+    /// ao longo da linha entre os centros, metade para cada lado, até ninguém cobrir ninguém (ou o teto
+    /// de passadas). É DETERMINÍSTICO — ordem fixa de pares, nada sorteado — então a garantia do layout
+    /// (mesmo vault, mesmo desenho) continua de pé. O aglomerado incha, e a moldura devolvida cresce
+    /// junto (ver <see cref="Moldura"/>); o que ele não faz é mudar a VIZINHANÇA: quem estava perto
+    /// continua perto, só que visível.
+    /// </summary>
+    private static void Separar(double[] x, double[] y, double[] raios)
+    {
+        // 2 unidades de respiro entre as bordas: encostado é tecnicamente separado e visualmente colado.
+        const double respiro = 2.0;
+        var n = raios.Length;
+
+        // O teto de passadas é segurança contra laço infinito, não meta: o `mexeu` corta antes. Mas ele
+        // precisa ESCALAR com o grafo — a separação relaxa em ondas, de dentro do aglomerado para fora,
+        // e um disco de n nós tem ~√n camadas de nós para atravessar. Com teto fixo de 80, o estresse de
+        // mil notas parou NO MEIO da relaxação: sobreposição pior que sem separar, porque os pares já
+        // resolvidos tinham empurrado nós para cima de outros ainda por resolver. Cada passada é barata
+        // (a comparação ao quadrado descarta quase todos os pares), então o teto folgado não custa nada
+        // nos casos que convergem cedo.
+        var passadas = Math.Max(200, 20 * (int)Math.Sqrt(n));
+
+        for (var passada = 0; passada < passadas; passada++)
+        {
+            var mexeu = false;
+            for (var i = 0; i < n; i++)
+            for (var j = i + 1; j < n; j++)
+            {
+                var alvo = raios[i] + raios[j] + respiro;
+                var vx = x[j] - x[i];
+                var vy = y[j] - y[i];
+                var d2 = vx * vx + vy * vy;
+                if (d2 >= alvo * alvo) continue;
+
+                var dist = Math.Sqrt(d2);
+                double ux, uy;
+                if (dist < 0.01)
+                {
+                    // Centros idênticos não têm direção — inventa-se uma, DERIVADA DOS ÍNDICES, para que
+                    // o desempate seja o mesmo em toda execução. Um sorteio aqui quebraria o determinismo.
+                    var angulo = (i * 37 + j * 101) % 360 * Math.PI / 180;
+                    ux = Math.Cos(angulo);
+                    uy = Math.Sin(angulo);
+                    dist = 0.01;
+                }
+                else
+                {
+                    ux = vx / dist;
+                    uy = vy / dist;
+                }
+
+                var metade = (alvo - dist) / 2;
+                x[i] -= ux * metade; y[i] -= uy * metade;
+                x[j] += ux * metade; y[j] += uy * metade;
+                mexeu = true;
+            }
+            if (!mexeu) break;
+        }
     }
 
     /// <summary>Matéria de cada nó como inteiro; -1 para quem está na raiz do vault.</summary>

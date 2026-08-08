@@ -341,4 +341,52 @@ public class GrafoTests
         var um = LayoutDeForca.Calcular(GrafoDoVault.Montar([C("A.md")], []), 800, 600);
         Assert.Equal((400, 300), (um.Posicoes[0].X, um.Posicoes[0].Y));
     }
+
+    [Fact]
+    public void Nenhum_no_cobre_outro_nem_num_aglomerado_denso()
+    {
+        // O DEFEITO QUE ESTE TESTE GUARDA, visto no estresse com mil notas numa matéria só: a força
+        // dirigida equilibra CENTROS e não sabe que os pontos têm raio, e o reenquadramento comprime o
+        // resultado para caber. Centros a 6 unidades com raios de 9,5 = um disco sólido da cor da
+        // matéria — e zoom nenhum resolve, porque sobreposição sobrevive a zoom. O pior caso é o hub:
+        // muitas folhas presas ao mesmo centro, todas puxadas para o mesmo lugar.
+        var caminhos = new[] { C("M/Hub.md") }
+            .Concat(Enumerable.Range(1, 120).Select(i => C($"M/Folha{i:000}.md")))
+            .ToArray();
+        var ligacoes = Enumerable.Range(1, 120).Select(i => Liga($"M/Folha{i:000}.md", "M/Hub.md")).ToArray();
+        var p = LayoutDeForca.Calcular(GrafoDoVault.Montar(caminhos, ligacoes), 900, 620);
+
+        for (var i = 0; i < p.Posicoes.Count; i++)
+        for (var j = i + 1; j < p.Posicoes.Count; j++)
+        {
+            var a = p.Posicoes[i];
+            var b = p.Posicoes[j];
+            var dist = Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2));
+            // Tolerância de 0,1 só pelo arredondamento a 2 casas — cobertura de verdade não passa nela.
+            Assert.True(dist >= a.Raio + b.Raio - 0.1,
+                $"nós {i} e {j} se cobrem: {dist:0.0} de distância para raios {a.Raio:0.0}+{b.Raio:0.0}");
+        }
+    }
+
+    [Fact]
+    public void A_moldura_devolvida_contem_o_desenho_inteiro()
+    {
+        // Separar sobrepostos INCHA o aglomerado, às vezes para além da área pedida. A moldura devolvida
+        // tem de acompanhar: é ela que a tela usa como teto da janela (Enquadramento.Ajustar), e uma
+        // moldura menor que o desenho corta as bordas — o grafo de carga chegou a aparecer pela metade.
+        var caminhos = new[] { C("M/Hub.md") }
+            .Concat(Enumerable.Range(1, 120).Select(i => C($"M/Folha{i:000}.md")))
+            .ToArray();
+        var ligacoes = Enumerable.Range(1, 120).Select(i => Liga($"M/Folha{i:000}.md", "M/Hub.md")).ToArray();
+        var p = LayoutDeForca.Calcular(GrafoDoVault.Montar(caminhos, ligacoes), 900, 620);
+
+        var janela = Enquadramento.Ajustar(p.Posicoes, p.Largura, p.Altura);
+        Assert.All(p.Posicoes, q =>
+        {
+            Assert.True(q.X - q.Raio >= janela.X - 0.1 && q.X + q.Raio <= janela.X + janela.Largura + 0.1,
+                $"nó {q.Indice} fora da janela no eixo X");
+            Assert.True(q.Y - q.Raio >= janela.Y - 0.1 && q.Y + q.Raio <= janela.Y + janela.Altura + 0.1,
+                $"nó {q.Indice} fora da janela no eixo Y");
+        });
+    }
 }

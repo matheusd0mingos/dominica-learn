@@ -519,8 +519,10 @@
     /// A janela que a tela mostra. NÃO é a moldura inteira do layout: num vault de três notas isso
     /// seriam três pontos minúsculos nos cantos de um retângulo vazio. Ver Enquadramento.
     /// </summary>
+    // As dimensões REAIS do layout, não as constantes: com muitos nós a moldura cresce com √n (ver
+    // GrafoAsync), e enquadrar pela constante cortaria o desenho pela metade.
     private string Viewbox => Enquadramento
-        .Ajustar(_visao.Posicionado.Posicoes, Largura, Altura)
+        .Ajustar(_visao.Posicionado.Posicoes, _visao.Posicionado.Largura, _visao.Posicionado.Altura)
         .ParaViewBox();
 
     // O SVG lê número com PONTO decimal. Numa máquina em pt-BR o padrão gravaria "451,3" e o navegador

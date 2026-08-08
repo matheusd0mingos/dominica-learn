@@ -476,7 +476,10 @@ public sealed partial class ServicoDeConhecimento(
             [.. pares.Select(p => new ArestaDoGrafo(p.De, p.Para, p.Peso))],
             largura, altura);
 
-        return new MapaDeEtiquetas(nos, posicoes, pares, largura, altura);
+        // A moldura REAL, não a pedida: a separação de sobrepostos pode ter empurrado nós para fora
+        // da área — e a janela da tela usa a moldura como teto. Ver LayoutDeForca.Moldura.
+        var (larguraReal, alturaReal) = LayoutDeForca.Moldura(posicoes, largura, altura);
+        return new MapaDeEtiquetas(nos, posicoes, pares, larguraReal, alturaReal);
     }
 
     /// <summary>
@@ -668,7 +671,9 @@ public sealed partial class ServicoDeConhecimento(
             [.. pontes.Select(p => new ArestaDoGrafo(p.De, p.Para, p.Peso))],
             largura, altura);
 
-        return new MapaDeMaterias(nos, posicoes, pontes, largura, altura);
+        // Mesma razão do mapa de etiquetas: a moldura segue o desenho, ou a janela corta a borda.
+        var (larguraReal, alturaReal) = LayoutDeForca.Moldura(posicoes, largura, altura);
+        return new MapaDeMaterias(nos, posicoes, pontes, larguraReal, alturaReal);
     }
 
     /// <summary>
@@ -901,7 +906,15 @@ public sealed partial class ServicoDeConhecimento(
             }
         }
 
-        return new VisaoDoGrafo(LayoutDeForca.Calcular(grafo, largura, altura), materias, materia, paraFora);
+        // A TELA CRESCE COM √n — o achado do estresse com mil notas: o layout espremia tudo nos mesmos
+        // 900×620, e o cluster grande virava uma bola sólida de nós empilhados, ilegível e inclicável.
+        // Crescer com a raiz mantém a DENSIDADE do desenho de projeto (~60 nós na tela base); o
+        // enquadramento inicial mostra tudo e o zoom aproxima. Teto de 4× para o SVG não virar um campo
+        // de futebol que o navegador rasteriza a cada pan.
+        var fator = Math.Clamp(Math.Sqrt(grafo.Nos.Count / 60.0), 1.0, 4.0);
+
+        return new VisaoDoGrafo(
+            LayoutDeForca.Calcular(grafo, largura * fator, altura * fator), materias, materia, paraFora);
     }
 
     /// <summary>
