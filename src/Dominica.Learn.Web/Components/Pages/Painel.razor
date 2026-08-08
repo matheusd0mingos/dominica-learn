@@ -165,6 +165,34 @@ else
         <MudPaper Class="pa-4" Elevation="0" Outlined="true" Style="height:100%">
             <MudText Typo="Typo.h6" GutterBottom="true">Onde prestar atenção</MudText>
 
+            @* —— PRAZOS ——
+               A cobrança que vem do FRONTMATTER: a nota que diz "prazo: 2026-09-01" aparece aqui até o
+               dia passar. Vencidos primeiro, em vermelho — inscrição perdida não tem revisão que salve.
+               Só aparece quando existe prazo declarado: seção vazia ensinaria a ignorar o painel. *@
+            @if (_prazos.Count > 0)
+            {
+                var hoje = DateOnly.FromDateTime(DateTime.Today);
+                <MudText Typo="Typo.overline" Class="d-block">Prazos</MudText>
+                <MudList T="string" Dense="true" Class="mb-2">
+                    @foreach (var p in _prazos.Take(6))
+                    {
+                        var vencido = p.Data < hoje;
+                        <MudListItem T="string" Href="@Rotas.Nota(p.Nota)">
+                            <div class="d-flex align-center gap-2">
+                                <MudIcon Size="Size.Small" Icon="@Icons.Material.Filled.Event"
+                                         Color="@(vencido ? Color.Error : Color.Default)" />
+                                <MudText Typo="Typo.body2"><b>@p.Nota.Nome</b></MudText>
+                                <MudText Typo="Typo.caption"
+                                         Style="@(vencido ? "color:var(--mud-palette-error)" : null)"
+                                         Class="@(vencido ? null : "mud-text-secondary")">
+                                    @p.Data.ToString("dd/MM") · @Prazos.Rotulo(p.Data, hoje)
+                                </MudText>
+                            </div>
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+
             @if (_r.Atencoes.Count == 0)
             {
                 <MudText Typo="Typo.body2" Class="mud-text-secondary">
@@ -509,7 +537,11 @@ else
         (_calor, _calorLembrado, _calorTotal) = await Desempenho.CalorAsync();
         _horas = await Desempenho.HorasAsync();
         _temErros = await Cartoes.TemNotasDeErroAsync();
+        _prazos = await Conhecimento.PrazosAsync();
     }
+
+    /// <summary>As notas com "prazo:" no frontmatter, já na ordem do painel. Ver Prazos.</summary>
+    private IReadOnlyList<PrazoDaNota> _prazos = [];
 
     /// <summary>Há cartões de erro — decide se o atalho "Revisar meus erros" aparece no aviso de fraqueza.</summary>
     private bool _temErros;

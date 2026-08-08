@@ -3,6 +3,7 @@ using Dominica.Learn.Domain.Analise;
 using Dominica.Learn.Domain.Estudo;
 using Dominica.Learn.Domain.Grafo;
 using Dominica.Learn.Domain.Ligacoes;
+using Dominica.Learn.Domain.Painel;
 using Dominica.Learn.Domain.Templates;
 using Dominica.Learn.Domain.Vault;
 using Microsoft.Extensions.Logging;
@@ -194,6 +195,29 @@ public sealed partial class ServicoDeConhecimento(
 
         log.LogInformation("Captura guardada na nota de hoje.");
         return Resultado<CaminhoNota>.Sucesso(caminho);
+    }
+
+    // —— PRAZOS ——————————————————————————————————————————————————————————————————————
+
+    /// <summary>
+    /// As notas com "prazo:" no frontmatter, na ordem do painel (vencidos primeiro, ver Prazos). Varre o
+    /// vault como as demais leituras de painel — o custo é o mesmo do painel de cartões, e a alternativa
+    /// (indexar o campo) só se paga quando doer de verdade.
+    /// </summary>
+    public async Task<IReadOnlyList<PrazoDaNota>> PrazosAsync(CancellationToken ct = default)
+    {
+        var hoje = DateOnly.FromDateTime(relogio.Agora.ToLocalTime().DateTime);
+        var achados = new List<PrazoDaNota>();
+
+        foreach (var caminho in await indice.TodosOsCaminhosAsync(ct))
+        {
+            var nota = await repositorio.LerAsync(caminho, ct);
+            if (nota is null) continue;
+            if (Prazos.De(nota.Analise.Frontmatter) is { } data)
+                achados.Add(new PrazoDaNota(caminho, data));
+        }
+
+        return Prazos.ParaOPainel(achados, hoje);
     }
 
     // —— A NOTA-ÍNDICE (MOC) ——————————————————————————————————————————————————————————

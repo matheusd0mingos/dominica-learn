@@ -4,6 +4,7 @@ using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Domain.Vault;
 using Markdig;
 using Markdig.Renderers;
+using Markdig.Renderers.Html;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 
@@ -33,13 +34,25 @@ namespace Dominica.Learn.Infrastructure.Renderizacao;
 /// </summary>
 public sealed partial class RenderizadorMarkdig : IRenderizadorDeMarkdown
 {
-    private readonly MarkdownPipeline _pipeline = new MarkdownPipelineBuilder()
-        .UseAdvancedExtensions()      // tabelas, listas de tarefa, autolink, rodapé
-        .UseEmphasisExtras()
-        .UsePipeTables()
-        .UseTaskLists()
-        .DisableHtml()                // trava o HTML bruto — ver a frente 1 do resumo
-        .Build();
+    private readonly MarkdownPipeline _pipeline = MontarPipeline();
+
+    private static MarkdownPipeline MontarPipeline()
+    {
+        var construtor = new MarkdownPipelineBuilder()
+            .UseAdvancedExtensions()      // tabelas, listas de tarefa, autolink, rodapé
+            .UseEmphasisExtras()
+            .UsePipeTables()
+            .UseTaskLists()
+            .DisableHtml();               // trava o HTML bruto — ver a frente 1 do resumo
+
+        // FORA os alerts do GitHub que vêm no pacote avançado: eles capturam "> [!tip]" antes de nós e
+        // rendem um <div> com título em INGLÊS ("Tip") — num produto pt-BR, e só para os cinco tipos
+        // deles. Sem a extensão, todo callout continua QuoteBlock e passa por TransformarCallouts, que
+        // trata os tipos do Obsidian por igual e deixa o CSS falar português.
+        construtor.Extensions.RemoveAll(e => e is Markdig.Extensions.Alerts.AlertExtension);
+
+        return construtor.Build();
+    }
 
     /// <summary>
     /// Renderiza o Markdown para HTML, JÁ com os esquemas de link neutralizados. É o caminho único: o
@@ -56,12 +69,88 @@ public sealed partial class RenderizadorMarkdig : IRenderizadorDeMarkdown
                 // o texto do link fica — a nota continua legível, sem a arma.
                 link.Url = link.IsImage ? string.Empty : "#";
 
+        TransformarCallouts(documento);
+
         using var escritor = new StringWriter();
         var renderizador = new HtmlRenderer(escritor);
         _pipeline.Setup(renderizador);
         renderizador.Render(documento);
         escritor.Flush();
         return escritor.ToString();
+    }
+
+    // —— CALLOUTS ————————————————————————————————————————————————————————————————————
+    //
+    // A sintaxe do Obsidian: "> [!warning] Cuidado" numa citação vira um bloco destacado. O marcador é
+    // detectado na ÁRVORE, não por regex no HTML pronto: a citação vira a mesma <blockquote> de sempre,
+    // só que com classes — e o CSS faz o resto. Tipo desconhecido cai em "info" em vez de mostrar o
+    // marcador cru: quem escreveu [!qualquercoisa] pediu um destaque, não um colchete no meio da nota.
+
+    private static readonly Dictionary<string, string> TiposDeCallout = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["note"] = "info", ["info"] = "info", ["question"] = "info", ["abstract"] = "info",
+        ["summary"] = "info", ["todo"] = "info",
+        ["tip"] = "dica", ["hint"] = "dica", ["success"] = "dica", ["example"] = "dica",
+        ["important"] = "dica",
+        ["warning"] = "atencao", ["caution"] = "atencao", ["attention"] = "atencao",
+        ["danger"] = "perigo", ["error"] = "perigo", ["failure"] = "perigo", ["bug"] = "perigo",
+        ["quote"] = "citacao", ["cite"] = "citacao",
+    };
+
+    [GeneratedRegex(@"^\[!([a-zA-Z]+)\][ \t]*", RegexOptions.CultureInvariant)]
+    private static partial Regex MarcadorDeCallout();
+
+    private static void TransformarCallouts(MarkdownDocument documento)
+    {
+        foreach (var citacao in documento.Descendants<QuoteBlock>())
+        {
+            // O marcador tem que ser o PRIMEIRO texto da citação — no meio, é texto comum de alguém.
+            if (citacao.FirstOrDefault() is not ParagraphBlock { Inline: not null } paragrafo) continue;
+
+            // O "[" abre delimitador de link no parser, então "[!warning] X" chega FATIADO em literais
+            // ("[", "!warning] X"). Juntam-se os primeiros literais consecutivos antes de casar o padrão —
+            // casar só o primeiro deixaria todo callout invisível, que foi como este comentário nasceu.
+            var literais = new List<LiteralInline>();
+            var texto = new StringBuilder();
+            for (var atual = paragrafo.Inline.FirstChild;
+                 atual is LiteralInline li && literais.Count < 3;
+                 atual = atual.NextSibling)
+            {
+                literais.Add(li);
+                texto.Append(li.Content.ToString());
+            }
+            if (literais.Count == 0) continue;
+
+            var m = MarcadorDeCallout().Match(texto.ToString());
+            if (!m.Success) continue;
+
+            var classe = TiposDeCallout.GetValueOrDefault(m.Groups[1].Value, "info");
+            var atributos = citacao.GetAttributes();
+            atributos.AddClass("callout");
+            atributos.AddClass($"callout-{classe}");
+
+            // Tira o marcador reescrevendo os literais que o compõem. Sobrando título ("Cuidado"), ele
+            // vira a primeira linha — o CSS o engrossa. Sem título, a linha some inteira, inclusive a
+            // quebra que a seguia — senão o bloco abriria com uma linha vazia.
+            var resto = texto.ToString()[m.Length..];
+            var seguinte = literais[^1].NextSibling;
+            foreach (var li in literais) li.Remove();
+
+            if (resto.Length > 0)
+            {
+                var novo = new LiteralInline(resto);
+                if (seguinte is not null) seguinte.InsertBefore(novo);
+                else paragrafo.Inline.AppendChild(novo);
+
+                // O título fica NA LINHA DELE, como no Obsidian: a quebra suave que o seguia (que o HTML
+                // renderiza como espaço) vira quebra dura — sem isto o título emendava no corpo.
+                if (seguinte is LineBreakInline suave) suave.IsHard = true;
+            }
+            else if (seguinte is LineBreakInline quebra)
+            {
+                quebra.Remove();
+            }
+        }
     }
 
     /// <summary>

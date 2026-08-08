@@ -24,6 +24,7 @@
 @inject ISnackbar Avisos
 @inject IDialogService Dialogos
 @inject ILogger<Notas> Log
+@inject IJSRuntime JS
 @implements IAsyncDisposable
 
 <PageTitle>@(_aberta?.Nota.Titulo ?? "Notas") · Dominica Learn</PageTitle>
@@ -410,6 +411,28 @@
                                  OnClick="@(() => PorEtiquetaAsync(s.Etiqueta.Valor))">
                             + @s.Etiqueta.ToString()
                         </MudChip>
+                    }
+                </div>
+            }
+
+            @* —— NESTA NOTA: O ROTEIRO ——
+
+               O outline da nota longa — o resumo de lei com doze seções precisa de um mapa próprio. Sai
+               da ANÁLISE (os mesmos Cabecalhos que o domínio já extraía), não do HTML: o índice de cada
+               item é a posição no markdown, e o JS rola até o título correspondente ignorando os que
+               vieram por transclusão. O título da nota (nível 1) fica de fora — ele é a página inteira. *@
+            @if (_aberta is { } notaAberta && notaAberta.Nota.Analise.Cabecalhos.Count(c => c.Nivel > 1) >= 3)
+            {
+                <MudDivider Class="my-3" />
+                <MudText Typo="Typo.overline" Class="d-block">Nesta nota</MudText>
+                <div class="roteiro">
+                    @foreach (var (cab, i) in notaAberta.Nota.Analise.Cabecalhos.Select((c, i) => (c, i)))
+                    {
+                        if (cab.Nivel <= 1) { continue; }
+                        var indice = i;
+                        <MudLink Typo="Typo.body2" Class="roteiro-item d-block"
+                                 Style="@($"padding-left:{(cab.Nivel - 2) * 12}px")"
+                                 OnClick="@(() => IrAoCabecalhoAsync(indice))">@cab.Texto</MudLink>
                     }
                 </div>
             }
@@ -1031,6 +1054,25 @@
             Log.LogWarning(e, "Não consegui procurar menções para {Caminho}.", caminho.Valor);
         }
         await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// Rola a LEITURA até o título clicado no roteiro. Quem clica escrevendo é levado ao modo ler
+    /// primeiro — a leitura é onde o mapa da nota faz sentido. O índice é a posição do cabeçalho no
+    /// markdown; o JS ignora títulos de transclusão para os dois lados contarem igual (ver roteiro.js).
+    /// </summary>
+    private async Task IrAoCabecalhoAsync(int indice)
+    {
+        if (!_lendo)
+        {
+            await AoTrocarModoAsync(true);
+            StateHasChanged();
+            await Task.Delay(250);   // o HTML da leitura precisa pousar na página antes de rolar
+        }
+
+        var modulo = await JS.InvokeAsync<IJSObjectReference>("import", "./js/roteiro.js");
+        try { await modulo.InvokeVoidAsync("irAte", IdDaLeitura, indice); }
+        finally { await modulo.DisposeAsync(); }
     }
 
     /// <summary>Abre (criando se preciso) a nota diária de hoje. Ver NotaDiaria.</summary>

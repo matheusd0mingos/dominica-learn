@@ -17,6 +17,48 @@ public class RenderizadorMarkdigTests
                                   || string.Equals(c.Valor, alvo, StringComparison.OrdinalIgnoreCase))).Html;
     }
 
+    // —— CALLOUTS ———————————————————————————————————————————————————————————————————————
+    // A sintaxe "> [!warning]" do Obsidian. O risco: o marcador vazar cru no HTML, ou uma citação comum
+    // ganhar cara de aviso sem ninguém pedir.
+
+    [Fact]
+    public void Callout_de_aviso_ganha_a_classe_e_o_marcador_some()
+    {
+        var html = Render("> [!warning] Cuidado\n> O prazo é fatal.");
+
+        Assert.Contains("callout-atencao", html);
+        Assert.Contains("Cuidado", html);
+        Assert.DoesNotContain("[!warning]", html);
+    }
+
+    [Fact]
+    public void Callout_sem_titulo_nao_deixa_linha_vazia()
+    {
+        var html = Render("> [!tip]\n> Estude de manhã.");
+
+        Assert.Contains("callout-dica", html);
+        Assert.Contains("Estude de manhã.", html);
+        Assert.DoesNotContain("[!tip]", html);
+    }
+
+    [Fact]
+    public void Tipo_desconhecido_cai_em_info_em_vez_de_mostrar_o_colchete()
+    {
+        var html = Render("> [!zebra] Isso aqui\n> corpo");
+
+        Assert.Contains("callout-info", html);
+        Assert.DoesNotContain("[!zebra]", html);
+    }
+
+    [Fact]
+    public void Citacao_comum_continua_citacao_sem_classe_de_callout()
+    {
+        var html = Render("> Só uma citação de doutrina.");
+
+        Assert.DoesNotContain("callout", html);
+        Assert.Contains("<blockquote>", html);
+    }
+
     // —— SEGURANÇA ——————————————————————————————————————————————————————————————————————
     [Fact]
     public void Script_colado_na_nota_e_escapado_nao_executado()
