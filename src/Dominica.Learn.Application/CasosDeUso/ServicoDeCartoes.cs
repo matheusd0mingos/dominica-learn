@@ -11,6 +11,9 @@ namespace Dominica.Learn.Application.CasosDeUso;
 /// <summary>Quantos cartões vencidos uma matéria tem hoje — o número que decide por onde começar.</summary>
 public sealed record CartoesDaMateria(Materia Materia, int Vencidos, int Total);
 
+/// <summary>O estado de revisão de uma nota: quantos cartões ativos ela tem e quantos estão vencidos.</summary>
+public sealed record EstadoDeRevisaoDaNota(int Total, int Vencidos);
+
 /// <summary>
 /// A fila de hoje, e o que o teto diário segurou.
 ///
@@ -61,7 +64,7 @@ public sealed class ServicoDeCartoes(
     /// </summary>
     public async Task<FilaDeRevisao> FilaAsync(
         Materia? materia = null, Etiqueta? etiqueta = null, Etiqueta? etiqueta2 = null,
-        int limite = 100, CancellationToken ct = default)
+        int limite = 100, CaminhoNota? nota = null, CancellationToken ct = default)
     {
         var hoje = Hoje;
         var fila = new List<Cartao>();
@@ -90,11 +93,14 @@ public sealed class ServicoDeCartoes(
 
         foreach (var caminho in await CaminhosAsync(materia, ct))
         {
+            // POR NOTA: a fila de UMA nota — é o "revisar esta nota" da tela de leitura e do grafo. O
+            // recorte mais fino de todos, e o que liga o conhecimento escrito ao treino dele.
+            if (nota is not null && caminho != nota) continue;
             if (comEtiqueta is not null && !comEtiqueta.Contains(caminho)) continue;
-            var nota = await repositorio.LerAsync(caminho, ct);
-            if (nota is null) continue;
+            var arquivo = await repositorio.LerAsync(caminho, ct);
+            if (arquivo is null) continue;
 
-            foreach (var cartao in AnalisadorDeCartoes.Analisar(caminho, nota.Conteudo))
+            foreach (var cartao in AnalisadorDeCartoes.Analisar(caminho, arquivo.Conteudo))
             {
                 // O suspenso fica FORA da fila e fora da conta do teto: ele não é dívida de revisão nem
                 // consome cota — está guardado, não adiado.
@@ -316,6 +322,35 @@ public sealed class ServicoDeCartoes(
             .OrderByDescending(m => m.Vencidos)
             .ThenBy(m => m.Materia.Nome, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+    }
+
+    /// <summary>
+    /// O estado de revisão de CADA nota: quantos cartões, quantos vencidos. É o que pinta o grafo — nó
+    /// sem cartão, nó em dia, nó devendo — e o que transforma o desenho num mapa de dívida de memória.
+    /// Nota sem cartão nenhum fica FORA do dicionário: ausência é informação ("aqui nada foi treinado").
+    /// </summary>
+    public async Task<IReadOnlyDictionary<CaminhoNota, EstadoDeRevisaoDaNota>> EstadoPorNotaAsync(
+        CancellationToken ct = default)
+    {
+        var hoje = Hoje;
+        var estados = new Dictionary<CaminhoNota, EstadoDeRevisaoDaNota>();
+
+        foreach (var caminho in await CaminhosAsync(null, ct))
+        {
+            var nota = await repositorio.LerAsync(caminho, ct);
+            if (nota is null) continue;
+
+            var cartoes = AnalisadorDeCartoes.Analisar(caminho, nota.Conteudo);
+            if (cartoes.Count == 0) continue;
+
+            // Suspenso não conta como dívida: está guardado, não devendo — mesma regra da fila.
+            var ativos = cartoes.Where(c => !c.Suspenso).ToList();
+            if (ativos.Count == 0) continue;
+
+            estados[caminho] = new EstadoDeRevisaoDaNota(
+                ativos.Count, ativos.Count(c => c.AgendamentoOu(hoje).Vencido(hoje)));
+        }
+        return estados;
     }
 
     /// <summary>

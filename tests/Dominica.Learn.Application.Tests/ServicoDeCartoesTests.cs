@@ -82,6 +82,39 @@ public class ServicoDeCartoesTests
         Assert.True(await c.Cartoes.TemNotasDeErroAsync());
     }
 
+    // —— O RECORTE POR NOTA E O ESTADO DO GRAFO ——————————————————————————————————————
+
+    [Fact]
+    public async Task A_fila_recortada_por_nota_so_traz_os_cartoes_DELA()
+    {
+        // É o "revisar esta nota" da tela de leitura e do grafo — o recorte mais fino de todos.
+        var c = Montar();
+        var a = await Criar(c, "Direito/A.md", "# A\n\nDaqui::Sim\n");
+        await Criar(c, "Direito/B.md", "# B\n\nDeLá::Não\n");
+
+        var fila = await c.Cartoes.FilaAsync(nota: a);
+
+        Assert.Equal("Daqui", Assert.Single(fila.Cartoes).Frente);
+    }
+
+    [Fact]
+    public async Task O_estado_por_nota_conta_vencidos_e_ignora_suspensos_e_notas_sem_cartao()
+    {
+        // É o que pinta o grafo. Suspenso não é dívida; nota sem cartão fica fora do dicionário —
+        // ausência é informação ("aqui nada foi treinado"), não um zero.
+        var c = Montar();
+        var a = await Criar(c, "A.md", "# A\n\nUm::1\nDois::2\n");
+        await Criar(c, "Semcartao.md", "# Nada\n\nsó texto\n");
+        Assert.True((await c.Cartoes.SuspenderAsync(a, 3, true)).Ok);
+
+        var estado = await c.Cartoes.EstadoPorNotaAsync();
+
+        var deA = estado[a];
+        Assert.Equal(1, deA.Total);       // o suspenso saiu da conta
+        Assert.Equal(1, deA.Vencidos);    // inédito vence hoje
+        Assert.DoesNotContain(CaminhoNota.De("Semcartao.md"), estado.Keys);
+    }
+
     // —— A FILA ————————————————————————————————————————————————————————————————————
 
     [Fact]

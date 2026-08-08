@@ -861,6 +861,67 @@ public sealed partial class ServicoDeConhecimento(
     public async Task<IReadOnlyList<NoDeEtiqueta>> PainelDeEtiquetasAsync(CancellationToken ct = default) =>
         ArvoreDeEtiquetas.Montar(await indice.EtiquetasPorNotaAsync(ct));
 
+    // —— PARECIDAS AINDA NÃO LIGADAS ——————————————————————————————————————————————————
+    /// <summary>
+    /// As notas que falam do mesmo assunto que esta e ainda NÃO estão ligadas a ela — em nenhuma direção.
+    ///
+    /// É a peça que faltava para a conexão SURGIR em vez de depender de a pessoa lembrar: as menções não
+    /// ligadas pegam citação literal do nome, mas duas notas sobre o mesmo tema com palavras diferentes
+    /// passavam batidas uma pela outra para sempre. O parentesco aqui vem de dois sinais que já estão no
+    /// índice: ETIQUETAS EM COMUM (o que as duas SÃO) e ALVOS EM COMUM (as duas citarem as mesmas notas —
+    /// quem cita [[CTN]] e [[Decadência]] anda no mesmo terreno).
+    ///
+    /// SEM VARRER O VAULT: cada sinal é uma consulta pontual ao índice (notas por etiqueta, backlinks de
+    /// um alvo), então o custo acompanha o tamanho da NOTA, não o do vault — a mesma regra das menções.
+    /// </summary>
+    public async Task<IReadOnlyList<NotaParecida>> ParecidasAsync(
+        CaminhoNota caminho, int limite = 5, CancellationToken ct = default)
+    {
+        var alvo = await indice.ObterAsync(caminho, ct);
+        if (alvo is null) return [];
+
+        // Quem já está ligado (em qualquer direção) está fora: a lista existe para o que FALTA ligar.
+        var jaLigadas = new HashSet<CaminhoNota>((await indice.LigacoesDeAsync(caminho, ct))
+            .Where(l => l.Destino is not null).Select(l => l.Destino!));
+        jaLigadas.UnionWith((await indice.BacklinksAsync(caminho, ct)).Select(b => b.Origem));
+        jaLigadas.Add(caminho);
+
+        var pontos = new Dictionary<CaminhoNota, int>();
+        var motivos = new Dictionary<CaminhoNota, List<string>>();
+
+        void Somar(CaminhoNota quem, int quanto, string motivo)
+        {
+            if (jaLigadas.Contains(quem)) return;
+            pontos[quem] = pontos.GetValueOrDefault(quem) + quanto;
+            (motivos.TryGetValue(quem, out var m) ? m : motivos[quem] = []).Add(motivo);
+        }
+
+        // ETIQUETA EM COMUM pesa mais que alvo em comum: etiqueta é uma afirmação da pessoa sobre o que a
+        // nota É; citar a mesma nota pode ser coincidência de passagem.
+        foreach (var etiqueta in alvo.Etiquetas.Take(8))
+        {
+            foreach (var acerto in await indice.BuscarAsync(
+                         new ConsultaDeBusca { Etiqueta = etiqueta, Limite = 60 }, ct))
+                Somar(acerto.Nota.Caminho, 2, $"também tem {etiqueta}");
+        }
+
+        var saidas = (await indice.LigacoesDeAsync(caminho, ct))
+            .Where(l => l.Destino is not null).Select(l => l.Destino!).Distinct().Take(8);
+        foreach (var destino in saidas)
+        {
+            foreach (var b in await indice.BacklinksAsync(destino, ct))
+                Somar(b.Origem, 1, $"também cita {destino.Nome}");
+        }
+
+        return [.. pontos
+            .OrderByDescending(p => p.Value)
+            .ThenBy(p => p.Key.Valor, StringComparer.CurrentCultureIgnoreCase)
+            .Take(limite)
+            // Um motivo só, o mais forte: a lista explica POR QUE sugere, e três motivos empilhados numa
+            // linha de painel viram ruído — quem quiser o resto abre a nota.
+            .Select(p => new NotaParecida(p.Key, motivos[p.Key].First(), p.Value))];
+    }
+
     // —— MENÇÕES NÃO LIGADAS ————————————————————————————————————————————————————————
     /// <summary>
     /// As notas que citam esta pelo nome sem ligar para ela.
@@ -1052,3 +1113,9 @@ public static class ComoExplicar
 
 /// <summary>Uma menção não ligada, com a nota em que ela está.</summary>
 public sealed record MencaoEmNota(CaminhoNota Onde, string Titulo, Mencao Mencao);
+
+/// <summary>
+/// Uma nota parecida com a aberta e ainda não ligada a ela. O motivo é UM, o mais forte — a lista
+/// existe para explicar por que sugere, não para provar o parentesco por exaustão.
+/// </summary>
+public sealed record NotaParecida(CaminhoNota Caminho, string Motivo, int Pontos);

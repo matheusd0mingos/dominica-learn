@@ -26,7 +26,7 @@
         <MudText Typo="Typo.h6">
             @Titulo
         </MudText>
-        @if (_materia is not null || _etiqueta is not null || _etiqueta2 is not null)
+        @if (_materia is not null || _etiqueta is not null || _etiqueta2 is not null || _nota is not null)
         {
             <MudButton Size="Size.Small" Variant="Variant.Text" Href="revisar">Revisar tudo</MudButton>
         }
@@ -329,6 +329,15 @@
     /// </summary>
     [SupplyParameterFromQuery(Name = "e2")] public string? Etiqueta2Pedida { get; set; }
 
+    /// <summary>
+    /// O recorte mais fino: a fila de UMA nota — "revisar?nota=Direito/Prescrição.md". É o caminho que a
+    /// tela de leitura e o grafo usam para pular do conhecimento escrito direto ao treino dele. Caminho
+    /// inválido na URL degrada para a fila inteira, sem erro — mesma regra dos outros recortes.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "nota")] public string? NotaPedida { get; set; }
+
+    private CaminhoNota? _nota;
+
     private Materia? _materia;
     private Etiqueta? _etiqueta;
     private Etiqueta? _etiqueta2;
@@ -350,7 +359,7 @@
         _ => null,
     };
 
-    private string Titulo => (_materia, RotuloDasEtiquetas) switch
+    private string Titulo => _nota is not null ? $"Revisar — {_nota.Nome}" : (_materia, RotuloDasEtiquetas) switch
     {
         (not null, not null) => $"Revisar — {_materia.Rotulo} · {RotuloDasEtiquetas}",
         (not null, null) => $"Revisar — {_materia.Rotulo}",
@@ -392,6 +401,9 @@
         _materia = string.IsNullOrWhiteSpace(Nome) ? null : Materia.De(Uri.UnescapeDataString(Nome));
         _etiqueta = Etiqueta.TentarCriar(EtiquetaPedida);
         _etiqueta2 = Etiqueta.TentarCriar(Etiqueta2Pedida);
+        _nota = !string.IsNullOrWhiteSpace(NotaPedida)
+                && CaminhoNota.TentarCriar(NotaPedida, out var caminhoPedido, out _)
+            ? caminhoPedido : null;
         _revisados = 0;
         await CarregarAsync();
     }
@@ -498,7 +510,7 @@
     private async Task CarregarAsync()
     {
         _carregando = true;
-        var hoje = await Cartoes.FilaAsync(_materia, _etiqueta, _etiqueta2);
+        var hoje = await Cartoes.FilaAsync(_materia, _etiqueta, _etiqueta2, nota: _nota);
         _fila = hoje.Cartoes;
         _teto = hoje.Teto;
         _ineditosSegurados = hoje.IneditosSegurados;
@@ -685,7 +697,7 @@
             // é o ponto de errar. Por isso a fila é recarregada em vez de só avançar o índice.
             if (resposta == Resposta.Errei)
             {
-                _fila = (await Cartoes.FilaAsync(_materia)).Cartoes;
+                _fila = (await Cartoes.FilaAsync(_materia, nota: _nota)).Cartoes;
                 // ...mas não imediatamente: reencontrar o mesmo cartão no clique seguinte é decorar a
                 // resposta de dois segundos atrás, não lembrar. Ele vai para o fim da fila.
                 _fila = [.. _fila.Where(c => !(c.Nota.Equals(_atual.Nota) && c.Linha == _atual.Linha)),

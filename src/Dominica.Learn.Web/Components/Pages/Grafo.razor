@@ -12,6 +12,7 @@
 @implements IDisposable
 @implements IAsyncDisposable
 @inject ServicoDeConhecimento Conhecimento
+@inject ServicoDeCartoes Cartoes
 @inject EstadoDoTema Tema
 @inject NavigationManager Navegacao
 @inject ISnackbar Avisos
@@ -146,7 +147,12 @@
                 var no = _grafo.Nos[p.Indice];
                 if (_soOrfas && !no.Orfa) { continue; }
                 var atual = _centro is not null && no.Caminho.Equals(_centro);
-                var descricao = $"{no.Titulo} — {no.Materia.Rotulo} — {no.Grau} ligação(ões){(no.Orfa ? " · órfã" : "")}";
+                // A dívida de revisão do nó — o que transforma o desenho num mapa de "onde a memória
+                // está devendo". Nulo enquanto o estado carrega, e o grafo aparece sem esperar por ele.
+                var estado = _estado?.GetValueOrDefault(no.Caminho);
+                var devendo = estado is { Vencidos: > 0 };
+                var descricao = $"{no.Titulo} — {no.Materia.Rotulo} — {no.Grau} ligação(ões){(no.Orfa ? " · órfã" : "")}" +
+                                (devendo ? $" · {estado!.Vencidos} cartão(ões) vencido(s)" : "");
 
                 @* ALCANÇÁVEL POR TECLADO, e não só pelo mouse. Um "<g @onclick>" solto é invisível para
                    quem navega de Tab e para leitor de tela: o grafo inteiro — que é uma das duas telas
@@ -173,10 +179,14 @@
                        Dois sinais em canais separados: se a órfã disputasse a cor, um apagaria o outro. *@
                     @* O anel do foco de teclado. Só aparece com :focus-visible — ver app.css. *@
                     <circle class="anel-de-foco" cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio + 4.5)" />
+                    @* O ANEL agora tem TRÊS leituras, em canais que não brigam: a COR diz a dívida
+                       (vermelho = cartão vencido nesta nota), o TRAÇO diz a órfã (tracejado), e o anel
+                       cheio na cor do texto continua sendo o "você está aqui". É o que faz o grafo
+                       responder "onde a memória está devendo" sem parar de responder o resto. *@
                     <circle cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio)"
                             fill="@CorDa(no.Materia)"
-                            stroke="@(atual ? "var(--mud-palette-text-primary)" : no.Orfa ? CorDaOrfa : "none")"
-                            stroke-width="@(atual ? "2.5" : no.Orfa ? "2" : "0")"
+                            stroke="@(atual ? "var(--mud-palette-text-primary)" : devendo ? CorDaDivida : no.Orfa ? CorDaOrfa : "none")"
+                            stroke-width="@(atual ? "2.5" : devendo ? "2.5" : no.Orfa ? "2" : "0")"
                             stroke-dasharray="@(!atual && no.Orfa ? "3 2" : "")" />
                     @* Rótulo só onde ele CABE — ver RotulosDoGrafo. A regra antiga contava nós ("até 25,
                        rotule todos") e por isso enchia justamente o recorte mais apertado: o grafo de uma
@@ -235,6 +245,15 @@
                 Clique num ponto para abrir a nota. O desenho é determinístico: o mesmo vault sai igual
                 sempre, para que a memória espacial funcione.
             </MudText>
+            @* A DÍVIDA DE REVISÃO NA LEGENDA — é o que faz o grafo servir ao estudo, e não só à
+               contemplação: o anel vermelho aponta a nota devendo, o clique cai nela, e lá o botão
+               "Revisar esta nota" fecha o caminho grafo → conhecimento → treino. *@
+            @if (NotasDevendo > 0)
+            {
+                <MudText Typo="Typo.caption" Style="color:var(--mud-palette-error)">
+                    Anel vermelho = cartão vencido — @NotasDevendo nota(s) devendo revisão. Clique e revise dali.
+                </MudText>
+            }
         </div>
 
         @if (_visao.LigacoesParaFora > 0)
@@ -291,6 +310,27 @@
     private Materia? _filtrada => _visao.Filtrada;
 
     private static readonly string CorDaOrfa = "var(--mud-palette-warning)";
+
+    // Vermelho, e não âmbar: a órfã já é âmbar tracejada, e os dois sinais dizem coisas diferentes —
+    // órfã é "nunca conectei", dívida é "deixei de treinar". Cor distinta para pergunta distinta.
+    private static readonly string CorDaDivida = "var(--mud-palette-error)";
+
+    /// <summary>A dívida de revisão por nota. Nulo enquanto carrega — o grafo não espera por ela.</summary>
+    private IReadOnlyDictionary<CaminhoNota, EstadoDeRevisaoDaNota>? _estado;
+
+    private int NotasDevendo => _estado is null ? 0
+        : _grafo.Nos.Count(n => _estado.GetValueOrDefault(n.Caminho) is { Vencidos: > 0 });
+
+    /// <summary>
+    /// Carrega a dívida FORA do caminho do desenho: ela lê o vault inteiro, e segurar o grafo por causa
+    /// de um anel seria inverter as prioridades — primeiro o mapa, depois a camada de estudo sobre ele.
+    /// </summary>
+    private async Task CarregarEstadoAsync()
+    {
+        try { _estado = await Cartoes.EstadoPorNotaAsync(); }
+        catch { _estado = new Dictionary<CaminhoNota, EstadoDeRevisaoDaNota>(); }
+        await InvokeAsync(StateHasChanged);
+    }
 
     private string TituloDaPagina => (_centro, _filtrada) switch
     {
@@ -384,6 +424,7 @@
         var materia = string.IsNullOrWhiteSpace(MateriaPedida) ? null : Materia.De(MateriaPedida);
         _visao = await Conhecimento.GrafoAsync(_centro, _saltos, Largura, Altura, materia);
         _orfas = _grafo.Orfas.Count();
+        _ = CarregarEstadoAsync();
 
         // Slot por TAMANHO, não por ordem alfabética: as matérias que ocupam mais tela são as que mais
         // ganham em ser distinguíveis. "Sem matéria" nunca recebe cor — ela é ausência, e o cinza diz

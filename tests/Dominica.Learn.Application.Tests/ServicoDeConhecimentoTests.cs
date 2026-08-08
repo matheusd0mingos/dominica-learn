@@ -476,6 +476,54 @@ public class ServicoDeConhecimentoTests
         Assert.Contains("[[Prescrição|prescrição]]", c.Vault.Arquivos["Tributário.md"]);
     }
 
+    // —— PARECIDAS AINDA NÃO LIGADAS ——————————————————————————————————————————————————
+    // A conexão que SURGE: mesmas etiquetas ou mesmos alvos, sem link em nenhuma direção. O risco é
+    // sugerir o que já está ligado (ruído) ou a própria nota (absurdo).
+
+    [Fact]
+    public async Task Parecida_por_etiqueta_em_comum_aparece_com_o_motivo()
+    {
+        var c = Montar();
+        await Criar(c, "Direito/Prescrição.md", "# Prescrição\n\n#prazo\n");
+        await Criar(c, "Tributário/Decadência.md", "# Decadência\n\n#prazo\n");
+        await Criar(c, "Português/Crase.md", "# Crase\n\nnada a ver\n");
+
+        var parecidas = await c.Conhecimento.ParecidasAsync(CaminhoNota.De("Direito/Prescrição.md"));
+
+        var unica = Assert.Single(parecidas);
+        Assert.Equal("Tributário/Decadência.md", unica.Caminho.Valor);
+        Assert.Contains("#prazo", unica.Motivo);
+    }
+
+    [Fact]
+    public async Task Quem_ja_esta_ligado_em_qualquer_direcao_fica_fora()
+    {
+        var c = Montar();
+        // B é parecida MAS já ligada daqui; C é parecida MAS já aponta para cá. Sobrar alguma seria
+        // sugerir a conexão que já existe — a lista viraria eco do que a pessoa já fez.
+        await Criar(c, "A.md", "# A\n\n#prazo\n\nver [[B]]\n");
+        await Criar(c, "B.md", "# B\n\n#prazo\n");
+        await Criar(c, "C.md", "# C\n\n#prazo\n\nver [[A]]\n");
+
+        Assert.Empty(await c.Conhecimento.ParecidasAsync(CaminhoNota.De("A.md")));
+    }
+
+    [Fact]
+    public async Task Citar_os_mesmos_alvos_tambem_aproxima()
+    {
+        var c = Montar();
+        await Criar(c, "CTN.md", "# CTN\n");
+        await Criar(c, "A.md", "# A\n\nver [[CTN]]\n");
+        await Criar(c, "B.md", "# B\n\ntambém sobre o [[CTN]]\n");
+
+        var parecidas = await c.Conhecimento.ParecidasAsync(CaminhoNota.De("A.md"));
+
+        // CTN não aparece (já ligada); B aparece porque anda no mesmo terreno.
+        var unica = Assert.Single(parecidas);
+        Assert.Equal("B.md", unica.Caminho.Valor);
+        Assert.Contains("CTN", unica.Motivo);
+    }
+
     // —— RENDERIZAR: A TRANSCLUSÃO ————————————————————————————————————————————————————
     //
     // O renderizador é síncrono e não lê nota; quem lê é a aplicação, ANTES, e entrega por função. O que

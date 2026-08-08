@@ -470,7 +470,21 @@
                analisador que monta a fila, então o que aparece aqui é exatamente o que vai ser revisado. *@
             @if (_cartoes.Count > 0)
             {
+                var hoje = DateOnly.FromDateTime(DateTime.Today);
+                var vencidos = _cartoes.Count(c => !c.Suspenso && c.AgendamentoOu(hoje).Vencido(hoje));
                 <MudText Typo="Typo.overline" Class="mt-4 d-block">Cartões desta nota (@_cartoes.Count)</MudText>
+
+                @* O TREINO A UM CLIQUE DO TEXTO. A nota que tem cartão vencido diz isso AQUI, onde o
+                   conhecimento mora, e o botão cai na fila recortada só desta nota — é a ponte
+                   conhecimento → treino que faltava para a leitura não ser um fim em si. *@
+                @if (vencidos > 0 && _aberta is not null)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Class="mb-1"
+                               StartIcon="@Icons.Material.Filled.Style"
+                               Href="@($"revisar?nota={Uri.EscapeDataString(_aberta.Nota.Caminho.Valor)}")">
+                        Revisar esta nota (@vencidos vencido@(vencidos == 1 ? "" : "s"))
+                    </MudButton>
+                }
                 @* O SUSPENSO PRECISA APARECER AQUI, ou suspender vira apagar: fora da fila e fora desta
                    lista, ele não existe em lugar nenhum da interface, e a promessa de que dá para
                    voltar atrás fica sem como ser cumprida. *@
@@ -536,6 +550,30 @@
                     }
                 }
             }
+
+            @* —— PARECIDAS, AINDA NÃO LIGADAS ——
+
+               A conexão que SURGE em vez de esperar você lembrar. As menções pegam citação literal do
+               nome; isto pega o parentesco que não citou ninguém — mesmas etiquetas, mesmos alvos — e
+               oferece o link pronto. É a essência do vault: a estrutura emergindo do que você escreve,
+               com a máquina apontando o encontro que ainda não aconteceu. *@
+            @if (_aberta is not null && _parecidas is { Count: > 0 })
+            {
+                <MudText Typo="Typo.overline" Class="mt-4 d-block">Parecidas — ainda não ligadas</MudText>
+                @foreach (var p in _parecidas)
+                {
+                    <div class="mencao">
+                        <MudLink Typo="Typo.body2" Class="mencao-nota" data-previa="@p.Caminho.Valor"
+                                 OnClick="@(() => Ir(p.Caminho))">@p.Caminho.Nome</MudLink>
+                        @* O MOTIVO É OBRIGATÓRIO: sugestão sem porquê é a máquina mandando, com porquê é
+                           ela mostrando o que viu — e a pessoa decide. *@
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">@p.Motivo</MudText>
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                                   Disabled="_ligando"
+                                   OnClick="@(() => LigarParecidaAsync(p))">Ligar</MudButton>
+                    </div>
+                }
+            }
         </MudPaper>
     </MudItem>
     }
@@ -559,6 +597,9 @@
     private IReadOnlyList<MateriaContada> _materias = [];
     private IReadOnlyList<EtiquetaContada> _etiquetas = [];
     private IReadOnlyList<MencaoEmNota>? _mencoes;
+
+    /// <summary>Parecidas ainda não ligadas — nulo enquanto procura, vazio quando não há.</summary>
+    private IReadOnlyList<NotaParecida>? _parecidas;
     private IReadOnlyList<Cartao> _cartoes = [];
     private bool _ligando;
 
@@ -926,7 +967,9 @@
         AtualizarEtiquetasDaNota();
 
         _mencoes = null;
+        _parecidas = null;
         _ = CarregarMencoesAsync(caminho);
+        _ = CarregarParecidasAsync(caminho);
         _ = CarregarSugestoesDeEtiquetaAsync(caminho);
     }
 
@@ -978,6 +1021,55 @@
             Log.LogWarning(e, "Não consegui procurar menções para {Caminho}.", caminho.Valor);
         }
         await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// Procura as parecidas ainda não ligadas. Roda solta como as menções, e pela mesma razão: painel
+    /// lateral não pode segurar a abertura da nota. Mesma conferência de caminho no fim.
+    /// </summary>
+    private async Task CarregarParecidasAsync(CaminhoNota caminho)
+    {
+        try
+        {
+            var achadas = await Conhecimento.ParecidasAsync(caminho);
+            if (_aberta?.Nota.Caminho != caminho) return;
+            _parecidas = achadas;
+        }
+        catch (Exception e)
+        {
+            _parecidas = [];
+            Log.LogWarning(e, "Não consegui procurar parecidas para {Caminho}.", caminho.Valor);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// Liga a nota aberta à parecida sugerida — a conexão que a máquina viu, aceita num clique. Reabre
+    /// para o painel refletir o que foi gravado (a parecida sai da lista e entra nas Relacionadas).
+    /// </summary>
+    private async Task LigarParecidaAsync(NotaParecida p)
+    {
+        if (_aberta is null || _ligando) return;
+        var aberta = _aberta.Nota.Caminho;
+
+        _ligando = true;
+        try
+        {
+            var r = await Conhecimento.LigarAsync(aberta, p.Caminho);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui ligar.", Severity.Warning);
+                return;
+            }
+            Avisos.Add(r.Valor!.JaHavia
+                ? $"{aberta.Nome} já apontava para {p.Caminho.Nome}."
+                : $"Escrevi \"{r.Valor.Linha}\" em {aberta.Nome}.", Severity.Success);
+            await AbrirAsync(aberta);
+        }
+        finally
+        {
+            _ligando = false;
+        }
     }
 
     /// <summary>
