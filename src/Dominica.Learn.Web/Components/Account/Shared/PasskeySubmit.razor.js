@@ -4,6 +4,14 @@
     typeof window.PublicKeyCredential.parseCreationOptionsFromJSON === 'function' &&
     typeof window.PublicKeyCredential.parseRequestOptionsFromJSON === 'function';
 
+// SEM BARRA INICIAL, e isto não é estilo. Este arquivo veio do andaime do Identity, que supõe o app na
+// raiz do domínio. Aqui ele é servido em /private/dominica-learn, e "/Account/PasskeyCreationOptions"
+// aponta para a RAIZ do domínio: a rota até casa (o roteamento compara o que sobra depois do
+// UsePathBase), mas o COOKIE de antiforgery é escopado no sub-caminho e não é enviado para fora dele —
+// então toda tentativa morria com 500 "antiforgery cookie is not present", e nenhum passkey funcionava.
+//
+// Sem a barra, o fetch resolve contra a <base href> da página, que já aponta para o sub-caminho certo.
+// É a mesma regra que Rotas.cs impõe do lado do C#, e o mesmo defeito que ela existe para evitar.
 async function fetchWithErrorHandling(url, options = {}) {
     const response = await fetch(url, {
         credentials: 'include',
@@ -18,7 +26,7 @@ async function fetchWithErrorHandling(url, options = {}) {
 }
 
 async function createCredential(headers, signal) {
-    const optionsResponse = await fetchWithErrorHandling('/Account/PasskeyCreationOptions', {
+    const optionsResponse = await fetchWithErrorHandling('Account/PasskeyCreationOptions', {
         method: 'POST',
         headers,
         signal,
@@ -29,7 +37,7 @@ async function createCredential(headers, signal) {
 }
 
 async function requestCredential(email, mediation, headers, signal) {
-    const optionsResponse = await fetchWithErrorHandling(`/Account/PasskeyRequestOptions?username=${email}`, {
+    const optionsResponse = await fetchWithErrorHandling(`Account/PasskeyRequestOptions?username=${email}`, {
         method: 'POST',
         headers,
         signal,

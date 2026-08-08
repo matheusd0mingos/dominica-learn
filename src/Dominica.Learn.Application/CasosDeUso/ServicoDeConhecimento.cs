@@ -342,53 +342,17 @@ public sealed class ServicoDeConhecimento(
     /// quem mais precisa de sugestão: uma nota nova não tem com o que coocorrer, e uma caixa vazia ali
     /// ensinaria que este bloco não serve para nada.
     /// </summary>
+    /// <remarks>
+    /// A REGRA MORA NO DOMÍNIO (<see cref="SugestaoDeEtiquetas"/>): o que conta como parente, como se
+    /// ordena e o que fazer quando não há parente nenhum são decisões, e decisão sem teste muda sozinha.
+    /// Aqui sobra o que é de aplicação: buscar as etiquetas de cada nota e montar o grafo.
+    /// </remarks>
     public async Task<IReadOnlyList<EtiquetaSugerida>> SugerirEtiquetasAsync(
         IReadOnlyCollection<Etiqueta> jaTem, int limite = 6, CancellationToken ct = default)
     {
-        ArgumentNullException.ThrowIfNull(jaTem);
-
         var porNota = await indice.EtiquetasPorNotaAsync(ct);
         var (nos, pares) = GrafoDeEtiquetas.Montar(porNota);
-        if (nos.Count == 0) return [];
-
-        var tem = jaTem.ToHashSet();
-
-        // Para cada etiqueta que a nota NÃO tem, quantas notas ela divide com as que a nota tem. Somar
-        // os pesos (em vez de contar vizinhas) é o que faz "#decorar, que anda com #tributário em 8
-        // notas" ganhar de "#teclado, que dividiu uma nota com ela uma única vez".
-        var peso = new Dictionary<Etiqueta, int>();
-        foreach (var p in pares)
-        {
-            var a = nos[p.De].Etiqueta;
-            var b = nos[p.Para].Etiqueta;
-
-            if (tem.Contains(a) && !tem.Contains(b)) peso[b] = peso.GetValueOrDefault(b) + p.Peso;
-            else if (tem.Contains(b) && !tem.Contains(a)) peso[a] = peso.GetValueOrDefault(a) + p.Peso;
-        }
-
-        var sugeridas = peso
-            .OrderByDescending(x => x.Value)
-            .ThenBy(x => x.Key.Valor, StringComparer.Ordinal)   // desempate estável
-            .Take(limite)
-            .Select(x => new EtiquetaSugerida(x.Key, x.Value, PorCoocorrencia: true))
-            .ToList();
-
-        // COMPLETA COM AS MAIS USADAS quando a coocorrência não enche a lista — e some com o bloco só
-        // quando não houver NADA a oferecer. O buraco que isto tapa apareceu no navegador: uma nota cujas
-        // etiquetas são todas exclusivas dela não coocorre com nada, e o bloco simplesmente sumia —
-        // exatamente na nota mais isolada do vault, que é a que mais precisa de um caminho de volta.
-        if (sugeridas.Count < limite)
-        {
-            var jaOferecidas = sugeridas.Select(s => s.Etiqueta).ToHashSet();
-            sugeridas.AddRange(nos
-                .Where(n => !tem.Contains(n.Etiqueta) && !jaOferecidas.Contains(n.Etiqueta) && n.Notas > 1)
-                .OrderByDescending(n => n.Notas)
-                .ThenBy(n => n.Etiqueta.Valor, StringComparer.Ordinal)
-                .Take(limite - sugeridas.Count)
-                .Select(n => new EtiquetaSugerida(n.Etiqueta, n.Notas, PorCoocorrencia: false)));
-        }
-
-        return sugeridas;
+        return SugestaoDeEtiquetas.Para(nos, pares, jaTem, limite);
     }
 
     // —— LIGAR DUAS NOTAS ——————————————————————————————————————————————————————————————
@@ -845,18 +809,14 @@ public sealed record SugestaoDeLigacao(string Nome, string Pasta, string Inserca
 public sealed record SugestaoDeEtiqueta(string Valor, string Uso);
 
 /// <summary>
-/// Uma etiqueta oferecida à nota aberta.
-///
-/// <see cref="PorCoocorrencia"/> separa duas coisas que pareceriam iguais na tela e não são: quando é
-/// coocorrência, <see cref="Peso"/> é "em quantas notas ela divide espaço com o que esta nota já tem";
-/// quando não é — nota sem etiqueta nenhuma —, é só "em quantas notas do vault ela aparece". Mostrar os
-/// dois números com a mesma frase faria a tela mentir sobre o que ela sabe.
+/// A frase que a tela mostra para uma etiqueta sugerida. Fica aqui, e não no domínio, porque é texto de
+/// interface: o domínio decide o PESO e o motivo; como isso vira português é da camada de fora.
 /// </summary>
-public sealed record EtiquetaSugerida(Etiqueta Etiqueta, int Peso, bool PorCoocorrencia)
+public static class ComoExplicar
 {
-    public string Explicacao => PorCoocorrencia
-        ? Peso == 1 ? "divide 1 nota com as desta" : $"divide {Peso} notas com as desta"
-        : Peso == 1 ? "1 nota" : $"{Peso} notas";
+    public static string A(EtiquetaSugerida s) => s.PorCoocorrencia
+        ? s.Peso == 1 ? "divide 1 nota com as desta" : $"divide {s.Peso} notas com as desta"
+        : s.Peso == 1 ? "1 nota" : $"{s.Peso} notas";
 }
 
 /// <summary>Uma menção não ligada, com a nota em que ela está.</summary>

@@ -4,6 +4,7 @@
 @using Dominica.Learn.Application.CasosDeUso
 @using Dominica.Learn.Application.Portas
 @using Dominica.Learn.Domain.Analise
+@using Dominica.Learn.Domain.Grafo
 @using Dominica.Learn.Domain.Anexos
 @using Dominica.Learn.Domain.Cartoes
 @using Dominica.Learn.Domain.Vault
@@ -387,7 +388,7 @@
                     @foreach (var s in _sugestoesDeEtiqueta)
                     {
                         <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Default"
-                                 Disabled="_etiquetando" title="@s.Explicacao"
+                                 Disabled="_etiquetando" title="@ComoExplicar.A(s)"
                                  OnClick="@(() => PorEtiquetaAsync(s.Etiqueta.Valor))">
                             + @s.Etiqueta.ToString()
                         </MudChip>
