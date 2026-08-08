@@ -1028,6 +1028,33 @@ public sealed partial class ServicoDeConhecimento(
             .Select(p => new NotaParecida(p.Key, motivos[p.Key].First(), p.Value))];
     }
 
+    // —— BACKLINKS COM O TRECHO ——————————————————————————————————————————————————————
+    /// <summary>
+    /// Os backlinks de uma nota COM a frase em volta de cada citação — a metade que faltava para o
+    /// painel dizer COMO as outras notas apontam para cá, e não só QUE apontam. Ver TrechoDaLigacao.
+    /// Lê cada nota de origem uma vez (agrupado), fora do caminho de abertura — quem chama é o painel
+    /// lateral, depois que a nota já está na tela.
+    /// </summary>
+    public async Task<IReadOnlyList<BacklinkComTrecho>> BacklinksComTrechoAsync(
+        CaminhoNota caminho, int trechosPorNota = 3, CancellationToken ct = default)
+    {
+        var backlinks = await indice.BacklinksAsync(caminho, ct);
+        var resultado = new List<BacklinkComTrecho>();
+
+        foreach (var grupo in backlinks.Where(b => !b.EhInterna).GroupBy(b => b.Origem))
+        {
+            var nota = await repositorio.LerAsync(grupo.Key, ct);
+            if (nota is null) continue;
+
+            // Até N trechos por nota de origem: quem cita cinco vezes tem cinco frases, mas o painel é
+            // um resumo — as três primeiras dizem o suficiente para decidir se vale abrir.
+            foreach (var l in grupo.OrderBy(l => l.Posicao).Take(trechosPorNota))
+                resultado.Add(new BacklinkComTrecho(grupo.Key,
+                    TrechoDaLigacao.EmVolta(nota.Conteudo, l.Posicao, l.Alvo.Length + 4)));
+        }
+        return resultado;
+    }
+
     // —— MENÇÕES NÃO LIGADAS ————————————————————————————————————————————————————————
     /// <summary>
     /// As notas que citam esta pelo nome sem ligar para ela.
@@ -1224,6 +1251,9 @@ public static class ComoExplicar
 
 /// <summary>Uma menção não ligada, com a nota em que ela está.</summary>
 public sealed record MencaoEmNota(CaminhoNota Onde, string Titulo, Mencao Mencao);
+
+/// <summary>Um backlink com a frase em volta da citação — a metade que faz o painel dizer COMO apontam.</summary>
+public sealed record BacklinkComTrecho(CaminhoNota Origem, string Trecho);
 
 /// <summary>
 /// Uma nota parecida com a aberta e ainda não ligada a ela. O motivo é UM, o mais forte — a lista

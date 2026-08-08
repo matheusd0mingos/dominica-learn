@@ -87,3 +87,44 @@ public class NotaIndiceTests
         Assert.Contains("- [[Direito/Decadência]]", texto);
     }
 }
+
+/// <summary>
+/// O trecho é o que faz um backlink dizer COMO a outra nota aponta. O risco é de recorte: atravessar a
+/// linha juntaria frases de parágrafos distintos numa "frase" que ninguém escreveu.
+/// </summary>
+public class TrechoDaLigacaoTests
+{
+    [Fact]
+    public void O_trecho_traz_a_frase_em_volta_da_ligacao()
+    {
+        var conteudo = "# Nota\n\nO prazo corre conforme [[Prescrição]], salvo suspensão.\n";
+        var posicao = conteudo.IndexOf("[[", StringComparison.Ordinal);
+
+        var trecho = Dominica.Learn.Domain.Ligacoes.TrechoDaLigacao.EmVolta(conteudo, posicao, 15);
+
+        Assert.Contains("[[Prescrição]]", trecho);
+        Assert.Contains("O prazo corre", trecho);
+        Assert.DoesNotContain("# Nota", trecho);   // não atravessa a linha
+    }
+
+    [Fact]
+    public void Linha_longa_ganha_reticencias_nas_pontas()
+    {
+        var enchimento = new string('a', 200);
+        var conteudo = enchimento + " antes [[X]] depois " + enchimento;
+        var posicao = conteudo.IndexOf("[[", StringComparison.Ordinal);
+
+        var trecho = Dominica.Learn.Domain.Ligacoes.TrechoDaLigacao.EmVolta(conteudo, posicao, 5);
+
+        Assert.StartsWith("…", trecho);
+        Assert.EndsWith("…", trecho);
+        Assert.Contains("[[X]]", trecho);
+    }
+
+    [Fact]
+    public void Conteudo_vazio_ou_posicao_fora_nao_estouram()
+    {
+        Assert.Equal(string.Empty, Dominica.Learn.Domain.Ligacoes.TrechoDaLigacao.EmVolta("", 10, 5));
+        Assert.Contains("fim", Dominica.Learn.Domain.Ligacoes.TrechoDaLigacao.EmVolta("fim", 99, 5));
+    }
+}

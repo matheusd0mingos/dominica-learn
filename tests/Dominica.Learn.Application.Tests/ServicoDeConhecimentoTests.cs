@@ -476,6 +476,22 @@ public class ServicoDeConhecimentoTests
         Assert.Contains("[[Prescrição|prescrição]]", c.Vault.Arquivos["Tributário.md"]);
     }
 
+    // —— BACKLINKS COM O TRECHO ——————————————————————————————————————————————————————
+
+    [Fact]
+    public async Task Backlinks_vem_com_a_frase_em_volta_da_citacao()
+    {
+        var c = Montar();
+        await Criar(c, "Prescrição.md", "# Prescrição\n");
+        await Criar(c, "Licitações.md", "# Licitações\n\nO prazo corre conforme [[Prescrição]], salvo suspensão.\n");
+
+        var trechos = await c.Conhecimento.BacklinksComTrechoAsync(CaminhoNota.De("Prescrição.md"));
+
+        var unico = Assert.Single(trechos);
+        Assert.Equal("Licitações.md", unico.Origem.Valor);
+        Assert.Contains("O prazo corre conforme [[Prescrição]]", unico.Trecho);
+    }
+
     // —— COMPLETAR LIGAÇÃO: O CRIVO CONTÍGUO —————————————————————————————————————————
 
     [Fact]

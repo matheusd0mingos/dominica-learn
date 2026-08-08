@@ -462,13 +462,22 @@
             }
             else
             {
-                @* Uma nota que cita esta cinco vezes é UMA nota que aponta para cá. Listar cinco linhas
-                   iguais não acrescenta informação nenhuma e esconde as outras origens abaixo delas. *@
+                @* CADA ORIGEM COM A FRASE DA CITAÇÃO — "Licitações aponta para cá" é metade da
+                   informação; "o prazo corre conforme [[Prescrição]]" é a conexão inteira, sem abrir a
+                   outra nota. Os trechos chegam DEPOIS (leem as notas de origem, fora do caminho de
+                   abertura); enquanto isso a lista de nomes já serve. Ver TrechoDaLigacao. *@
                 <MudList T="string" Dense="true">
-                    @foreach (var origem in _aberta.Backlinks.Select(b => b.Origem).Distinct())
+                    @foreach (var origem in _aberta.Backlinks.Where(b => !b.EhInterna).Select(b => b.Origem).Distinct())
                     {
                         <MudListItem T="string" OnClick="@(() => Ir(origem))">
                             <MudText Typo="Typo.body2">@origem.Nome</MudText>
+                            @if (_trechosDosBacklinks is { } trechos)
+                            {
+                                @foreach (var t in trechos.Where(t => t.Origem == origem).Take(3))
+                                {
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">@t.Trecho</MudText>
+                                }
+                            }
                         </MudListItem>
                     }
                 </MudList>
@@ -633,6 +642,26 @@
 
     /// <summary>Parecidas ainda não ligadas — nulo enquanto procura, vazio quando não há.</summary>
     private IReadOnlyList<NotaParecida>? _parecidas;
+
+    /// <summary>A frase de cada citação dos backlinks — nula enquanto carrega; a lista de nomes já serve.</summary>
+    private IReadOnlyList<BacklinkComTrecho>? _trechosDosBacklinks;
+
+    /// <summary>Busca as frases dos backlinks fora do caminho de abertura — mesma regra das menções.</summary>
+    private async Task CarregarTrechosDosBacklinksAsync(CaminhoNota caminho)
+    {
+        try
+        {
+            var trechos = await Conhecimento.BacklinksComTrechoAsync(caminho);
+            if (_aberta?.Nota.Caminho != caminho) return;
+            _trechosDosBacklinks = trechos;
+        }
+        catch (Exception e)
+        {
+            _trechosDosBacklinks = [];
+            Log.LogWarning(e, "Não consegui montar os trechos dos backlinks de {Caminho}.", caminho.Valor);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
     private IReadOnlyList<Cartao> _cartoes = [];
     private bool _ligando;
 
@@ -1001,8 +1030,10 @@
 
         _mencoes = null;
         _parecidas = null;
+        _trechosDosBacklinks = null;
         _ = CarregarMencoesAsync(caminho);
         _ = CarregarParecidasAsync(caminho);
+        _ = CarregarTrechosDosBacklinksAsync(caminho);
         _ = CarregarSugestoesDeEtiquetaAsync(caminho);
     }
 
