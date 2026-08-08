@@ -476,6 +476,32 @@ public class ServicoDeConhecimentoTests
         Assert.Contains("[[Prescrição|prescrição]]", c.Vault.Arquivos["Tributário.md"]);
     }
 
+    // —— COMPLETAR LIGAÇÃO: O CRIVO CONTÍGUO —————————————————————————————————————————
+
+    [Fact]
+    public async Task Completar_ligacao_nao_sugere_casamento_de_subsequencia_com_buraco()
+    {
+        // "Deca" NÃO pode trazer "Lei 6.404 — o que cai de contabilidade" (d-e…c-a com buraco): aceitar
+        // sugestão escreve link no arquivo, e um palpite fraco linka a nota errada sem ninguém ver.
+        var c = Montar();
+        await Criar(c, "Lei 6.404 — o que cai de contabilidade.md", "# Lei\n");
+        await Criar(c, "Tributário/Decadência.md", "# Decadência\n");
+
+        var sugestoes = await c.Conhecimento.ParaCompletarLigacaoAsync("Deca");
+
+        var unica = Assert.Single(sugestoes);
+        Assert.Equal("Decadência", unica.Nome);
+    }
+
+    [Fact]
+    public async Task Sem_casamento_contiguo_a_lista_vem_vazia_e_o_editor_oferece_criar()
+    {
+        var c = Montar();
+        await Criar(c, "Lei 6.404 — o que cai de contabilidade.md", "# Lei\n");
+
+        Assert.Empty(await c.Conhecimento.ParaCompletarLigacaoAsync("Deca"));
+    }
+
     // —— NOTA DIÁRIA, CAPTURA E NOTA-ÍNDICE ——————————————————————————————————————————
 
     [Fact]

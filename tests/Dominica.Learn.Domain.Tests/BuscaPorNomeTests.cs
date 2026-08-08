@@ -134,4 +134,30 @@ public class BuscaPorNomeTests
 
         Assert.Equal("Direito/Licitações.md", r[0].Texto);
     }
+
+    // —— O CRIVO CONTÍGUO DO COMPLETAR DE LIGAÇÃO ————————————————————————————————————
+    // Aceitar sugestão de "[[" escreve no arquivo: o crivo é mais duro que a busca solta de propósito.
+
+    [Fact]
+    public void Subsequencia_com_buraco_NAO_passa_no_crivo_contiguo()
+    {
+        // O caso real que motivou o crivo: "deca" casava por subsequência com "…cai DE Contabilidade"
+        // e o Enter linkava a nota errada.
+        Assert.False(BuscaPorNome.ContemTrecho("deca", "Lei 6.404 — o que cai de contabilidade.md"));
+        Assert.True(BuscaPorNome.ContemTrecho("deca", "Tributário/Decadência.md"));
+    }
+
+    [Fact]
+    public void O_crivo_ignora_acento_e_caixa()
+    {
+        Assert.True(BuscaPorNome.ContemTrecho("prescricao", "Direito/Prescrição.md"));
+        Assert.True(BuscaPorNome.ContemTrecho("LICIT", "Direito/Licitações.md"));
+    }
+
+    [Fact]
+    public void Termo_vazio_passa_e_e_o_estado_da_lista_de_recentes()
+    {
+        Assert.True(BuscaPorNome.ContemTrecho("", "Qualquer.md"));
+        Assert.True(BuscaPorNome.ContemTrecho(null, "Qualquer.md"));
+    }
 }

@@ -1142,7 +1142,12 @@ public sealed partial class ServicoDeConhecimento(
         else
         {
             var porCaminho = todos.ToDictionary(c => c.Valor, c => c, StringComparer.Ordinal);
-            escolhidos = BuscaPorNome.Ordenar(termo, porCaminho.Keys)
+            // O CRIVO CONTÍGUO ANTES DA ORDENAÇÃO. Aceitar uma sugestão daqui ESCREVE um link no
+            // arquivo — precisão vale mais que alcance. Por subsequência pura, "deca" casava com
+            // "o que cai DE Contabilidade" e o Enter linkava a nota errada. Ver BuscaPorNome.ContemTrecho;
+            // o abridor rápido continua com a busca solta, porque lá errar custa só um Esc.
+            escolhidos = BuscaPorNome.Ordenar(termo,
+                    porCaminho.Keys.Where(c => BuscaPorNome.ContemTrecho(termo, c)))
                 .Take(limite)
                 .Select(a => porCaminho[a.Texto]);
         }

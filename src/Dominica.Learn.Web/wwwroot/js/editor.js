@@ -333,9 +333,20 @@ function dentroDeBlocoDeCodigo(cm, ate) {
 
 const completarLigacao = (ouvinte) => ({
   contexto: contextoDeLigacao,
-  buscar: (termo) => ouvinte.invokeMethodAsync('AoCompletarLigacao', termo),
+  // Depois das sugestões reais, a saída que o Obsidian ensinou: CRIAR. Quando a nota que a pessoa quer
+  // não existe (ou nada casa), o Enter não pode linkar um palpite — ele oferece "[[termo]]" como link
+  // por escrever, que é exatamente o que a coluna "Ainda por escrever" sabe transformar em nota depois.
+  buscar: (termo) => ouvinte.invokeMethodAsync('AoCompletarLigacao', termo).then((r) => {
+    const lista = r ?? []
+    const t = (termo ?? '').trim()
+    if (t.length >= 2 && !lista.some((s) => (s.nome ?? '').toLowerCase() === t.toLowerCase()))
+      lista.push({ criar: true, nome: t, pasta: null, insercao: t })
+    return lista
+  }),
   // A pasta é o que separa duas notas de mesmo nome; sem ela, escolher entre duas linhas iguais é sorte.
-  item: (s) => ({ principal: s.nome, secundario: s.pasta }),
+  item: (s) => s.criar
+    ? { principal: `Criar “${s.nome}”`, secundario: 'ainda por escrever' }
+    : { principal: s.nome, secundario: s.pasta },
   texto: (s) => `[[${s.insercao}]]`,
 })
 

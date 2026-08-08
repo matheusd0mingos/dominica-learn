@@ -137,6 +137,23 @@ public static class BuscaPorNome
     private static bool EhSeparador(char c) => c is ' ' or '/' or '-' or '_' or '.';
 
     /// <summary>
+    /// O termo aparece INTEIRO E CONTÍGUO no candidato (sem acento, sem caixa)?
+    ///
+    /// É o crivo do completar de ligação, e ele é mais exigente que o <see cref="Ordenar"/> de
+    /// propósito: o abridor rápido só NAVEGA — um palpite ruim custa um Esc — mas aceitar uma sugestão
+    /// de "[[" ESCREVE um link no arquivo. Por subsequência, "deca" casava com "o que cai DE
+    /// Contabilidade" (d-e…c-a com buraco no meio) e o Enter linkava a nota errada sem ninguém
+    /// perceber. Contíguo, "deca" só casa com quem tem "deca" de verdade — "Decadência".
+    /// Termo vazio passa: é o estado de quem acabou de abrir o "[[", e ali a lista de recentes vale.
+    /// </summary>
+    public static bool ContemTrecho(string? termo, string candidato)
+    {
+        ArgumentNullException.ThrowIfNull(candidato);
+        var busca = SemAcento(termo?.Trim() ?? string.Empty);
+        return busca.Length == 0 || SemAcento(candidato).Contains(busca, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Tira acento e caixa. "Português" → "portugues". Decompor e jogar fora os diacríticos é o que
     /// faz "portugues" achar "Português" sem uma tabela de substituições para manter.
     /// </summary>
