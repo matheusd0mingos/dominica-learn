@@ -88,6 +88,11 @@
         @* Os controles de zoom são visíveis, e não só a roda do mouse: um gesto que não deixa rastro
            na tela é um gesto que metade das pessoas nunca descobre — e quem está no celular não tem
            roda nenhuma. *@
+        @* A SAÍDA DO DESENHO, para quem está no teclado. Cada ponto é uma parada do Tab, e num vault de
+           anos são centenas — sem isto, chegar à legenda logo abaixo custaria centenas de teclas.
+           Invisível até receber foco: é uma escada de incêndio, não um botão. *@
+        <a class="pular-grafo" href="#depois-do-grafo">Pular o grafo</a>
+
         <div class="grafo-controles">
             <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add"
                            aria-label="Aproximar" OnClick="@(() => ZoomAsync(true))" />
@@ -126,14 +131,30 @@
                 var no = _grafo.Nos[p.Indice];
                 if (_soOrfas && !no.Orfa) { continue; }
                 var atual = _centro is not null && no.Caminho.Equals(_centro);
+                var descricao = $"{no.Titulo} — {no.Materia.Rotulo} — {no.Grau} ligação(ões){(no.Orfa ? " · órfã" : "")}";
 
-                <g class="no-do-grafo" style="cursor:pointer" @onclick="@(() => Ir(no.Caminho))">
+                @* ALCANÇÁVEL POR TECLADO, e não só pelo mouse. Um "<g @onclick>" solto é invisível para
+                   quem navega de Tab e para leitor de tela: o grafo inteiro — que é uma das duas telas
+                   de navegação do produto — não abria nota nenhuma sem mouse.
+
+                   role="link" E NÃO "button", e a escolha resolve um problema real: em botão espera-se
+                   que ESPAÇO também acione, e o Espaço rola a página — impedir isso no Blazor exigiria
+                   `preventDefault` estático em toda tecla, que quebraria rolar com as setas. Link ativa
+                   com Enter, e é o que este ponto faz: leva para a nota.
+
+                   O aria-label repete o <title> porque nome acessível vindo de <title> em SVG dentro de
+                   HTML é irregular entre leitores — e um ponto sem nome é um "link" sem destino. *@
+                <g class="no-do-grafo" style="cursor:pointer" @onclick="@(() => Ir(no.Caminho))"
+                   tabindex="0" role="link" aria-label="@descricao"
+                   @onkeydown="@(e => AoTeclarNoNo(e, no.Caminho))">
                     @* O "title" nomeia a MATÉRIA em todos os nós — é o que impede a identidade de sair
                        só da cor, exigência da paleta validada (ver PaletaDeMaterias). *@
-                    <title>@no.Titulo — @no.Materia.Rotulo — @no.Grau ligação(ões)@(no.Orfa ? " · órfã" : "")</title>
+                    <title>@descricao</title>
                     @* O PREENCHIMENTO é a matéria; o ANEL tracejado é a órfã — conhecimento que você
                        produziu e nunca mais revisitou, a coisa mais útil que este desenho tem a dizer.
                        Dois sinais em canais separados: se a órfã disputasse a cor, um apagaria o outro. *@
+                    @* O anel do foco de teclado. Só aparece com :focus-visible — ver app.css. *@
+                    <circle class="anel-de-foco" cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio + 4.5)" />
                     <circle cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio)"
                             fill="@CorDa(no.Materia)"
                             stroke="@(atual ? "var(--mud-palette-text-primary)" : no.Orfa ? CorDaOrfa : "none")"
@@ -156,8 +177,9 @@
         </svg>
 
         @* LEGENDA — obrigatória, não opcional: com quatro tons validados e o resto em neutro, é ela que
-           carrega a identidade das matérias. Cada item é um LINK, então o recorte tem endereço próprio. *@
-        <div class="d-flex flex-wrap align-center gap-2 mt-2">
+           carrega a identidade das matérias. Cada item é um LINK, então o recorte tem endereço próprio.
+           É também onde o "pular o grafo" aterrissa: o primeiro conteúdo depois do desenho. *@
+        <div id="depois-do-grafo" class="d-flex flex-wrap align-center gap-2 mt-2">
             @foreach (var m in _visao.Materias)
             {
                 var escolhida = _filtrada == m.Materia;
@@ -360,6 +382,15 @@
     // Rotas.Nota e NÃO $"/notas/{...}": a barra inicial descarta o sub-caminho onde o app é servido,
     // e a navegação cai em dominio.com/notas/... — 404. Ver Rotas.
     private void Ir(CaminhoNota caminho) => Navegacao.NavigateTo(Rotas.Nota(caminho));
+
+    /// <summary>
+    /// Enter abre a nota do ponto em foco. Só Enter: o ponto é um link (ver o comentário no markup), e
+    /// em link não se espera o Espaço — que, aqui, rolaria a página.
+    /// </summary>
+    private void AoTeclarNoNo(KeyboardEventArgs e, CaminhoNota caminho)
+    {
+        if (e.Key is "Enter" or "NumpadEnter") Ir(caminho);
+    }
 
     private const string IdDoSvg = "grafo-do-vault";
 

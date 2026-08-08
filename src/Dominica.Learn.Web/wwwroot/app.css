@@ -368,6 +368,63 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
     padding: 2px;
 }
 
+/* ── O FOCO NOS PONTOS DOS MAPAS ──────────────────────────────────────────────
+   Os pontos do grafo e do mapa de etiquetas entram no Tab (tabindex + role="link"). Sem marca
+   visível, isso é pior que nada: a pessoa teclaria Tab dezenas de vezes sem saber onde está, e
+   apertaria Enter às cegas — abrindo uma nota qualquer.
+
+   O contorno vai no CÍRCULO, e não no <g>: o outline padrão do navegador desenha a caixa que envolve
+   o ponto E o rótulo de texto abaixo dele, um retângulo torto que não parece marcar nada. Um anel no
+   próprio círculo é o que diz "este ponto". Cor de destaque, e grosso o bastante para vencer o anel
+   tracejado da nota órfã, que ocupa o mesmo lugar.
+
+   :focus-visible e não :focus — quem clicou com o mouse não precisa do anel, e ele apareceria a cada
+   clique no grafo. */
+.no-do-grafo:focus { outline: none; }
+
+.no-do-grafo:focus-visible { outline: none; }
+
+/* O ANEL É UM CÍRCULO PRÓPRIO, FORA DO PONTO, e não um contorno mais grosso nele.
+
+   A primeira tentativa engrossou a borda do próprio ponto em dourado, com uma sombra por trás. No
+   navegador virou um borrão: o dourado é quase o laranja da matéria Contabilidade, e a sombra
+   desfocada leu como mancha, não como marca. Foco que se confunde com o desenho é foco que não
+   existe — e o pior lugar para ele sumir é o aglomerado mais denso, que é onde mais se navega.
+
+   Separado e maior, ele não disputa nada: não usa a cor do ponto (que é a matéria), não usa a borda
+   (que é a nota órfã) e fica na cor do texto — preta no claro, branca no escuro —, o único par que
+   contrasta com todos os tons da paleta E com o fundo dos dois temas. */
+.anel-de-foco { stroke: none; fill: none; }
+
+.no-do-grafo:focus-visible .anel-de-foco {
+    stroke: var(--mud-palette-text-primary);
+    stroke-width: 2;
+}
+
+/* Pular o desenho. Num vault de anos são centenas de pontos, e cada um é uma parada do Tab: sem esta
+   saída, chegar à legenda ou ao "só as órfãs" logo abaixo custaria centenas de teclas. Some da tela
+   até receber foco — é para quem está no teclado, e só aparece quando essa pessoa chega nele. */
+.pular-grafo {
+    position: absolute;
+    left: -9999px;
+    z-index: 3;
+}
+
+.pular-grafo:focus {
+    left: 12px;
+    top: 12px;
+    padding: 6px 10px;
+    background: var(--panel);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    color: var(--tinta);
+}
+
+/* O rótulo do ponto em foco fica legível mesmo quando ele não era um dos nomeados: sem isto, focar um
+   ponto sem rótulo mostra o anel e nenhum nome — e o nome está só no aria-label, que quem enxerga não
+   lê. */
+.no-do-grafo:focus-visible > g > text { font-weight: 700; }
+
 /* O item sob as setas no abridor rápido. Sem marca visível, navegar de teclado é digitar às cegas. */
 .busca-rapida-atual {
     background: color-mix(in srgb, var(--ouro) 18%, transparent) !important;

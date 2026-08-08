@@ -80,10 +80,19 @@
                 @foreach (var p in _mapa.Posicoes)
                 {
                     var e = _mapa.Nos[p.Indice];
-                    <g style="cursor:pointer" @onclick="@(() => Escolher(e.Etiqueta))">
-                        <title>#@e.Etiqueta.Valor — @e.Notas nota(s) · anda com @e.Vizinhas outra(s)</title>
+                    var descricao = $"#{e.Etiqueta.Valor} — {e.Notas} nota(s) · anda com {e.Vizinhas} outra(s)";
+
+                    @* Mesmas regras do grafo de notas: tabindex para existir no Tab, role="link" porque
+                       o ponto LEVA à lista da etiqueta (e link ativa com Enter, sem o Espaço que rolaria
+                       a página), e aria-label porque nome vindo de <title> em SVG não é confiável. *@
+                    <g class="no-do-grafo" style="cursor:pointer" @onclick="@(() => Escolher(e.Etiqueta))"
+                       tabindex="0" role="link" aria-label="@descricao"
+                       @onkeydown="@(t => AoTeclarNoNo(t, e.Etiqueta))">
+                        <title>@descricao</title>
                         @* UMA COR SÓ: não há matéria a representar aqui, e pintar por frequência
                            sugeriria uma categoria que não existe. O tamanho já diz o alcance. *@
+                        @* O anel do foco de teclado. Só aparece com :focus-visible — ver app.css. *@
+                        <circle class="anel-de-foco" cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio + 4.5)" />
                         <circle cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio)" fill="var(--mud-palette-primary)"
                                 stroke="@(e.Vizinhas == 0 ? "var(--mud-palette-warning)" : "none")"
                                 stroke-width="@(e.Vizinhas == 0 ? "2" : "0")"
@@ -249,6 +258,12 @@ else
     /// mapa cai aqui também: o mapa mostra o padrão, a lista mostra o conteúdo.
     /// </summary>
     private void Escolher(Etiqueta etiqueta) => Navegacao.NavigateTo(Rota(mapa: false, etiqueta));
+
+    /// <summary>Enter abre a etiqueta em foco. Só Enter — ver o comentário do ponto, no markup.</summary>
+    private void AoTeclarNoNo(KeyboardEventArgs e, Etiqueta etiqueta)
+    {
+        if (e.Key is "Enter" or "NumpadEnter") Escolher(etiqueta);
+    }
 
     private async Task<IReadOnlyList<NotaIndexada>> BuscarAsync(Etiqueta etiqueta)
     {
