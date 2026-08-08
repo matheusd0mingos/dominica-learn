@@ -1,13 +1,24 @@
 @page "/etiquetas"
+@* ROTA PRÓPRIA PARA O MAPA, e não um interruptor. Interruptor não entra na URL: não dá para favoritar,
+   não dá para mandar link, e recarregar a página joga a pessoa de volta na lista. Foi assim que ele
+   nasceu, escondido num canto da tela do Grafo — que é uma tela sobre outra coisa.
+
+   E O MODO É PARÂMETRO DE ROTA, não uma leitura de NavigationManager.Uri na hora de desenhar. Com a
+   leitura, a tela ficava UM PASSO ATRASADA: clicar em "Mapa" trocava a URL e continuava desenhando a
+   lista; clicar em "Lista" depois desenhava o mapa. Parâmetro de rota é empurrado pelo roteador antes
+   do render — é a única forma que o framework garante estar em dia. *@
+@page "/etiquetas/{Modo?}"
 @using Dominica.Learn.Application.CasosDeUso
 @using Dominica.Learn.Application.Portas
 @using Dominica.Learn.Domain.Analise
+@using Dominica.Learn.Domain.Grafo
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
 @rendermode InteractiveServer
 
 @inject ServicoDeConhecimento Conhecimento
 @inject ServicoDeNotas Servico
+@inject NavigationManager Navegacao
 
 <PageTitle>Etiquetas · Dominica Learn</PageTitle>
 
@@ -27,6 +38,74 @@
    NÃO é a soma dos filhos: quem marca "#direito" e "#direito/penal" na mesma nota seria contado duas
    vezes. Ver ArvoreDeEtiquetas. *@
 
+@* DUAS FORMAS DE OLHAR A MESMA COISA. A lista responde "quais etiquetas eu tenho e o que há em cada
+   uma"; o mapa responde "o que anda junto". O mapa MORA AQUI, e não no Grafo: ele é uma visão de
+   etiquetas, e o Grafo é o mapa das notas. Ver GrafoDeEtiquetas. *@
+<MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" Class="px-2 pt-2"
+         ActivePanelIndex="@(EhMapa ? 1 : 0)" ActivePanelIndexChanged="AoTrocarAba">
+    <MudTabPanel Text="Lista" />
+    <MudTabPanel Text="Mapa" />
+</MudTabs>
+
+@if (EhMapa)
+{
+    <MudPaper Class="pa-3 ma-2" Elevation="0" Outlined="true">
+        @if (_mapa is null)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+        else if (_mapa.Nos.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                Nenhuma etiqueta ainda. Escreva <b>#assim</b> no meio de uma nota — no começo da linha o
+                <b>#</b> é título, não etiqueta.
+            </MudText>
+        }
+        else
+        {
+            @* A JANELA É AJUSTADA AO DESENHO, e não a moldura inteira do layout: com poucas etiquetas o
+               mapa saía amontoado num canto, com dois terços da tela em branco. Mesmo Enquadramento do
+               grafo de notas — a régua de legibilidade é a mesma nos dois mapas. *@
+            <svg viewBox="@Enquadramento.Ajustar(_mapa.Posicoes, _mapa.Largura, _mapa.Altura).ParaViewBox()"
+                 style="width:100%;height:70vh" role="img" aria-label="Mapa das etiquetas">
+                <g stroke="var(--mud-palette-lines-default)">
+                    @foreach (var par in _mapa.Pares)
+                    {
+                        var de = _mapa.Posicoes[par.De];
+                        var para = _mapa.Posicoes[par.Para];
+                        <line x1="@N(de.X)" y1="@N(de.Y)" x2="@N(para.X)" y2="@N(para.Y)"
+                              stroke-width="@N(1.6 + Math.Min(par.Peso, 5) * 0.9)" stroke-opacity="0.75" />
+                    }
+                </g>
+                @foreach (var p in _mapa.Posicoes)
+                {
+                    var e = _mapa.Nos[p.Indice];
+                    <g style="cursor:pointer" @onclick="@(() => Escolher(e.Etiqueta))">
+                        <title>#@e.Etiqueta.Valor — @e.Notas nota(s) · anda com @e.Vizinhas outra(s)</title>
+                        @* UMA COR SÓ: não há matéria a representar aqui, e pintar por frequência
+                           sugeriria uma categoria que não existe. O tamanho já diz o alcance. *@
+                        <circle cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio)" fill="var(--mud-palette-primary)"
+                                stroke="@(e.Vizinhas == 0 ? "var(--mud-palette-warning)" : "none")"
+                                stroke-width="@(e.Vizinhas == 0 ? "2" : "0")"
+                                stroke-dasharray="@(e.Vizinhas == 0 ? "3 2" : "")" />
+                        @* TODA ETIQUETA LEVA RÓTULO, ao contrário das notas: ponto sem nome aqui não é
+                           nada — o valor deste mapa é ler os nomes juntos e reconhecer o padrão. *@
+                        <g>
+                            <text x="@N(p.X)" y="@N(p.Y + p.Raio + 11)" text-anchor="middle"
+                                  font-size="10" fill="var(--mud-palette-text-secondary)">#@e.Etiqueta.Valor</text>
+                        </g>
+                    </g>
+                }
+            </svg>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">
+                Duas etiquetas se ligam quando dividem uma nota; a linha engrossa com o número de notas.
+                Clique numa para ver as notas dela. Anel tracejado = etiqueta que não anda com nenhuma outra.
+            </MudText>
+        }
+    </MudPaper>
+}
+else
+{
 <MudGrid Spacing="2" Class="pa-2">
     <MudItem xs="12" md="4">
         <MudPaper Class="pa-3" Elevation="0" Outlined="true" Style="min-height:70vh">
@@ -51,7 +130,7 @@
                               Variant="Variant.Outlined" Margin="Margin.Dense" Class="mb-2" />
                 @foreach (var no in _arvore)
                 {
-                    <Ramo No="no" Nivel="0" Filtro="@_filtro" Selecionada="_selecionada" AoEscolher="EscolherAsync" />
+                    <Ramo No="no" Nivel="0" Filtro="@_filtro" Selecionada="_selecionada" AoEscolher="Escolher" />
                 }
             }
         </MudPaper>
@@ -96,24 +175,87 @@
         </MudPaper>
     </MudItem>
 </MudGrid>
+}
 
 @code {
     private IReadOnlyList<NoDeEtiqueta>? _arvore;
     private Etiqueta? _selecionada;
     private IReadOnlyList<NotaIndexada> _notas = [];
     private string _filtro = string.Empty;
+    private MapaDeEtiquetas? _mapa;
+
+    /// <summary>
+    /// "mapa", ou nada para a lista. Qualquer outra coisa cai na lista de propósito: a rota é aberta
+    /// (<c>{Modo?}</c>) e um endereço datilografado errado tem de mostrar a tela, não um erro.
+    /// </summary>
+    [Parameter] public string? Modo { get; set; }
+
+    /// <summary>
+    /// A etiqueta escolhida, na QUERY. Pela mesma razão do modo, e por uma a mais: navegar recria esta
+    /// tela, então uma escolha guardada só num campo se perdia no caminho — clicar num ponto do mapa
+    /// levava à lista com nada selecionado. Na URL ela sobrevive à navegação, ao F5 e ao link mandado.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "etiqueta")] public string? EtiquetaPedida { get; set; }
+
+    /// <summary>O modo sai da URL, e não de um campo: é o que faz o link funcionar e o F5 não perder.</summary>
+    private bool EhMapa => string.Equals(Modo, "mapa", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// O endereço desta tela. A ETIQUETA VIAJA JUNTO nas duas abas — sem isso, ir ao mapa e voltar
+    /// apagava o que você estava lendo, porque a query ficava para trás na ida.
+    /// </summary>
+    private static string Rota(bool mapa, Etiqueta? etiqueta)
+    {
+        var caminho = mapa ? "etiquetas/mapa" : "etiquetas";
+        return etiqueta is null ? caminho : $"{caminho}?etiqueta={Uri.EscapeDataString(etiqueta.Valor)}";
+    }
+
+    /// <summary>Ponto flutuante no SVG SEMPRE com ponto decimal — em pt-BR, "12,5" quebraria o atributo.</summary>
+    private static string N(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 
     protected override async Task OnInitializedAsync() =>
         _arvore = await Conhecimento.PainelDeEtiquetasAsync();
 
-    private async Task EscolherAsync(Etiqueta etiqueta)
+    /// <summary>
+    /// TUDO QUE DEPENDE DA URL É LIDO AQUI, e não em OnInitialized: os parâmetros chegam a cada
+    /// navegação, e é o único ponto em que se pode confiar que modo e etiqueta estão em dia.
+    ///
+    /// O MAPA CARREGA SÓ QUANDO PEDEM: quem nunca abre a aba não paga a consulta nem o layout, que é
+    /// O(n²) por iteração.
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
     {
-        _selecionada = etiqueta;
+        if (EhMapa && _mapa is null) _mapa = await Conhecimento.MapaDeEtiquetasAsync();
 
+        // A ESCOLHA VEM DA URL. Etiqueta inválida na query não é erro: cai na tela sem nada escolhido,
+        // que é o que um endereço datilografado errado deve mostrar.
+        var pedida = string.IsNullOrWhiteSpace(EtiquetaPedida) ? null : Etiqueta.TentarCriar(EtiquetaPedida);
+        if (pedida == _selecionada) return;
+
+        _selecionada = pedida;
+        _notas = pedida is null ? [] : await BuscarAsync(pedida);
+    }
+
+    /// <summary>
+    /// Troca de aba NAVEGANDO, e não mudando um campo: o modo vive na URL. Ver o comentário da rota.
+    /// A etiqueta escolhida vai junto para a lista — ir ao mapa e voltar não pode apagar o que você
+    /// estava lendo.
+    /// </summary>
+    private void AoTrocarAba(int indice) => Navegacao.NavigateTo(Rota(indice == 1, _selecionada));
+
+    /// <summary>
+    /// Escolher é NAVEGAR — tanto do mapa quanto da árvore. Um caminho só, e a escolha vira endereço:
+    /// "a lista de #súmula" pode ser guardada nos favoritos e mandada por mensagem. Clicar num ponto do
+    /// mapa cai aqui também: o mapa mostra o padrão, a lista mostra o conteúdo.
+    /// </summary>
+    private void Escolher(Etiqueta etiqueta) => Navegacao.NavigateTo(Rota(mapa: false, etiqueta));
+
+    private async Task<IReadOnlyList<NotaIndexada>> BuscarAsync(Etiqueta etiqueta)
+    {
         // A busca por etiqueta já entende a hierarquia (ver Etiqueta.EstaAbaixoDe): escolher #direito
         // traz o que está marcado só como #direito/penal. Sem isso, o pai de uma árvore bem organizada
         // mostraria zero notas — que é o resultado mais confuso possível para quem clicou nele.
         var acertos = await Servico.BuscarAsync(new ConsultaDeBusca { Etiqueta = etiqueta, Limite = 200 });
-        _notas = acertos.Select(a => a.Nota).ToList();
+        return acertos.Select(a => a.Nota).ToList();
     }
 }

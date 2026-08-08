@@ -34,9 +34,13 @@ public sealed record ResultadoDaMigracao(ApelidoDoUsuario Apelido, int ItensMovi
 ///      dessincronizar.
 ///
 ///   3. AMBIGUIDADE NÃO É RESOLVIDA NO CHUTE — ela PARA a migração daquele usuário, alto, no log. O caso
-///      é este: existe uma pasta "estudo" E existe outra coisa solta ao lado. Isso tanto pode ser uma
+///      é este: existe uma pasta "estudo" E existe ARQUIVO solto ao lado. Isso tanto pode ser uma
 ///      migração pela metade quanto uma MATÉRIA chamada "estudo". Migrar por cima misturaria duas
 ///      árvores; não migrar deixa o vault exatamente como estava, que é sempre reversível.
+///
+///      PASTA ao lado de "estudo" não é ambiguidade nenhuma: é OUTRO VAULT, criado pelo app depois da
+///      migração — e é o estado normal de quem tem "estudo" e "trabalho". Confundir os dois casos fazia
+///      esta guarda gritar em todo arranque de todo mundo, e erro que aparece sempre ninguém mais lê.
 ///
 ///   4. É TUDO OU NADA POR ITEM, e o que falha PARA a migração daquele usuário com a exceção subindo.
 ///      Uma migração que segue depois de falhar no meio deixa metade do vault num lugar e metade no
@@ -71,16 +75,32 @@ public static class MigracaoParaVaults
         // primeiro, e é o que torna esta rotina segura de chamar sempre.
         if (soltos.Count == 0) return ResultadoDaMigracao.NadaAFazer(apelido);
 
-        // Guarda 3: destino existe E ainda há coisa solta ao lado. Não dá para saber se isto é uma
-        // migração interrompida ou uma MATÉRIA chamada "estudo" — e as duas leituras pedem coisas
-        // opostas. Não mexer deixa o vault como estava, que é o único estado sempre reversível.
+        // Guarda 3: destino existe E ainda há coisa solta ao lado. NÃO MEXE, nos dois casos abaixo — o
+        // que muda aqui é só o que se diz no log, e dizer a coisa certa importa: um erro que aparece em
+        // todo arranque de todo mundo é um erro que ninguém lê mais.
         if (Directory.Exists(pastaDoVault))
         {
+            // O CASO NORMAL, depois que os vaults existem: ao lado de "estudo" estão os OUTROS VAULTS —
+            // "trabalho", "engenharia" —, criados pelo próprio app. Só pastas, nenhum arquivo solto.
+            // Antes da migração isso não acontece: um vault tem notas na raiz. Isto não é ambiguidade,
+            // é o layout novo, e gritar aqui seria gritar sempre.
+            var arquivosSoltos = soltos.Count(c => !Directory.Exists(c));
+            if (arquivosSoltos == 0)
+            {
+                log?.LogDebug(
+                    "Vault de {Apelido} já está no formato novo: {Quantos} vault(s) em {Pasta}.",
+                    apelido, soltos.Count + 1, pastaDoUsuario);
+                return ResultadoDaMigracao.NadaAFazer(apelido);
+            }
+
+            // ARQUIVO SOLTO ao lado de "estudo" é o sinal de verdade: ou a migração parou no meio, ou
+            // "estudo" é uma MATÉRIA e o vault nunca migrou. As duas leituras pedem coisas opostas, e
+            // por isso isto para alto — não mexer deixa o vault como estava, sempre reversível.
             log?.LogError(
                 "NÃO migrei o vault de {Apelido}: já existe uma pasta \"{Destino}\" e ainda há {Quantos} " +
-                "item(ns) ao lado dela. Pode ser uma migração interrompida, ou uma matéria com esse nome — " +
-                "e as duas coisas pedem tratamentos opostos. Resolva à mão em {Pasta}.",
-                apelido, destino, soltos.Count, pastaDoUsuario);
+                "arquivo(s) solto(s) ao lado dela. Pode ser uma migração interrompida, ou uma matéria com " +
+                "esse nome — e as duas coisas pedem tratamentos opostos. Resolva à mão em {Pasta}.",
+                apelido, destino, arquivosSoltos, pastaDoUsuario);
             return ResultadoDaMigracao.NadaAFazer(apelido);
         }
 

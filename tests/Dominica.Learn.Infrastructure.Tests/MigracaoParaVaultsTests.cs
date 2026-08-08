@@ -1,7 +1,26 @@
 using Dominica.Learn.Domain.Vault;
 using Dominica.Learn.Infrastructure.Vault;
+using Microsoft.Extensions.Logging;
 
 namespace Dominica.Learn.Infrastructure.Tests;
+
+/// <summary>
+/// Guarda os níveis do que foi registrado. O nível É o comportamento aqui: a diferença entre "vault com
+/// dois vaults" e "migração quebrada" não está em mexer ou não mexer nos arquivos — nos dois casos não se
+/// mexe —, está em gritar ou ficar quieto.
+/// </summary>
+file sealed class LogDeMentira : ILogger
+{
+    public List<LogLevel> Niveis { get; } = [];
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    public bool IsEnabled(LogLevel nivel) => true;
+
+    public void Log<TState>(
+        LogLevel nivel, EventId id, TState estado, Exception? erro, Func<TState, Exception?, string> texto) =>
+        Niveis.Add(nivel);
+}
 
 /// <summary>
 /// A MIGRAÇÃO É A ÚNICA PARTE DOS VAULTS QUE MEXE NOS ARQUIVOS DE ALGUÉM, e por isso ela tem mais teste
@@ -106,18 +125,46 @@ public class MigracaoParaVaultsTests : IDisposable
     [Fact]
     public void Ambiguidade_para_a_migracao_em_vez_de_ser_resolvida_no_chute()
     {
-        // Existe "estudo" E existe coisa solta ao lado. Isso tanto pode ser uma migração interrompida
+        // Existe "estudo" E existe ARQUIVO solto ao lado. Isso tanto pode ser uma migração interrompida
         // quanto uma MATÉRIA chamada "estudo" — e as duas leituras pedem coisas opostas. Não mexer deixa
         // o vault exatamente como estava, que é o único estado sempre reversível.
         Escrever("matheus/estudo/Aula.md", "pode ser matéria, pode ser vault");
-        Escrever("matheus/Direito/A.md", "solto");
+        Escrever("matheus/Solta.md", "solto");
 
-        var r = Migrar();
+        var log = new LogDeMentira();
+        var r = MigracaoParaVaults.Migrar(_raiz, _matheus, NomeDoVault.Padrao, log);
 
         Assert.False(r.Houve);
         Assert.Equal("pode ser matéria, pode ser vault",
             File.ReadAllText(Path.Combine(_raiz, "matheus", "estudo", "Aula.md")));
-        Assert.Equal("solto", File.ReadAllText(Path.Combine(_raiz, "matheus", "Direito", "A.md")));
+        Assert.Equal("solto", File.ReadAllText(Path.Combine(_raiz, "matheus", "Solta.md")));
+
+        // E GRITA: este é o caso em que alguém precisa ir olhar. Sem a mensagem, o vault parece só vazio.
+        Assert.Contains(LogLevel.Error, log.Niveis);
+    }
+
+    [Fact]
+    public void Segundo_vault_ao_lado_do_primeiro_nao_e_ambiguidade()
+    {
+        // O ESTADO NORMAL de quem tem "estudo" e "trabalho" — e a guarda da ambiguidade tratava isso
+        // como migração quebrada, gritando um erro em TODO arranque de TODO mundo com dois vaults.
+        // Erro que aparece sempre ninguém mais lê, e aí o grito de verdade passa despercebido.
+        //
+        // O que separa os dois casos é o tipo do que está ao lado: PASTA é outro vault, criado pelo
+        // app depois da migração; ARQUIVO solto é vault não migrado, porque vault tem nota na raiz.
+        Escrever("matheus/estudo/Direito/A.md", "vault de estudo");
+        Escrever("matheus/trabalho/Projetos/B.md", "vault de trabalho");
+
+        var log = new LogDeMentira();
+        var r = MigracaoParaVaults.Migrar(_raiz, _matheus, NomeDoVault.Padrao, log);
+
+        Assert.False(r.Houve);
+        Assert.DoesNotContain(LogLevel.Error, log.Niveis);
+        Assert.DoesNotContain(LogLevel.Warning, log.Niveis);
+
+        // E nada se moveu: "trabalho" continua sendo um vault, e não uma pasta dentro de "estudo".
+        Assert.Equal("vault de trabalho", File.ReadAllText(Path.Combine(_raiz, "matheus", "trabalho", "Projetos", "B.md")));
+        Assert.False(Directory.Exists(Path.Combine(_raiz, "matheus", "estudo", "trabalho")));
     }
 
     [Fact]
