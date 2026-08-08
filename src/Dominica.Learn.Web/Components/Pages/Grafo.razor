@@ -58,7 +58,20 @@
             <MudButton Size="Size.Small" Variant="Variant.Text" Href="grafo">Ver o vault inteiro</MudButton>
         }
 
+        @* SUBIR UM NÍVEL: o topo do drill. Ver MapaDeMaterias — três níveis, cada um com URL. *@
+        <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ZoomOut"
+                   Href="grafo/materias">Mapa das matérias</MudButton>
+
         <MudSpacer />
+
+        @* SÓ APARECE QUANDO TEM O QUE FAZER. Com todas as ligações de citação única, ligar o filtro
+           esvaziaria o desenho; com todas repetidas, ele não faria nada. Nos dois casos um interruptor
+           visível seria um botão que parece quebrado. *@
+        @if (_grafo.Arestas.Any(a => a.Peso == 1) && _grafo.Arestas.Any(a => a.Peso >= 2))
+        {
+            <MudSwitch T="bool" Value="_soRepetidas" ValueChanged="AoAlternarRepetidas" Color="Color.Primary"
+                       Label="Só ligações repetidas" />
+        }
         @* ESTA TELA É SÓ O GRAFO DE NOTAS. O mapa das etiquetas mora em "Etiquetas → Mapa", com rota
            própria (/etiquetas/mapa), porque são DUAS PERGUNTAS DIFERENTES: aqui é "isto aponta para
            aquilo" — hierarquia, cada ponto tem conteúdo e abre; lá é "isto costuma aparecer junto com
@@ -107,7 +120,7 @@
             @* Com "só as órfãs" ligado não há aresta a desenhar — órfã é, por definição, a nota de grau
                zero. Deixar as linhas na tela mostraria ligações entre pontos que sumiram. *@
             <g stroke="var(--mud-palette-lines-default)">
-                @foreach (var a in _soOrfas ? [] : _grafo.Arestas)
+                @foreach (var a in ArestasVisiveis)
                 {
                     var de = _visao.Posicionado.Posicoes[a.De];
                     var para = _visao.Posicionado.Posicoes[a.Para];
@@ -206,6 +219,12 @@
             <MudText Typo="Typo.caption" Class="mud-text-secondary">
                 @_grafo.Nos.Count nota(s) · @_grafo.Arestas.Count ligação(ões)
                 @(_filtrada is null ? $" · {_visao.Materias.Count} matéria(s)" : "") · @_orfas órfã(s)
+                @* NADA DE FILTRO SILENCIOSO: quem esconde diz quantas escondeu, ou o desenho filtrado
+                   passa por completo — mesma regra do aviso de pontes e do teto de cartões. *@
+                @if (_soRepetidas && !_soOrfas)
+                {
+                    <text> · @(_grafo.Arestas.Count(a => a.Peso == 1)) de citação única escondida(s)</text>
+                }
             </MudText>
             <MudText Typo="Typo.caption" Class="mud-text-secondary">
                 Clique num ponto para abrir a nota. O desenho é determinístico: o mesmo vault sai igual
@@ -387,6 +406,25 @@
         // antes perdia a vaga para um vizinho que agora nem está desenhado.
         EscolherRotulos();
     }
+
+    /// <summary>
+    /// O FILTRO DE PESO: esconder as ligações de citação única e deixar só as recorrentes.
+    ///
+    /// É o alívio para o miolo denso de um vault muito interligado: a maioria das arestas é "citei uma
+    /// vez", e são elas que viram a teia de fundo. As repetidas — peso 2 em diante — são as relações
+    /// que a pessoa REAFIRMOU escrevendo, e é o esqueleto que este filtro deixa à mostra.
+    ///
+    /// SÓ ESCONDE LINHA. Os pontos ficam todos: uma nota cujas ligações sumiram do desenho não virou
+    /// órfã — órfã é grau zero DE VERDADE, e o anel tracejado dela continua obedecendo ao grau real.
+    /// </summary>
+    private bool _soRepetidas;
+
+    private void AoAlternarRepetidas(bool valor) => _soRepetidas = valor;
+
+    private IEnumerable<ArestaDoGrafo> ArestasVisiveis =>
+        _soOrfas ? []
+        : _soRepetidas ? _grafo.Arestas.Where(a => a.Peso >= 2)
+        : _grafo.Arestas;
 
     /// <summary>
     /// QUEM GANHA RÓTULO. A conta é do domínio (<see cref="RotulosDoGrafo"/>); aqui só se decide a

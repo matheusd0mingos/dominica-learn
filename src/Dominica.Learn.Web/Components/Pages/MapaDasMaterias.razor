@@ -1,0 +1,194 @@
+@page "/grafo/materias"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Grafo
+@using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Web.Tema
+@using Microsoft.AspNetCore.Authorization
+@using System.Globalization
+@attribute [Authorize]
+@rendermode InteractiveServer
+@implements IDisposable
+@inject ServicoDeConhecimento Conhecimento
+@inject EstadoDoTema Tema
+@inject NavigationManager Navegacao
+
+@* O TOPO DO DRILL DO GRAFO. Três níveis, cada um com endereço:
+
+     /grafo/materias              este mapa — quais matérias conversam
+     /grafo?materia=X             o grafo de uma matéria (clique num nó desce para cá)
+     /grafo/Direito/Atos.md       a vizinhança de uma nota
+
+   Subir é o botão "Todas as notas" — e o VOLTAR do navegador, porque cada nível é URL e não estado
+   de tela. É o mesmo princípio que tirou o mapa de etiquetas do interruptor.
+
+   POR QUE A ROTA LITERAL NÃO BRIGA COM O CATCH-ALL: "/grafo/{*caminho}" captura qualquer coisa, mas
+   rota literal tem precedência sobre catch-all no roteador — e um caminho de NOTA sempre termina em
+   ".md", então "/grafo/materias" nunca seria uma nota de verdade. Conferido no navegador.
+
+   DRILL POR NAVEGAÇÃO, NÃO POR EXPANDIR NO LUGAR — e isto é decisão, não limitação. Expandir o
+   aglomerado dentro do mesmo desenho re-arranja tudo (destrói a memória espacial que o layout
+   determinístico existe para proteger) e produz um estado expandido/colapsado que não cabe em URL. *@
+
+<PageTitle>Mapa das matérias · Dominica Learn</PageTitle>
+
+<ProvedoresDoMud />
+
+<MudPaper Class="pa-3" Elevation="0" Outlined="true">
+    <div class="d-flex align-center flex-wrap gap-3 mb-3">
+        <MudText Typo="Typo.h6">Mapa das matérias</MudText>
+        <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ZoomIn"
+                   Href="grafo">Todas as notas</MudButton>
+    </div>
+
+    @if (_carregando)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (_mapa.Nos.Count < 2)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+            Este mapa compara matérias — ele aparece quando o vault tem mais de uma. Crie pastas para os
+            seus assuntos e as notas de cada uma entram no lugar certo sozinhas.
+        </MudAlert>
+    }
+    else
+    {
+        <svg viewBox="@Viewbox" width="100%" style="height:64vh" role="img"
+             aria-label="Mapa das matérias — quais assuntos se citam">
+            <g stroke="var(--mud-palette-lines-default)">
+                @foreach (var ponte in _mapa.Pontes)
+                {
+                    var de = _mapa.Posicoes[ponte.De];
+                    var para = _mapa.Posicoes[ponte.Para];
+                    <line x1="@N(de.X)" y1="@N(de.Y)" x2="@N(para.X)" y2="@N(para.Y)"
+                          stroke-width="@N(1.6 + Math.Min(ponte.Peso, 5) * 0.9)" stroke-opacity="0.75" />
+                }
+            </g>
+
+            @foreach (var p in _mapa.Posicoes)
+            {
+                var m = _mapa.Nos[p.Indice];
+                var descricao = $"{m.Materia.Rotulo} — {m.Notas} nota(s) · conversa com {m.Vizinhas} matéria(s)";
+
+                @* "SEM MATÉRIA" APARECE MAS NÃO É LINK: as notas da raiz não têm recorte próprio na URL
+                   (matéria vazia não é endereçável), e um link que levasse "para o vault inteiro"
+                   mentiria sobre onde se está descendo. O nó fica, cinza, com a explicação no title —
+                   informação, não botão. *@
+                @if (m.Materia.Existe)
+                {
+                    <g class="no-do-grafo" style="cursor:pointer" @onclick="@(() => Descer(m.Materia))"
+                       tabindex="0" role="link" aria-label="@($"{descricao}. Abrir o grafo desta matéria.")"
+                       @onkeydown="@(e => AoTeclar(e, m.Materia))">
+                        <title>@descricao</title>
+                        <circle class="anel-de-foco" cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio + 4.5)" />
+                        <circle cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio)" fill="@CorDa(m.Materia)" />
+                        @if (_comRotulo.TryGetValue(p.Indice, out var lado))
+                        {
+                            <g>
+                                <text x="@N(p.X)" y="@N(RotulosDoGrafo.LinhaDeBase(p, lado))" text-anchor="middle"
+                                      font-size="@N(TamanhoDoRotulo)" fill="var(--mud-palette-text-secondary)">@m.Materia.Rotulo (@m.Notas)</text>
+                            </g>
+                        }
+                    </g>
+                }
+                else
+                {
+                    <g class="no-do-grafo">
+                        <title>@descricao · notas na raiz do vault, ainda sem pasta</title>
+                        <circle cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio)"
+                                fill="@PaletaDeMaterias.Cor(-1, Tema.Escuro)" />
+                        @if (_comRotulo.TryGetValue(p.Indice, out var lado))
+                        {
+                            <g>
+                                <text x="@N(p.X)" y="@N(RotulosDoGrafo.LinhaDeBase(p, lado))" text-anchor="middle"
+                                      font-size="@N(TamanhoDoRotulo)" fill="var(--mud-palette-text-secondary)">@m.Materia.Rotulo (@m.Notas)</text>
+                            </g>
+                        }
+                    </g>
+                }
+            }
+        </svg>
+
+        <div class="d-flex flex-wrap gap-4 mt-2">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                @_mapa.Nos.Count matéria(s) · @_mapa.Pontes.Count ponte(s)
+            </MudText>
+            @* A LINHA É O ACHADO desta tela, então ela é explicada aqui e não num manual: ponte é a
+               relação que a pasta separou — e que a prova cobra junta. *@
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                A linha liga matérias cujas notas se citam; ela engrossa com quantos pares de notas
+                cruzam. Clique numa matéria para descer ao grafo dela.
+            </MudText>
+        </div>
+
+        @if (_mapa.Pontes.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mt-3">
+                Nenhuma ponte ainda: nenhuma nota cita uma nota de OUTRA matéria. As pontes são o que a
+                prova cobra junto e a pasta separou — quando você ligar assuntos de matérias diferentes
+                com <code>[[wikilinks]]</code>, elas aparecem aqui.
+            </MudAlert>
+        }
+    }
+</MudPaper>
+
+@code {
+    private MapaDeMaterias _mapa = MapaDeMaterias.Vazio;
+    private bool _carregando = true;
+    private Dictionary<Materia, int> _slots = [];
+    private IReadOnlyDictionary<int, LadoDoRotulo> _comRotulo = new Dictionary<int, LadoDoRotulo>();
+
+    private const double Largura = 900;
+    private const double Altura = 620;
+    private const double TamanhoDoRotulo = 10;
+
+    protected override void OnInitialized() => Tema.Mudou += AoMudarTema;
+
+    public void Dispose() => Tema.Mudou -= AoMudarTema;
+
+    private void AoMudarTema() => InvokeAsync(StateHasChanged);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _mapa = await Conhecimento.MapaDeMateriasAsync(Largura, Altura);
+
+        // AS CORES SÃO AS MESMAS DO GRAFO DE NOTAS, pelo mesmo critério (slot por tamanho, "Sem matéria"
+        // nunca colorida). Se Direito é dourado lá, tem de ser dourado aqui — uma matéria que troca de
+        // cor entre os níveis do drill faz a pessoa achar que desceu no lugar errado.
+        _slots = _mapa.Nos
+            .Where(n => n.Materia.Existe)
+            .OrderByDescending(n => n.Notas)
+            .ThenBy(n => n.Materia.Nome, StringComparer.CurrentCultureIgnoreCase)
+            .Take(PaletaDeMaterias.Coloridas)
+            .Select((n, i) => (n.Materia, Slot: i))
+            .ToDictionary(t => t.Materia, t => t.Slot);
+
+        // TODA MATÉRIA QUER RÓTULO — são poucas, e um nó de matéria sem nome não é nada. A prioridade
+        // (mais notas primeiro) só decide quem fica quando dois nomes de fato não cabem.
+        _comRotulo = RotulosDoGrafo.Escolher(
+            _mapa.Posicoes,
+            [.. _mapa.Nos.Select((n, i) => new CandidatoARotulo(i, $"{n.Materia.Rotulo} ({n.Notas})", n.Notas))],
+            TamanhoDoRotulo);
+
+        _carregando = false;
+    }
+
+    /// <summary>Descer um nível: o grafo da matéria. URL relativa — ver Rotas.</summary>
+    private void Descer(Materia materia) =>
+        Navegacao.NavigateTo($"grafo?materia={Uri.EscapeDataString(materia.Nome)}");
+
+    private void AoTeclar(KeyboardEventArgs e, Materia materia)
+    {
+        if (e.Key is "Enter" or "NumpadEnter") Descer(materia);
+    }
+
+    private string CorDa(Materia m) =>
+        PaletaDeMaterias.Cor(_slots.TryGetValue(m, out var s) ? s : -1, Tema.Escuro);
+
+    private string Viewbox => Enquadramento
+        .Ajustar(_mapa.Posicoes, _mapa.Largura, _mapa.Altura)
+        .ParaViewBox();
+
+    // Ponto decimal SEMPRE: em pt-BR o padrão gravaria "451,3" e o SVG descartaria o atributo.
+    private static string N(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+}

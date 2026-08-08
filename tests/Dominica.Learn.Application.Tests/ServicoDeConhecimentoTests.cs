@@ -335,6 +335,25 @@ public class ServicoDeConhecimentoTests
     }
 
     [Fact]
+    public async Task O_mapa_de_materias_agrega_as_pontes_do_vault()
+    {
+        // O topo do drill: um nó por matéria, ponte = pares de notas que cruzam. A regra mora no
+        // domínio (GrafoDeMaterias); aqui se prova a costura — inclusive que o par que se cita duas
+        // vezes continua sendo UMA ponte de peso 1, a mesma conta do aviso "apontam para fora".
+        var c = Montar();
+        await Criar(c, "Português/Crase.md", "# Crase\n");
+        await Criar(c, "Direito/A.md", "# A\n\nver [[Crase]] e de novo [[Crase]]\n");
+        await Criar(c, "Direito/B.md", "# B\n\ninterna: [[A]]\n");
+
+        var mapa = await c.Conhecimento.MapaDeMateriasAsync();
+
+        Assert.Equal(2, mapa.Nos.Count);
+        Assert.Equal(2, mapa.Nos.Single(n => n.Materia.Nome == "Direito").Notas);
+        Assert.Equal(1, Assert.Single(mapa.Pontes).Peso);
+        Assert.Equal(mapa.Nos.Count, mapa.Posicoes.Count);
+    }
+
+    [Fact]
     public async Task O_mapa_de_etiquetas_sai_do_vault_inteiro()
     {
         var c = Montar();

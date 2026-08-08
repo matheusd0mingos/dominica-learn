@@ -41,6 +41,17 @@ public sealed record MapaDeEtiquetas(
     public static readonly MapaDeEtiquetas Vazio = new([], [], [], 800, 600);
 }
 
+/// <summary>O mapa das matérias pronto para desenhar — o topo do drill. Ver <see cref="GrafoDeMaterias"/>.</summary>
+public sealed record MapaDeMaterias(
+    IReadOnlyList<MateriaNoMapa> Nos,
+    IReadOnlyList<PosicaoDoNo> Posicoes,
+    IReadOnlyList<PonteEntreMaterias> Pontes,
+    double Largura,
+    double Altura)
+{
+    public static readonly MapaDeMaterias Vazio = new([], [], [], 800, 600);
+}
+
 /// <summary>
 /// Tudo que a tela do grafo precisa numa consulta só.
 ///
@@ -353,6 +364,40 @@ public sealed class ServicoDeConhecimento(
         var porNota = await indice.EtiquetasPorNotaAsync(ct);
         var (nos, pares) = GrafoDeEtiquetas.Montar(porNota);
         return SugestaoDeEtiquetas.Para(nos, pares, jaTem, limite);
+    }
+
+    /// <summary>
+    /// O MAPA DAS MATÉRIAS — o topo do drill do grafo. Ver <see cref="GrafoDeMaterias"/> para as
+    /// decisões; aqui é só a costura: montar o grafo de notas, agregar, posicionar.
+    ///
+    /// MONTA O GRAFO INTEIRO PARA AGREGAR, e isso é deliberado, não desperdício: a ponte entre matérias
+    /// só existe olhando as ligações nota a nota, e é a MESMA montagem do GrafoAsync — mesmos recortes
+    /// (templates fora, quebradas fora), mesma conta. Duas fontes para o mesmo número é uma delas
+    /// ficando para trás.
+    /// </summary>
+    public async Task<MapaDeMaterias> MapaDeMateriasAsync(
+        double largura = 800, double altura = 600, CancellationToken ct = default)
+    {
+        var caminhos = (await indice.TodosOsCaminhosAsync(ct)).Where(EhConteudoDeEstudo).ToList();
+        if (caminhos.Count == 0) return MapaDeMaterias.Vazio;
+
+        var ligacoes = new List<LigacaoResolvida>();
+        foreach (var c in caminhos) ligacoes.AddRange(await indice.LigacoesDeAsync(c, ct));
+
+        var (nos, pontes) = GrafoDeMaterias.Montar(GrafoDoVault.Montar(caminhos, ligacoes));
+        if (nos.Count == 0) return MapaDeMaterias.Vazio;
+
+        // A SEMENTE É O RÓTULO, não o Nome: "Sem matéria" tem Nome vazio, e duas sementes vazias
+        // colapsariam no mesmo hash. O grau que vira raio é QUANTAS NOTAS — o tamanho do nó diz
+        // "quanto existe ali dentro", que é a única grandeza que este nível tem.
+        var posicoes = LayoutDeForca.Posicionar(
+            [.. nos.Select(n => n.Materia.Rotulo)],
+            [.. nos.Select(n => n.Notas)],
+            [.. nos.Select(_ => -1)],
+            [.. pontes.Select(p => new ArestaDoGrafo(p.De, p.Para, p.Peso))],
+            largura, altura);
+
+        return new MapaDeMaterias(nos, posicoes, pontes, largura, altura);
     }
 
     // —— LIGAR DUAS NOTAS ——————————————————————————————————————————————————————————————
