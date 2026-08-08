@@ -216,6 +216,23 @@ public sealed class IndiceEmPostgres(IDbContextFactory<ContextoDoIndice> fabrica
         return linhas.Select(l => Projetar(l, caminho.Valor)).Where(l => l is not null).Select(l => l!).ToList();
     }
 
+    public async Task<IReadOnlyList<LigacaoQuebrada>> LigacoesQuebradasAsync(CancellationToken ct = default)
+    {
+        await using var db = await AbrirAsync(ct);
+
+        // DISTINTO POR (nota, alvo): citar "[[Prescrição]]" cinco vezes na mesma nota é UM destino que
+        // falta, não cinco — e reindexar a mesma nota cinco vezes seria trabalho jogado fora.
+        var linhas = await db.Ligacoes.AsNoTracking().Include(l => l.Nota)
+            .Where(l => l.Destino == null)
+            .Select(l => new { l.Nota.Caminho, l.Alvo })
+            .Distinct()
+            .ToListAsync(ct);
+
+        return [.. linhas
+            .Where(l => CaminhoNota.TentarCriar(l.Caminho, out _, out _))
+            .Select(l => new LigacaoQuebrada(CaminhoNota.De(l.Caminho), l.Alvo))];
+    }
+
     public async Task<IReadOnlyList<EtiquetaContada>> EtiquetasAsync(CancellationToken ct = default)
     {
         await using var db = await AbrirAsync(ct);

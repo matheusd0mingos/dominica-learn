@@ -78,6 +78,13 @@ public sealed class ServicoDeNotas(
 
         var nota = await repositorio.GravarAsync(caminho, conteudoInicial, ct);
         await ReindexarUmaAsync(nota.Caminho, ct);
+
+        // A NOTA QUE ACABOU DE NASCER PODE SER O DESTINO QUE FALTAVA. Escrever "[[Prescrição]]" antes de
+        // criar a nota é o fluxo normal daqui — a lista "Ainda por escrever" é um convite a fazer isso, e
+        // clicar num item cai exatamente neste método. Sem esta linha, a ligação continuava quebrada no
+        // índice para sempre. Ver ReconciliarVault.ConsertarLigacoesQuebradasAsync.
+        await ConsertarQuemEsperavaAsync(ct);
+
         log.LogInformation("Nota criada: {Caminho}", caminho);
         return Resultado<Nota>.Sucesso(nota);
     }
@@ -152,6 +159,19 @@ public sealed class ServicoDeNotas(
             conhecidas = [.. conhecidas, NotaConhecida.De(caminho)];
 
         await reconciliacao.ReindexarAsync(caminho, new ResolvedorDeWikilinks(conhecidas), ct);
+    }
+
+    /// <summary>
+    /// Reindexa quem tinha ligação quebrada que agora resolve. Chamado depois de CRIAR e de RENOMEAR —
+    /// os dois momentos em que um caminho novo passa a existir no vault.
+    ///
+    /// O CUSTO É PEQUENO POR DEFINIÇÃO: ligação quebrada é o que a pessoa ainda não escreveu, e criar ou
+    /// mover nota não é gesto de digitação — não passa por aqui a cada tecla, como o autosave passa.
+    /// </summary>
+    private async Task ConsertarQuemEsperavaAsync(CancellationToken ct)
+    {
+        var conhecidas = await indice.NotasConhecidasAsync(ct);
+        await reconciliacao.ConsertarLigacoesQuebradasAsync(new ResolvedorDeWikilinks(conhecidas), ct);
     }
 
     public Task<IReadOnlyList<Acerto>> BuscarAsync(ConsultaDeBusca consulta, CancellationToken ct = default) =>

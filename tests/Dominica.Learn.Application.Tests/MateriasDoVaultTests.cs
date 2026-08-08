@@ -29,6 +29,8 @@ public class MateriasDoVaultTests
         public Task<IReadOnlyList<Acerto>> BuscarAsync(ConsultaDeBusca q, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<LigacaoResolvida>> BacklinksAsync(CaminhoNota c, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<LigacaoResolvida>> LigacoesDeAsync(CaminhoNota c, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<LigacaoQuebrada>> LigacoesQuebradasAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<LigacaoQuebrada>>([]);
         public Task<IReadOnlyList<EtiquetaContada>> EtiquetasAsync(CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task<IReadOnlyList<IReadOnlyList<Etiqueta>>> EtiquetasPorNotaAsync(CancellationToken ct = default) =>

@@ -21,6 +21,11 @@ public sealed record Acerto(NotaIndexada Nota, string Trecho, double Relevancia)
 /// <summary>Uma etiqueta com quantas notas a usam — o que o painel lateral mostra.</summary>
 public sealed record EtiquetaContada(Etiqueta Etiqueta, int Notas);
 
+/// <summary>
+/// Uma citação que ainda não achou destino. <see cref="Alvo"/> é o texto cru dentro dos colchetes.
+/// </summary>
+public sealed record LigacaoQuebrada(CaminhoNota Onde, string Alvo);
+
 /// <summary>Critérios de busca. Tudo opcional: combinar filtros é a forma de achar em vault grande.</summary>
 public sealed record ConsultaDeBusca
 {
@@ -63,6 +68,25 @@ public interface IIndiceDoVault
 
     /// <summary>Ligações que saem desta nota, incluindo as quebradas.</summary>
     Task<IReadOnlyList<LigacaoResolvida>> LigacoesDeAsync(CaminhoNota caminho, CancellationToken ct = default);
+
+    /// <summary>
+    /// TODAS as ligações quebradas do vault: quem citou e o que citou.
+    ///
+    /// EXISTE POR CAUSA DE UM DEFEITO QUE DURAVA PARA SEMPRE. Escrever "[[Prescrição]]" antes de criar a
+    /// nota é o fluxo NORMAL deste produto — a lista "Ainda por escrever" é literalmente um convite a
+    /// fazer isso, e clicar num item cria a nota que faltava. Só que criar a nota reindexava apenas ELA:
+    /// a nota que a citava continuava com o link quebrado no índice, e nem a reconciliação do arranque
+    /// consertava (disco e índice já concordam — não há o que reconciliar). O grafo nunca desenhava a
+    /// aresta e os backlinks nunca apareciam, até alguém reeditar a nota que citava, à mão.
+    ///
+    /// DEVOLVE O ALVO CRU, e não resolve nada: quem decide se "Prescrição" casa com a nota nova é o
+    /// <see cref="Dominica.Learn.Domain.Ligacoes.ResolvedorDeWikilinks"/>, que já sabe as regras
+    /// (apelido, caixa, âncora, homônima). Resolver em SQL duplicaria essa regra num segundo lugar — e
+    /// duas cópias de uma regra é uma que vai ficar para trás.
+    ///
+    /// A CONSULTA É PEQUENA POR DEFINIÇÃO: ligação quebrada é o que a pessoa ainda não escreveu.
+    /// </summary>
+    Task<IReadOnlyList<LigacaoQuebrada>> LigacoesQuebradasAsync(CancellationToken ct = default);
 
     Task<IReadOnlyList<EtiquetaContada>> EtiquetasAsync(CancellationToken ct = default);
 

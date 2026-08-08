@@ -62,6 +62,11 @@ public sealed class ReconciliarVault(
         foreach (var d in resultado.Alteradas) await ReindexarAsync(d.Caminho, resolvedor, ct);
         foreach (var d in resultado.Removidas) await indice.RemoverAsync(d.Caminho, ct);
 
+        // E AS NOTAS QUE JÁ CITAVAM O QUE ACABOU DE APARECER. Sem esta linha, uma nota criada por fora
+        // — arrastada para a pasta, ou vinda do Obsidian do notebook — nasce sem nenhuma das ligações de
+        // entrada que já a esperavam. Ver ConsertarLigacoesQuebradasAsync.
+        await ConsertarLigacoesQuebradasAsync(resolvedor, ct);
+
         var relatorio = new RelatorioDaReconciliacao(
             resultado.Criadas.Count(), resultado.Alteradas.Count(),
             resultado.Removidas.Count(), resultado.Renomeadas.Count(),
@@ -87,6 +92,48 @@ public sealed class ReconciliarVault(
 
         var ligacoes = resolvedor.Resolver(nota.Caminho, nota.Analise.Ligacoes);
         await indice.IndexarAsync(nota, ligacoes, ct);
+    }
+
+    /// <summary>
+    /// REINDEXA AS NOTAS CUJA LIGAÇÃO QUEBRADA PASSOU A RESOLVER, e devolve quantas foram.
+    ///
+    /// O DEFEITO QUE ISTO CONSERTA DURAVA PARA SEMPRE, e o fluxo dele é o normal deste produto:
+    ///
+    ///   1. você escreve "ver [[Prescrição]]" numa nota, antes de a nota existir — o link nasce
+    ///      quebrado, o que está certo, e vira item da lista "Ainda por escrever";
+    ///   2. dias depois você clica nesse item e cria "Prescrição.md";
+    ///   3. criar reindexava SÓ A NOTA NOVA. A que citava continuava com o link quebrado no índice.
+    ///
+    /// E a reconciliação do arranque não salvava: ela compara disco com índice, os dois já concordam
+    /// (nenhum arquivo mudou), e ela não tem o que reconciliar. O grafo nunca desenhava a aresta, os
+    /// backlinks nunca apareciam — até alguém reeditar a nota que citava, à mão, sem saber por quê.
+    ///
+    /// O comentário do ExecutarAsync já dizia que "uma nota criada agora pode ser o destino de um link
+    /// que estava quebrado ontem" e corrigia o RESOLVEDOR para isso. Mas corrigir o resolvedor não
+    /// adianta se a nota que segura o link quebrado nunca é reprocessada: metade da solução.
+    ///
+    /// QUEM DECIDE SE RESOLVE É O RESOLVEDOR, e não uma comparação de nomes aqui: apelido, caixa,
+    /// âncora e homônima são regras dele, e uma segunda cópia delas é a que vai ficar para trás.
+    /// </summary>
+    public async Task<int> ConsertarLigacoesQuebradasAsync(
+        ResolvedorDeWikilinks resolvedor, CancellationToken ct = default)
+    {
+        var quebradas = await indice.LigacoesQuebradasAsync(ct);
+        if (quebradas.Count == 0) return 0;
+
+        var aReindexar = quebradas
+            .Where(q => resolvedor.Resolver(q.Alvo, q.Onde) is not null)
+            .Select(q => q.Onde)
+            .Distinct()
+            .ToList();
+
+        foreach (var caminho in aReindexar) await ReindexarAsync(caminho, resolvedor, ct);
+
+        if (aReindexar.Count > 0)
+            log.LogInformation(
+                "{Quantas} nota(s) tinham ligação quebrada que agora resolve — reindexadas.", aReindexar.Count);
+
+        return aReindexar.Count;
     }
 
     /// <summary>Monta o mapa de resolução. Só lê o conteúdo das notas cujos apelidos ainda não se conhece.</summary>
