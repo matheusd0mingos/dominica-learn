@@ -31,6 +31,17 @@
             <MudButton Size="Size.Small" Variant="Variant.Text" Href="revisar">Revisar tudo</MudButton>
         }
 
+        @* REVISAR MEUS ERROS — o atalho para o outro lado do loop de fraqueza. O produto marca #errei-na-prova
+           sozinho a cada erro; isto é o que torna "hoje só reviso o que errei" um clique, e não uma URL que a
+           pessoa teria de saber montar. Só aparece quando há cartões de erro, e some quando já é este o recorte:
+           um atalho que leva a uma fila vazia — ou que repete o filtro atual — é ruído. *@
+        @if (_temErros && !EhFiltroDeErros)
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error"
+                       StartIcon="@Icons.Material.Filled.ReportProblem"
+                       Href="@($"revisar?etiqueta={ServicoDeCartoes.EtiquetaDeErro}")">Revisar meus erros</MudButton>
+        }
+
         @* ESCOLHER A MATÉRIA TEM DE SER POSSÍVEL COM A FILA CHEIA. A lista lá embaixo só aparece quando
            a fila acaba — ou seja, quando não há mais nada a decidir. Quem abre a tela com 37 cartões
            vencidos e quer estudar só Contabilidade hoje precisa disto AQUI, antes do primeiro cartão.
@@ -322,6 +333,14 @@
     private Etiqueta? _etiqueta;
     private Etiqueta? _etiqueta2;
 
+    /// <summary>Há cartões de erro no vault — decide se o atalho "Revisar meus erros" aparece.</summary>
+    private bool _temErros;
+
+    /// <summary>Já estamos filtrando por #errei-na-prova? Então o atalho para ele seria repetir o filtro.</summary>
+    private bool EhFiltroDeErros =>
+        string.Equals(_etiqueta?.Valor, ServicoDeCartoes.EtiquetaDeErro, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(_etiqueta2?.Valor, ServicoDeCartoes.EtiquetaDeErro, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>As etiquetas do recorte, como o título mostra. "+" porque é E, não OU.</summary>
     private string? RotuloDasEtiquetas => (_etiqueta, _etiqueta2) switch
     {
@@ -485,6 +504,7 @@
         _ineditosSegurados = hoje.IneditosSegurados;
         _motivoDaOrdem = hoje.MotivoDaOrdem;
         _porMateria = await Cartoes.PorMateriaAsync();
+        _temErros = await Cartoes.TemNotasDeErroAsync();
         Avancar();
         _carregando = false;
     }

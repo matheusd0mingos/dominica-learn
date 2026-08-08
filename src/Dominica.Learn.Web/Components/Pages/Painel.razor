@@ -308,10 +308,28 @@ else
                 @if (_d.Pior is { } pior)
                 {
                     @* A RESPOSTA A "ONDE ESTOU PERDENDO", que é a pergunta que só o registro consegue
-                       responder. Só aparece com amostra suficiente — ver DesempenhoDaMateria. *@
+                       responder. Só aparece com amostra suficiente — ver DesempenhoDaMateria.
+
+                       E agora ela é ACIONÁVEL: saber onde perde sem um caminho para agir ali é meia resposta.
+                       "Revisar" leva direto à fila da matéria fraca; "meus erros" à fila do #errei-na-prova.
+                       É o loop de fraqueza fechando — do diagnóstico ao cartão, num clique. *@
                     <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-3">
-                        Onde você mais perde: <b>@pior.Materia.Rotulo</b> —
-                        @pior.Percentual.ToString("0.#")% em @pior.Questoes questões.
+                        <div class="d-flex align-center flex-wrap gap-2">
+                            <span>
+                                Onde você mais perde: <b>@pior.Materia.Rotulo</b> —
+                                @pior.Percentual.ToString("0.#")% em @pior.Questoes questões.
+                            </span>
+                            <MudSpacer />
+                            <MudButton Size="Size.Small" Variant="Variant.Text"
+                                       StartIcon="@Icons.Material.Filled.Style"
+                                       Href="@($"revisar/{Uri.EscapeDataString(pior.Materia.Nome)}")">Revisar @pior.Materia.Rotulo</MudButton>
+                            @if (_temErros)
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Text"
+                                           StartIcon="@Icons.Material.Filled.ReportProblem"
+                                           Href="@($"revisar?etiqueta={ServicoDeCartoes.EtiquetaDeErro}")">Revisar meus erros</MudButton>
+                            }
+                        </div>
                     </MudAlert>
                 }
 
@@ -490,7 +508,11 @@ else
         _ultimos = await Desempenho.UltimosAsync();
         (_calor, _calorLembrado, _calorTotal) = await Desempenho.CalorAsync();
         _horas = await Desempenho.HorasAsync();
+        _temErros = await Cartoes.TemNotasDeErroAsync();
     }
+
+    /// <summary>Há cartões de erro — decide se o atalho "Revisar meus erros" aparece no aviso de fraqueza.</summary>
+    private bool _temErros;
 
     // —— O HISTÓRICO DE HORAS ————————————————————————————————————————————————————————
     private HistoricoDeHoras? _horas;

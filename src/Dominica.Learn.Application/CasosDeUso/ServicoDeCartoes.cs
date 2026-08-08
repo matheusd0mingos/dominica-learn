@@ -138,6 +138,25 @@ public sealed class ServicoDeCartoes(
     public const string NotaDeErros = "Errei na prova";
 
     /// <summary>
+    /// A etiqueta que o produto põe em toda nota de erro, sozinho. É o que torna "revisar só o que errei"
+    /// possível sem a pessoa marcar nada — ver <see cref="FilaAsync"/> e <see cref="TemNotasDeErroAsync"/>.
+    /// Constante única para o gesto que CRIA a etiqueta e o atalho que a LÊ nunca discordarem no texto.
+    /// </summary>
+    public const string EtiquetaDeErro = "errei-na-prova";
+
+    /// <summary>
+    /// Há cartões de erro no vault? É o que decide se o atalho "Revisar meus erros" aparece: um atalho que
+    /// leva a uma fila vazia é o tipo de beco sem saída que ensina a pessoa a ignorar a barra de ferramentas.
+    /// </summary>
+    public async Task<bool> TemNotasDeErroAsync(CancellationToken ct = default)
+    {
+        var e = Etiqueta.TentarCriar(EtiquetaDeErro);
+        if (e is null) return false;
+        var acertos = await indice.BuscarAsync(new ConsultaDeBusca { Etiqueta = e, Limite = 1 }, ct);
+        return acertos.Count > 0;
+    }
+
+    /// <summary>
     /// Grava um cartão nascido de uma questão errada, na nota de erros da matéria — criando-a se preciso.
     ///
     /// POR QUE ISTO MERECE UM CAMINHO PRÓPRIO, em vez de "abra a nota certa e use o botão de cartão":
@@ -165,7 +184,7 @@ public sealed class ServicoDeCartoes(
 
         if (nota is null)
         {
-            var inicial = $"# {NotaDeErros} — {materia.Rotulo}\n\n#errei-na-prova\n\n" +
+            var inicial = $"# {NotaDeErros} — {materia.Rotulo}\n\n#{EtiquetaDeErro}\n\n" +
                           "Cada cartão aqui nasceu de uma questão errada. O que erra não costuma ser o\n" +
                           "conceito: é a confusão entre dois conceitos parecidos.\n\n" +
                           textoDoCartao.TrimEnd() + "\n";

@@ -46,6 +46,42 @@ public class ServicoDeCartoesTests
         return alvo;
     }
 
+    // —— O ATALHO "REVISAR MEUS ERROS" ————————————————————————————————————————————————
+    // TemNotasDeErroAsync decide se o atalho aparece. O risco é o atalho existir levando a uma fila vazia
+    // (quando não há erro) ou sumir tendo erro para revisar — as duas quebram a confiança na barra.
+
+    [Fact]
+    public async Task Sem_nota_de_erro_o_atalho_nao_aparece()
+    {
+        var c = Montar();
+        await Criar(c, "Direito/A.md", "# A\n\nPergunta::Resposta\n");
+
+        Assert.False(await c.Cartoes.TemNotasDeErroAsync());
+    }
+
+    [Fact]
+    public async Task Com_nota_marcada_errei_na_prova_o_atalho_aparece()
+    {
+        var c = Montar();
+        // A mesma etiqueta que RegistrarErroAsync grava sozinho. Ver ServicoDeCartoes.EtiquetaDeErro.
+        await Criar(c, "Direito/Errei na prova.md", $"# Erros\n\n#{ServicoDeCartoes.EtiquetaDeErro}\n\nPergunta::Resposta\n");
+
+        Assert.True(await c.Cartoes.TemNotasDeErroAsync());
+    }
+
+    [Fact]
+    public async Task Registrar_erro_faz_o_atalho_passar_a_aparecer()
+    {
+        // O ciclo inteiro: não há erro, registra um, e o atalho que estava escondido passa a valer.
+        var c = Montar();
+        Assert.False(await c.Cartoes.TemNotasDeErroAsync());
+
+        var r = await c.Cartoes.RegistrarErroAsync(Materia.De("Direito"), "Prazo::Cinco anos");
+        Assert.True(r.Ok, r.Mensagem);
+
+        Assert.True(await c.Cartoes.TemNotasDeErroAsync());
+    }
+
     // —— A FILA ————————————————————————————————————————————————————————————————————
 
     [Fact]
