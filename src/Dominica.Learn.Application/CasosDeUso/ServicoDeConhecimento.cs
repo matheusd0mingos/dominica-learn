@@ -78,7 +78,7 @@ public sealed record VisaoDoGrafo(
 /// só o favorito escreve, e escreve pelo serviço de notas para não duplicar a invariante. Juntar os dois
 /// daria uma classe de trinta métodos que ninguém lê inteira.
 /// </summary>
-public sealed class ServicoDeConhecimento(
+public sealed partial class ServicoDeConhecimento(
     IRepositorioDeNotas repositorio,
     IIndiceDoVault indice,
     IRenderizadorDeMarkdown renderizador,
@@ -99,8 +99,50 @@ public sealed class ServicoDeConhecimento(
     {
         var conhecidas = await indice.NotasConhecidasAsync(ct);
         var resolvedor = new ResolvedorDeWikilinks(conhecidas);
-        return renderizador.Renderizar(markdown, alvo => resolvedor.Resolver(alvo), UrlDoAnexo);
+
+        // O CONTEÚDO DOS EMBEDS É CARREGADO ANTES de renderizar, num dicionário — porque o renderizador
+        // é síncrono (texto em texto) e ler nota é I/O. É esta a divisão de trabalho da porta: quem sabe
+        // ler nota entrega o conteúdo; quem sabe desenhar decide onde ele entra.
+        var embutidas = await ConteudoDosEmbedsAsync(markdown, resolvedor, ct);
+
+        return renderizador.Renderizar(markdown, alvo => resolvedor.Resolver(alvo), UrlDoAnexo,
+            embutidas.Count == 0
+                ? null
+                : alvo => resolvedor.Resolver(alvo) is { } c ? embutidas.GetValueOrDefault(c) : null);
     }
+
+    /// <summary>
+    /// Quantas transclusões uma nota pode carregar. O teto existe porque cada embed é uma leitura de
+    /// disco e uma renderização — uma nota-índice com cem embeds transformaria cada abertura numa
+    /// varredura do vault. Trinta é folga para uso real; acima disso, os demais viram link, que é a
+    /// degradação já conhecida.
+    /// </summary>
+    public const int TetoDeTransclusoes = 30;
+
+    private async Task<Dictionary<CaminhoNota, string>> ConteudoDosEmbedsAsync(
+        string markdown, ResolvedorDeWikilinks resolvedor, CancellationToken ct)
+    {
+        var mapa = new Dictionary<CaminhoNota, string>();
+        foreach (System.Text.RegularExpressions.Match m in EmbedDeNota().Matches(markdown))
+        {
+            if (mapa.Count >= TetoDeTransclusoes) break;
+
+            var interno = m.Groups["interno"].Value;
+            var corte = interno.IndexOfAny(['|', '#']);
+            var alvo = (corte >= 0 ? interno[..corte] : interno).Trim();
+
+            // Só o que RESOLVE COMO NOTA é lido: "![[foto.png]]" não resolve (anexo não é nota) e segue
+            // para o fluxo de anexo do renderizador sem custar uma leitura aqui.
+            if (alvo.Length == 0 || resolvedor.Resolver(alvo) is not { } caminho || mapa.ContainsKey(caminho))
+                continue;
+
+            if (await repositorio.LerAsync(caminho, ct) is { } nota) mapa[caminho] = nota.Conteudo;
+        }
+        return mapa;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"!\[\[(?<interno>[^\]\n]+)\]\]")]
+    private static partial System.Text.RegularExpressions.Regex EmbedDeNota();
 
     /// <summary>
     /// "foto.png" → "anexos/Anexos/foto.png", ou null se o arquivo não está no vault.

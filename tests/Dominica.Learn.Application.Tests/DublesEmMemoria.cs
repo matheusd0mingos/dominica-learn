@@ -205,14 +205,19 @@ public sealed class RenderizadorDeMentira : IRenderizadorDeMarkdown
     public readonly List<string> LinksResolvidos = [];
     public readonly List<string> AnexosResolvidos = [];
 
+    /// <summary>Alvo → conteúdo que a aplicação entregou para transcluir. É a prova do contrato novo.</summary>
+    public readonly Dictionary<string, string> Transcluidos = [];
+
     public NotaRenderizada Renderizar(
-        string markdown, Func<string, CaminhoNota?> resolver, Func<string, string?>? anexos = null)
+        string markdown, Func<string, CaminhoNota?> resolver, Func<string, string?>? anexos = null,
+        Func<string, string?>? notas = null)
     {
         foreach (var alvo in AnalisadorDeNota.Analisar(markdown, "x.md").Ligacoes.Select(l => l.Alvo))
         {
             LinksResolvidos.Add(alvo);
             resolver(alvo);
             if (anexos is not null && alvo.Contains('.')) { AnexosResolvidos.Add(alvo); anexos(alvo); }
+            if (notas is not null && notas(alvo) is { } conteudo) Transcluidos[alvo] = conteudo;
         }
 
         return new NotaRenderizada(markdown, TemFormulas: false, TemDiagramas: false);

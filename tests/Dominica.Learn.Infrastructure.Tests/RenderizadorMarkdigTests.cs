@@ -200,4 +200,121 @@ public class RenderizadorMarkdigTests
         Assert.Equal(string.Empty, _r.Renderizar(string.Empty, _ => null).Html);
         Assert.Equal(string.Empty, _r.Renderizar("   ", _ => null).Html);
     }
+
+    // —— TRANSCLUSÃO ————————————————————————————————————————————————————————————————————
+    //
+    // ![[Nota]] com provedor de conteúdo embute a nota; sem provedor, ou com a nota inexistente, degrada
+    // para link — o comportamento que sempre houve. A profundidade é UM: o embed de dentro do embutido
+    // vira link, e é essa a guarda de ciclo.
+
+    private Dominica.Learn.Application.Portas.NotaRenderizada RenderComNotas(
+        string md, Dictionary<string, string> vault)
+    {
+        return _r.Renderizar(md,
+            alvo => vault.Keys.FirstOrDefault(c =>
+                string.Equals(CaminhoNota.De(c).Nome, alvo, StringComparison.OrdinalIgnoreCase)) is { } achado
+                    ? CaminhoNota.De(achado) : null,
+            anexos: null,
+            notas: alvo => vault.FirstOrDefault(par =>
+                string.Equals(CaminhoNota.De(par.Key).Nome, alvo, StringComparison.OrdinalIgnoreCase)).Value);
+    }
+
+    [Fact]
+    public void Embed_de_nota_embute_o_conteudo_renderizado()
+    {
+        var r = RenderComNotas("antes\n\n![[Outra]]\n\ndepois",
+            new() { ["Direito/Outra.md"] = "# Título da outra\n\ncorpo da outra" });
+
+        Assert.Contains("class=\"transclusao\"", r.Html);
+        Assert.Contains("corpo da outra", r.Html);
+        // A moldura diz de onde veio, e o link leva lá.
+        Assert.Contains("href=\"/notas/Direito/Outra.md\"", r.Html);
+    }
+
+    [Fact]
+    public void O_embutido_passa_pela_mesma_regra_de_seguranca()
+    {
+        // O conteúdo embutido é nota como qualquer outra — colada de qualquer canto da internet. Se ele
+        // entrasse sem passar pelo DisableHtml, a transclusão seria a porta dos fundos do XSS.
+        var r = RenderComNotas("![[Outra]]",
+            new() { ["Outra.md"] = "<script>alert('xss')</script>" });
+
+        Assert.DoesNotContain("<script>", r.Html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("&lt;script&gt;", r.Html);
+    }
+
+    [Fact]
+    public void A_profundidade_e_um_e_o_ciclo_nao_trava()
+    {
+        // A resposta embute B; B embute A de volta. Sem a guarda, isto é recursão infinita. Com ela, o
+        // ![[A]] dentro de B vira LINK — visível, clicável, e o desenho para de descer.
+        var r = RenderComNotas("![[B]]", new()
+        {
+            ["A.md"] = "![[B]]",
+            ["B.md"] = "conteúdo de B e ![[A]]",
+        });
+
+        Assert.Contains("conteúdo de B", r.Html);
+        var aparicoes = r.Html.Split("class=\"transclusao\"").Length - 1;
+        Assert.Equal(1, aparicoes);                          // só o embed de fora embutiu
+        Assert.Contains("href=\"/notas/A.md\"", r.Html);     // o de dentro virou link
+    }
+
+    [Fact]
+    public void Embed_de_nota_inexistente_continua_virando_link_quebrado()
+    {
+        var r = RenderComNotas("![[Não Escrita]]", []);
+        Assert.Contains("link-quebrado", r.Html);
+        Assert.DoesNotContain("transclusao", r.Html);
+    }
+
+    [Fact]
+    public void Sem_provedor_de_notas_o_embed_vira_link_como_sempre()
+    {
+        var caminho = CaminhoNota.De("Outra.md");
+        var html = _r.Renderizar("![[Outra]]", _ => caminho).Html;
+        Assert.Contains("href=\"/notas/Outra.md\"", html);
+        Assert.DoesNotContain("transclusao", html);
+    }
+
+    [Fact]
+    public void Embed_dentro_de_bloco_de_codigo_nao_e_transcluido()
+    {
+        var r = RenderComNotas("```\n![[Outra]]\n```", new() { ["Outra.md"] = "conteúdo" });
+        Assert.DoesNotContain("transclusao", r.Html);
+        Assert.DoesNotContain("conteúdo", r.Html);
+    }
+
+    [Fact]
+    public void Formula_e_diagrama_do_embutido_contam_para_a_nota_que_embute()
+    {
+        // A tela decide carregar KaTeX/Mermaid pelo aviso do C#. Se o embutido tem fórmula e o aviso não
+        // sobe, a fórmula aparece crua — só dentro da transclusão, o tipo de defeito difícil de notar.
+        var r = RenderComNotas("sem fórmula própria\n\n![[Outra]]",
+            new() { ["Outra.md"] = "tem $E=mc^2$ e\n\n```mermaid\ngraph TD; A-->B\n```" });
+
+        Assert.True(r.TemFormulas);
+        Assert.True(r.TemDiagramas);
+    }
+
+    [Fact]
+    public void Frontmatter_do_embutido_nao_aparece()
+    {
+        var r = RenderComNotas("![[Outra]]",
+            new() { ["Outra.md"] = "---\ntags: [x]\n---\n\ncorpo" });
+
+        Assert.Contains("corpo", r.Html);
+        Assert.DoesNotContain("tags:", r.Html);
+    }
+
+    [Fact]
+    public void Embed_com_secao_embute_a_nota_inteira_com_a_ancora_no_link()
+    {
+        // Preço declarado: fatiar a seção exigiria reconhecer onde ela termina, e errar isso corta
+        // conteúdo em silêncio. Embute-se a mais, nunca a menos — e o link da moldura leva à seção.
+        var r = RenderComNotas("![[Outra#Detalhe]]", new() { ["Outra.md"] = "# Detalhe\n\ncorpo" });
+
+        Assert.Contains("corpo", r.Html);
+        Assert.Contains("href=\"/notas/Outra.md#detalhe\"", r.Html);
+    }
 }

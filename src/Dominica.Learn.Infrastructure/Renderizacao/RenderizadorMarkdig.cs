@@ -33,7 +33,8 @@ public sealed partial class RenderizadorMarkdig : IRenderizadorDeMarkdown
         .DisableHtml()                // ← a linha que decide a segurança do produto
         .Build();
 
-    public NotaRenderizada Renderizar(string markdown, Func<string, CaminhoNota?> resolver, Func<string, string?>? anexos = null)
+    public NotaRenderizada Renderizar(string markdown, Func<string, CaminhoNota?> resolver,
+        Func<string, string?>? anexos = null, Func<string, string?>? notas = null)
     {
         if (string.IsNullOrWhiteSpace(markdown)) return NotaRenderizada.Vazia;
 
@@ -46,19 +47,72 @@ public sealed partial class RenderizadorMarkdig : IRenderizadorDeMarkdown
         // Wikilinks viram Markdown normal ANTES do Markdig. Fazer isso como extensão do pipeline seria
         // mais elegante e custaria uma classe de plumbing por sintaxe; a pré-passagem é KISS e o
         // resultado é idêntico. Ela respeita blocos de código — o mesmo cuidado do analisador.
-        texto = ConverterWikilinks(texto, resolver, anexos, out var alvosQuebrados);
+        var transclusoes = new List<Transclusao>();
+        texto = ConverterWikilinks(texto, resolver, anexos, notas, transclusoes, out var alvosQuebrados);
 
         var html = Markdown.ToHtml(texto, _pipeline);
         html = MarcarLinksQuebrados(html, alvosQuebrados);
+
+        // A TRANSCLUSÃO É SUBSTITUÍDA DEPOIS do Markdig, e não emitida no meio do Markdown — porque o
+        // DisableHtml escaparia a moldura junto com todo o resto. O conteúdo embutido passa pelo MESMO
+        // Renderizar (com notas: null — a profundidade um), então a regra de segurança é uma só e vale
+        // para o que veio por embed também.
+        var temFormulas = TemFormula().IsMatch(texto);
+        var temDiagramas = false;
+        foreach (var t in transclusoes)
+        {
+            var embutida = Renderizar(t.Markdown, resolver, anexos, notas: null);
+            temFormulas |= embutida.TemFormulas;
+            temDiagramas |= embutida.TemDiagramas;
+            html = SubstituirMarcador(html, t, embutida.Html);
+        }
 
         // O Markdig já emite <pre class="mermaid"> para blocos ```mermaid (é a extensão de diagramas, que
         // vem em UseAdvancedExtensions). Aqui só se DETECTA: escrever de novo essa conversão seria
         // duplicar mal o que a biblioteca faz bem. O conteúdo sai escapado, como código — o Mermaid lê
         // textContent, que desescapa no navegador sem passar por interpretação de HTML.
-        var temDiagramas = html.Contains("class=\"mermaid\"", StringComparison.Ordinal);
+        temDiagramas |= html.Contains("class=\"mermaid\"", StringComparison.Ordinal);
 
-        return new NotaRenderizada(html, temDiagramas, TemFormula().IsMatch(texto));
+        return new NotaRenderizada(html, temDiagramas, temFormulas);
     }
+
+    /// <summary>Um embed de nota aguardando substituição no HTML final.</summary>
+    private sealed record Transclusao(int Indice, CaminhoNota Destino, string Titulo, string Markdown, string? Secao)
+    {
+        // O marcador atravessa o Markdig como TEXTO PURO — sem colchete, sem cerquilha, nada que alguma
+        // extensão do pipeline pudesse resolver a interpretar. O sufixo fixo evita colisão com texto de
+        // nota: quem escrever isto literalmente numa nota vê o embed daquela posição, que é um preço
+        // aceitável por não carregar um GUID por embed.
+        public string Marcador => $"@@transclusao-{Indice}@@";
+    }
+
+    private static string SubstituirMarcador(string html, Transclusao t, string htmlEmbutido)
+    {
+        var ancora = t.Secao is null ? string.Empty : "#" + Ancora(t.Secao);
+        var moldura =
+            $"<section class=\"transclusao\">" +
+            $"<div class=\"transclusao-origem\"><a href=\"/notas/{CaminhoNaUrl(t.Destino)}{ancora}\">{EscaparHtml(t.Titulo)}</a></div>" +
+            $"<div class=\"transclusao-conteudo\">{htmlEmbutido}</div>" +
+            $"</section>";
+
+        // O embed sozinho na linha vira um parágrafo só com o marcador — o caso normal. Trocar o
+        // parágrafo INTEIRO evita <section> dentro de <p>, que o navegador "conserta" quebrando o
+        // parágrafo em dois. No meio de uma frase (raro), troca só o marcador e aceita o conserto.
+        var paragrafo = $"<p>{t.Marcador}</p>";
+        return html.Contains(paragrafo, StringComparison.Ordinal)
+            ? html.Replace(paragrafo, moldura, StringComparison.Ordinal)
+            : html.Replace(t.Marcador, moldura, StringComparison.Ordinal);
+    }
+
+    private static string CaminhoNaUrl(CaminhoNota caminho) =>
+        string.Join('/', caminho.Valor.Split('/').Select(Uri.EscapeDataString));
+
+    /// <summary>O título vai para dentro de HTML montado à mão — escapa como o Markdig escaparia.</summary>
+    private static string EscaparHtml(string texto) => texto
+        .Replace("&", "&amp;", StringComparison.Ordinal)
+        .Replace("<", "&lt;", StringComparison.Ordinal)
+        .Replace(">", "&gt;", StringComparison.Ordinal)
+        .Replace("\"", "&quot;", StringComparison.Ordinal);
 
     private static string RemoverFrontmatter(string texto)
     {
@@ -71,12 +125,19 @@ public sealed partial class RenderizadorMarkdig : IRenderizadorDeMarkdown
     /// "[[Alvo|rótulo]]" → "[rótulo](/notas/Caminho.md)".
     ///
     /// Embed de ANEXO ("![[foto.png]]") vira imagem de verdade, quando <paramref name="anexos"/> resolve
-    /// o arquivo. Embed de NOTA ("![[Outra Nota]]") continua virando link: embutir o conteúdo de outra
-    /// nota é recursivo e precisa de guarda de ciclo — trabalho de verdade, não um `if`, e melhor ausente
-    /// que meio-feito.
+    /// o arquivo. Embed de NOTA ("![[Outra Nota]]") vira TRANSCLUSÃO quando <paramref name="notas"/>
+    /// entrega o conteúdo: um marcador atravessa o Markdig e é trocado pelo HTML embutido depois — ver
+    /// Renderizar. Sem o provedor (ou com a nota inexistente), o embed degrada para link, que era o
+    /// comportamento de sempre.
+    ///
+    /// EMBED DE SEÇÃO ("![[Nota#Seção]]") embute a NOTA INTEIRA, com a âncora no link da moldura. Fatiar
+    /// o Markdown na seção exigiria reconhecer onde ela termina — heading de nível igual ou maior, dentro
+    /// das regras de bloco — e errar isso corta conteúdo em silêncio. Preço declarado: embute-se a mais,
+    /// nunca a menos.
     /// </summary>
     private static string ConverterWikilinks(
-        string texto, Func<string, CaminhoNota?> resolver, Func<string, string?>? anexos, out HashSet<string> quebrados)
+        string texto, Func<string, CaminhoNota?> resolver, Func<string, string?>? anexos,
+        Func<string, string?>? notas, List<Transclusao> transclusoes, out HashSet<string> quebrados)
     {
         var quebradosLocais = new HashSet<string>(StringComparer.Ordinal);
         var sb = new StringBuilder(texto.Length + 64);
@@ -121,6 +182,18 @@ public sealed partial class RenderizadorMarkdig : IRenderizadorDeMarkdown
 
                 if (alvo.Length == 0)
                     return $"[{Escapar(rotulo ?? secao ?? "")}](#{Ancora(secao ?? "")})";   // link interno
+
+                // A TRANSCLUSÃO: embed de nota que existe e cujo conteúdo o provedor entrega. Tudo que
+                // não se encaixar cai adiante e vira link — nota inexistente vira link quebrado (que é o
+                // fluxo de criar a nota), e sem provedor o comportamento é o de sempre.
+                if (ehEmbed && notas is not null && resolver(alvo) is { } alvoDoEmbed &&
+                    notas(alvo) is { } conteudoDoEmbed)
+                {
+                    var titulo = rotulo ?? (secao is null ? alvo : $"{alvo} › {secao}");
+                    var t = new Transclusao(transclusoes.Count, alvoDoEmbed, titulo, conteudoDoEmbed, secao);
+                    transclusoes.Add(t);
+                    return t.Marcador;
+                }
 
                 var destino = resolver(alvo);
                 var texto2 = Escapar(rotulo ?? (secao is null ? alvo : $"{alvo} › {secao}"));

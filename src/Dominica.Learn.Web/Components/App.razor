@@ -64,6 +64,10 @@
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
     <script src="@Assets["Components/Account/Shared/PasskeySubmit.razor.js"]" type="module"></script>
 
+    @* O hover preview de wikilink (ver previa.js). Módulo autônomo, sem interop: escuta o documento
+       inteiro, então funciona na leitura, nos backlinks e na lista da ponte sem cada tela pedir. *@
+    <script src="@Assets["js/previa.js"]" type="module"></script>
+
     @* Registra o service worker da página offline (ver sw.js — ele NÃO cacheia o app). O caminho é
        resolvido contra o <base>, e não contra a URL da página: registrar "sw.js" de dentro de
        /notas/Direito/… tentaria /notas/Direito/sw.js, e o escopo sairia errado. *@

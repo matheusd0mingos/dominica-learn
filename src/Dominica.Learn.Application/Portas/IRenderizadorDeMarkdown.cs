@@ -42,6 +42,13 @@ public interface IRenderizadorDeMarkdown
     /// aplicação serve aquele arquivo, ou null se ele não existe. É aqui, na APRESENTAÇÃO, que o embed
     /// relativo ao vault vira endereço — nunca dentro do arquivo .md, que precisa continuar valendo
     /// quando aberto no Obsidian e sem servidor nenhum no ar.
+    ///
+    /// <paramref name="notas"/> é a TRANSCLUSÃO: dado o alvo de um <c>![[embed de nota]]</c>, devolve o
+    /// MARKDOWN daquela nota, ou null. Com ela, o embed vira o conteúdo embutido (profundidade um — o
+    /// embed dentro do embutido vira link, que é a guarda de ciclo); sem ela, vira link como sempre foi.
+    /// Quem fornece é a aplicação, porque é ela quem sabe ler nota — o renderizador continua puro texto
+    /// para texto.
     /// </summary>
-    NotaRenderizada Renderizar(string markdown, Func<string, CaminhoNota?> resolver, Func<string, string?>? anexos = null);
+    NotaRenderizada Renderizar(string markdown, Func<string, CaminhoNota?> resolver,
+        Func<string, string?>? anexos = null, Func<string, string?>? notas = null);
 }

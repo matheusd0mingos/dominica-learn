@@ -866,3 +866,54 @@ kbd.tecla {
     border-radius: 6px;
     cursor: crosshair;
 }
+
+/* ——— TRANSCLUSÃO E HOVER PREVIEW ————————————————————————————————————————————————————— */
+
+/* O conteúdo embutido por ![[Nota]] — visivelmente "de outro lugar", sem virar cidadão de segunda:
+   a barra dourada diz "isto veio por referência" e o cabeçalho é o caminho de volta para a origem. */
+.transclusao {
+    margin: 12px 0;
+    padding: 8px 14px;
+    border-left: 3px solid var(--ouro);
+    background: color-mix(in srgb, var(--ouro) 6%, transparent);
+    border-radius: 0 var(--raio) var(--raio) 0;
+}
+
+.transclusao-origem {
+    font-size: 0.8rem;
+    margin-bottom: 4px;
+}
+
+.transclusao-origem a {
+    color: var(--ink-soft);
+    text-decoration: none;
+}
+
+.transclusao-origem a:hover { text-decoration: underline; }
+
+/* Título H1 dentro do embutido compete com o da nota que embute — reduz, não some. */
+.transclusao-conteudo h1 { font-size: 1.25rem; }
+.transclusao-conteudo h2 { font-size: 1.1rem; }
+.transclusao-conteudo > :last-child { margin-bottom: 0; }
+
+/* O popover do hover de wikilink (ver previa.js). position: fixed porque as coordenadas vêm de
+   getBoundingClientRect — que é relativo à viewport, não à página. A altura é teto com corte:
+   prévia é para reconhecer a nota, não para lê-la inteira. */
+.previa-de-nota {
+    position: fixed;
+    z-index: 2000;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 12px 16px;
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    box-shadow: var(--sombra);
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.previa-de-nota h1 { font-size: 1.1rem; }
+.previa-de-nota h2 { font-size: 1rem; }
+.previa-de-nota img { max-width: 100%; }

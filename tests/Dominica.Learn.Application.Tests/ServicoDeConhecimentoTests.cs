@@ -475,4 +475,59 @@ public class ServicoDeConhecimentoTests
         Assert.True(r.Ok, r.Mensagem);
         Assert.Contains("[[Prescrição|prescrição]]", c.Vault.Arquivos["Tributário.md"]);
     }
+
+    // —— RENDERIZAR: A TRANSCLUSÃO ————————————————————————————————————————————————————
+    //
+    // O renderizador é síncrono e não lê nota; quem lê é a aplicação, ANTES, e entrega por função. O que
+    // se prova aqui é essa entrega — o desenho da moldura já tem teste no adaptador Markdig.
+
+    private static (Cenario C, RenderizadorDeMentira R) MontarComRenderizador()
+    {
+        var relogio = new RelogioFixo(new DateTimeOffset(2026, 8, 8, 9, 0, 0, TimeSpan.Zero));
+        var vault = new VaultEmMemoria(relogio);
+        var indice = new IndiceEmMemoria();
+        var reconciliacao = new ReconciliarVault(vault, indice, relogio, NullLogger<ReconciliarVault>.Instance);
+        var notas = new ServicoDeNotas(vault, indice, new HistoricoEmMemoria(), reconciliacao, relogio,
+            NullLogger<ServicoDeNotas>.Instance);
+        var renderizador = new RenderizadorDeMentira();
+        var conhecimento = new ServicoDeConhecimento(
+            vault, indice, renderizador, new AnexosEmMemoria(), notas, relogio,
+            NullLogger<ServicoDeConhecimento>.Instance);
+        return (new Cenario(conhecimento, notas, vault, indice, new HistoricoEmMemoria(),
+            new AnexosEmMemoria(), relogio), renderizador);
+    }
+
+    [Fact]
+    public async Task Renderizar_entrega_o_conteudo_da_nota_embutida()
+    {
+        var (c, renderizador) = MontarComRenderizador();
+        await Criar(c, "Direito/Outra.md", "# Outra\n\ncorpo da outra\n");
+
+        await c.Conhecimento.RenderizarAsync("veja ![[Outra]] aqui");
+
+        Assert.Contains("corpo da outra", renderizador.Transcluidos["Outra"]);
+    }
+
+    [Fact]
+    public async Task Embed_de_nota_inexistente_nao_entrega_conteudo()
+    {
+        var (c, renderizador) = MontarComRenderizador();
+
+        await c.Conhecimento.RenderizarAsync("veja ![[Não Existe]]");
+
+        Assert.Empty(renderizador.Transcluidos);
+    }
+
+    [Fact]
+    public async Task Wikilink_comum_nao_carrega_conteudo_nenhum()
+    {
+        // Só o EMBED custa leitura. Se o link comum também carregasse, abrir uma nota-índice com
+        // cinquenta [[links]] viraria cinquenta leituras de disco por render.
+        var (c, renderizador) = MontarComRenderizador();
+        await Criar(c, "Direito/Outra.md", "# Outra\n");
+
+        await c.Conhecimento.RenderizarAsync("veja [[Outra]] aqui");
+
+        Assert.Empty(renderizador.Transcluidos);
+    }
 }

@@ -11,6 +11,7 @@ using Dominica.Learn.Web.Components;
 using Dominica.Learn.Web.Components.Account;
 using Dominica.Learn.Web.Data;
 using Dominica.Learn.Web.Interop;
+using Dominica.Learn.Web.Notas;
 using Dominica.Learn.Web.Seguranca;
 using Dominica.Learn.Web.Vault;
 using Dominica.Learn.Web.Tema;
@@ -241,6 +242,7 @@ app.UseRateLimiter();
 
 app.MapHealthChecks("/saude");
 app.MapearAnexos();               // /anexos/** — autenticado, lista de permissão, sem sair da raiz
+app.MapearPrevia();               // /previa/** — o fragmento que o hover de wikilink mostra
 app.MapearPacoteDoVault();        // /vault.zip — o download do vault inteiro, fora do circuito
 app.MapearTrocaDeVault();         // /vault/trocar — o alternador da barra, que é estática
 app.MapStaticAssets();
