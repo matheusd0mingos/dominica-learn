@@ -111,8 +111,10 @@
                    informação, não botão. *@
                 @if (m.Materia.Existe)
                 {
+                    @* data-previa-materia: pairar espia as notas da matéria sem descer ao grafo dela. *@
                     <g class="no-do-grafo" style="cursor:pointer" @onclick="@(() => Descer(m.Materia))"
                        tabindex="0" role="link" aria-label="@($"{descricao}. Abrir o grafo desta matéria.")"
+                       data-previa-materia="@m.Materia.Nome"
                        @onkeydown="@(e => AoTeclar(e, m.Materia))">
                         <title>@descricao</title>
                         <circle class="anel-de-foco" cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio + 4.5)" />

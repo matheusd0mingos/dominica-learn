@@ -27,14 +27,21 @@ let popover = null
 let cronometro = 0
 let ancoraAtual = null
 
-// O caminho da nota a prever, DE DOIS TIPOS DE ALVO:
-//   • um <a href> de nota (das telas e do renderizador) — tira do pathname, que já vem codificado;
-//   • um nó de grafo, que é um <g> sem href e carrega o caminho cru em data-previa — codifica aqui.
-// Devolve o caminho JÁ CODIFICADO para virar tanto a URL do fetch quanto a chave do cache, para que o
-// mesmo destino visto pelo link ou pelo ponto do grafo compartilhe a mesma prévia guardada.
-function caminhoParaPrevia(el) {
-  const bruto = el.getAttribute?.('data-previa')
-  if (bruto) return bruto.split('/').map(encodeURIComponent).join('/')
+// A URL do fetch da prévia, POR TIPO DE ALVO — e ela é também a chave do cache, para que o mesmo
+// destino visto por caminhos diferentes compartilhe a prévia guardada:
+//   • data-previa="Pasta/Nota.md"     → nota (nó do grafo)         → previa/<caminho>
+//   • data-previa-etiqueta="#tag"     → recorte de etiqueta        → previa-etiqueta/<tag>
+//   • data-previa-materia="Direito"   → recorte de matéria         → previa-materia/<materia>
+//   • <a href="…/notas/Nota.md">      → nota (link das telas)      → previa/<caminho>
+function urlDaPrevia(el) {
+  const nota = el.getAttribute?.('data-previa')
+  if (nota) return 'previa/' + nota.split('/').map(encodeURIComponent).join('/')
+
+  const etiqueta = el.getAttribute?.('data-previa-etiqueta')
+  if (etiqueta) return 'previa-etiqueta/' + encodeURIComponent(etiqueta)
+
+  const materia = el.getAttribute?.('data-previa-materia')
+  if (materia) return 'previa-materia/' + encodeURIComponent(materia)
 
   if (el.tagName !== 'A') return null
   const marca = '/notas/'
@@ -43,8 +50,11 @@ function caminhoParaPrevia(el) {
   const resto = el.pathname.slice(i + marca.length)
   // "novo" é a tela de criar nota (link quebrado) — não há o que prever.
   if (resto === 'novo' || resto.length === 0) return null
-  return resto
+  return 'previa/' + resto
 }
+
+// Os quatro tipos de alvo que têm prévia — o seletor único que os três ouvintes usam.
+const ALVOS = 'a[href], [data-previa], [data-previa-etiqueta], [data-previa-materia]'
 
 function esconder() {
   clearTimeout(cronometro)
@@ -79,12 +89,12 @@ function esconderSoOPopover() {
   popover = null
 }
 
-async function aoParar(ancora, caminho) {
-  const chave = caminho   // o caminho codificado já é único por nota — serve de chave e de URL
+async function aoParar(ancora, url) {
+  const chave = url   // a URL já é única por alvo — serve de chave e de endereço
   const guardada = cache.get(chave)
   if (!guardada || Date.now() - guardada.quando > validadeMs) {
     try {
-      const resposta = await fetch('previa/' + caminho)
+      const resposta = await fetch(url)
       if (!resposta.ok) { cache.set(chave, { html: null, quando: Date.now() }); return }
       cache.set(chave, { html: await resposta.text(), quando: Date.now() })
     } catch { return }   // sem rede não há prévia — e não há erro na tela por causa disso
@@ -98,14 +108,14 @@ export function ligar() {
   // popover, Escape fecha. :focus-visible separa o foco de teclado do foco que um clique deixa —
   // sem isso, todo clique em link abriria um popover atrás da navegação.
   document.addEventListener('focusin', (e) => {
-    const ancora = e.target.closest?.('a[href], [data-previa]')
+    const ancora = e.target.closest?.(ALVOS)
     if (!ancora || !ancora.matches(':focus-visible')) return
-    const caminho = caminhoParaPrevia(ancora)
-    if (!caminho) return
+    const url = urlDaPrevia(ancora)
+    if (!url) return
 
     esconder()
     ancoraAtual = ancora
-    cronometro = setTimeout(() => aoParar(ancora, caminho), 150)   // foco é intenção; espera menos
+    cronometro = setTimeout(() => aoParar(ancora, url), 150)   // foco é intenção; espera menos
   })
 
   document.addEventListener('focusout', (e) => {
@@ -124,14 +134,14 @@ export function ligar() {
   if (!window.matchMedia('(hover: hover)').matches) return
 
   document.addEventListener('mouseover', (e) => {
-    const ancora = e.target.closest('a[href], [data-previa]')
+    const ancora = e.target.closest(ALVOS)
     if (!ancora || ancora === ancoraAtual) return
-    const caminho = caminhoParaPrevia(ancora)
-    if (!caminho) return
+    const url = urlDaPrevia(ancora)
+    if (!url) return
 
     esconder()
     ancoraAtual = ancora
-    cronometro = setTimeout(() => aoParar(ancora, caminho), atraso)
+    cronometro = setTimeout(() => aoParar(ancora, url), atraso)
   })
 
   document.addEventListener('mouseout', (e) => {

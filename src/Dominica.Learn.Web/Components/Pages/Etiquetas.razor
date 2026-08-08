@@ -119,8 +119,11 @@
                        o ponto ABRE o painel da etiqueta (e link ativa com Enter, sem o Espaço que
                        rolaria a página), e aria-label porque nome vindo de <title> em SVG não é
                        confiável. *@
+                    @* data-previa-etiqueta: pairar (ou focar) espia as notas desta etiqueta sem clicar
+                       para abrir o painel — o "algo assim" do grafo de notas, adaptado à tag. Ver previa.js. *@
                     <g class="no-do-grafo" style="cursor:pointer" @onclick="@(() => EscolherNoMapa(e.Etiqueta))"
                        tabindex="0" role="link" aria-label="@($"{descricao}. Ver as notas, sem sair do mapa.")"
+                       data-previa-etiqueta="@e.Etiqueta.Valor"
                        @onkeydown="@(t => AoTeclarNoNo(t, e.Etiqueta))">
                         <title>@descricao</title>
                         @* UMA COR SÓ: não há matéria a representar aqui, e pintar por frequência
