@@ -1,0 +1,165 @@
+@page "/ciclo"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Estudo
+@using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Web.Estudo
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ServicoDeConhecimento Conhecimento
+@inject EstadoDoCronometro Crono
+@inject NavigationManager Navegacao
+@inject ISnackbar Avisos
+
+<PageTitle>Ciclo de estudos · Dominica Learn</PageTitle>
+
+<ProvedoresDoMud />
+
+@* O CICLO DE ESTUDOS — o rodízio que responde "o que estudo agora?".
+
+   Ele existe para matar a paralisia da escolha e o viés de estudar só o que se gosta: em vez de decidir
+   toda vez, você segue a fila. O motor é o cronômetro — "Estudar agora" já dispara a contagem na matéria
+   do bloco, e ao parar a sessão vira registro. O plano mora numa nota do vault (ver CicloDeEstudos), então
+   abre no Obsidian e sincroniza. *@
+
+<MudPaper Class="pa-4" Elevation="0" Outlined="true">
+    <div class="d-flex align-center flex-wrap gap-3 mb-2">
+        <MudText Typo="Typo.h6">Ciclo de estudos</MudText>
+        <MudSpacer />
+        <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.OpenInNew"
+                   Href="@Rotas.Nota(CicloDeEstudos.CaminhoDaNota)">Abrir como nota</MudButton>
+    </div>
+
+    @if (_carregando)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (_blocos.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+            Um ciclo é uma fila de blocos — <b>Direito · 50 min</b>, <b>Português · 30 min</b>, e assim por
+            diante. O <b>peso</b> de uma matéria é quantas vezes ela aparece na fila: a que cai mais (ou que
+            você mais erra) entra mais. Some blocos abaixo e o ciclo passa a dizer o que estudar agora.
+        </MudText>
+    }
+    else
+    {
+        @* O BLOCO DE AGORA em destaque: é a única pergunta que o ciclo responde. *@
+        @if (Atual is { } iAtual)
+        {
+            var bloco = _blocos[iAtual];
+            <MudPaper Class="pa-3 mb-3 ciclo-agora" Elevation="0" Outlined="true">
+                <MudText Typo="Typo.overline" Class="mud-text-secondary">Agora</MudText>
+                <div class="d-flex align-center flex-wrap gap-3">
+                    <MudText Typo="Typo.h5">@bloco.Materia.Rotulo</MudText>
+                    <MudText Typo="Typo.h6" Class="mud-text-secondary">@bloco.Minutos min</MudText>
+                    <MudSpacer />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.PlayArrow"
+                               OnClick="@(() => EstudarAgora(bloco.Materia))">Estudar agora</MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Success"
+                               StartIcon="@Icons.Material.Filled.Check"
+                               OnClick="@(() => ConcluirAsync(iAtual))">Concluí este bloco</MudButton>
+                </div>
+            </MudPaper>
+        }
+
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-1">
+            @_blocos.Count(b => b.Concluido) de @_blocos.Count blocos feitos nesta volta
+        </MudText>
+
+        @* A FILA INTEIRA: o que já foi (riscado), o de agora, o que vem. *@
+        <MudList T="string" Dense="true">
+            @for (var i = 0; i < _blocos.Count; i++)
+            {
+                var indice = i;
+                var b = _blocos[i];
+                var ehAtual = Atual == i;
+                <MudListItem T="string" Class="@(ehAtual ? "ciclo-item-atual" : "")">
+                    <div class="d-flex align-center gap-2">
+                        <MudIcon Size="Size.Small"
+                                 Icon="@(b.Concluido ? Icons.Material.Filled.CheckCircle : ehAtual ? Icons.Material.Filled.RadioButtonChecked : Icons.Material.Filled.RadioButtonUnchecked)"
+                                 Color="@(b.Concluido ? Color.Success : ehAtual ? Color.Primary : Color.Default)" />
+                        <MudText Typo="Typo.body2" Class="@(b.Concluido ? "ciclo-feito" : "")">
+                            <b>@b.Materia.Rotulo</b> · @b.Minutos min
+                        </MudText>
+                        <MudSpacer />
+                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline"
+                                       aria-label="Remover bloco" OnClick="@(() => RemoverAsync(indice))" />
+                    </div>
+                </MudListItem>
+            }
+        </MudList>
+
+        <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh"
+                   OnClick="RecomecarAsync" Class="mt-1">Recomeçar a volta</MudButton>
+    }
+
+    <MudDivider Class="my-3" />
+
+    @* ADICIONAR BLOCO: matéria + minutos. Some o mesmo bloco duas vezes para dar mais peso a uma matéria. *@
+    <div class="d-flex align-end flex-wrap gap-2">
+        <MudSelect T="string" @bind-Value="_novaMateria" Label="Matéria" Dense="true" Variant="Variant.Outlined"
+                   Margin="Margin.Dense" Style="min-width:180px">
+            @foreach (var m in _materias)
+            {
+                <MudSelectItem T="string" Value="@m.Materia.Nome">@m.Materia.Rotulo</MudSelectItem>
+            }
+        </MudSelect>
+        <MudNumericField T="int" @bind-Value="_novosMinutos" Label="Minutos" Min="5" Max="180" Step="5"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:110px" />
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add"
+                   Disabled="@string.IsNullOrEmpty(_novaMateria)" OnClick="AdicionarAsync">Adicionar bloco</MudButton>
+    </div>
+</MudPaper>
+
+@code {
+    private IReadOnlyList<BlocoDoCiclo> _blocos = [];
+    private IReadOnlyList<MateriaContada> _materias = [];
+    private bool _carregando = true;
+    private string? _novaMateria;
+    private int _novosMinutos = CicloDeEstudos.MinutosPadrao;
+
+    /// <summary>O índice do bloco de agora, ou null se o ciclo está vazio.</summary>
+    private int? Atual => CicloDeEstudos.IndiceAtual(_blocos);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _materias = (await Conhecimento.MateriasAsync()).Where(m => m.Materia.Existe).ToList();
+        await RecarregarAsync();
+        _carregando = false;
+    }
+
+    private async Task RecarregarAsync() => _blocos = await Conhecimento.CicloAsync();
+
+    /// <summary>Dispara o cronômetro na matéria do bloco — o widget do canto começa a contar.</summary>
+    private void EstudarAgora(Materia materia) => Crono.Iniciar(materia);
+
+    private async Task ConcluirAsync(int indice) =>
+        await SalvarAsync(CicloDeEstudos.Concluir(_blocos, indice));
+
+    private async Task RemoverAsync(int indice) =>
+        await SalvarAsync([.. _blocos.Where((_, i) => i != indice)]);
+
+    private async Task RecomecarAsync() =>
+        await SalvarAsync(CicloDeEstudos.Zerar(_blocos));
+
+    private async Task AdicionarAsync()
+    {
+        if (Materia.De(_novaMateria ?? "") is not { Existe: true } materia) return;
+        var minutos = Math.Clamp(_novosMinutos, 5, 180);
+        await SalvarAsync([.. _blocos, new BlocoDoCiclo(materia, minutos, Concluido: false)]);
+        _novaMateria = null;
+    }
+
+    private async Task SalvarAsync(IReadOnlyList<BlocoDoCiclo> novos)
+    {
+        var r = await Conhecimento.SalvarCicloAsync(novos);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui salvar o ciclo.", Severity.Warning);
+            return;
+        }
+        await RecarregarAsync();
+    }
+}

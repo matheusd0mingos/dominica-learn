@@ -1054,3 +1054,19 @@ kbd.tecla {
     font-variant-numeric: tabular-nums;
     color: var(--ink);
 }
+
+/* ——— O CICLO DE ESTUDOS ————————————————————————————————————————————————————————————— */
+/* O bloco de AGORA em destaque — é a única pergunta que a tela responde. */
+.ciclo-agora {
+    border-left: 4px solid var(--ouro);
+    background: color-mix(in srgb, var(--ouro) 6%, transparent);
+}
+
+/* O item da fila que é o atual: um leve realce para o olho achar onde está. */
+.ciclo-item-atual {
+    background: color-mix(in srgb, var(--mud-palette-primary) 8%, transparent);
+    border-radius: var(--raio);
+}
+
+/* Bloco já feito nesta volta: riscado e apagado, como tarefa concluída. */
+.ciclo-feito { text-decoration: line-through; color: var(--ink-soft); }

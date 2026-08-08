@@ -1,5 +1,6 @@
 using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Domain.Analise;
+using Dominica.Learn.Domain.Estudo;
 using Dominica.Learn.Domain.Grafo;
 using Dominica.Learn.Domain.Ligacoes;
 using Dominica.Learn.Domain.Templates;
@@ -93,6 +94,34 @@ public sealed partial class ServicoDeConhecimento(
     /// sincroniza, e abre no Obsidian como qualquer outra nota.
     /// </summary>
     public const string PastaDeTemplates = "Templates";
+
+    // —— CICLO DE ESTUDOS ————————————————————————————————————————————————————————————
+    //
+    // O ciclo mora numa NOTA do vault (ver CicloDeEstudos) — é plano do usuário, e plano do usuário não
+    // pode viver só no índice. Ler é ler a nota; gravar é gravar pelo ServicoDeNotas, que arquiva a
+    // versão anterior e reindexa como em qualquer edição.
+
+    private static CaminhoNota CaminhoDoCiclo => CaminhoNota.De(CicloDeEstudos.CaminhoDaNota);
+
+    public async Task<IReadOnlyList<BlocoDoCiclo>> CicloAsync(CancellationToken ct = default)
+    {
+        var nota = await repositorio.LerAsync(CaminhoDoCiclo, ct);
+        return CicloDeEstudos.Ler(nota?.Conteudo);
+    }
+
+    public async Task<Resultado> SalvarCicloAsync(IReadOnlyList<BlocoDoCiclo> blocos, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(blocos);
+        var atual = await repositorio.LerAsync(CaminhoDoCiclo, ct);
+        var conteudo = CicloDeEstudos.Escrever(blocos);
+
+        // Impressão do que está no disco: se a nota do ciclo mudou por fora (editada no Obsidian), o
+        // SalvarAsync recusa em vez de atropelar. Nulo quando a nota ainda não existe — aí ele cria.
+        var r = await notas.SalvarAsync(CaminhoDoCiclo, conteudo, atual?.Impressao, autor: null, ct);
+        return r.Ok
+            ? Resultado.Sucesso
+            : Resultado.Falha(r.Motivo ?? MotivoDaFalha.Invalida, r.Mensagem ?? "Não consegui salvar o ciclo.");
+    }
 
     // —— RENDERIZAÇÃO ————————————————————————————————————————————————————————————————
     public async Task<NotaRenderizada> RenderizarAsync(string markdown, CancellationToken ct = default)
