@@ -1116,6 +1116,12 @@ kbd.tecla {
     z-index: 1400;
 }
 
+/* O RESPIRO DO FIM DA PÁGINA. Capturar (esquerda) e o cronômetro (direita) são fixos, e fixo cobre o
+   que estiver embaixo — no celular a pílula pousava exatamente sobre o botão "Hoje" do fim da coluna.
+   O padding garante que todo conteúdo consegue rolar para ACIMA das pílulas; o custo é um rodapé de ar
+   que ninguém nota. Achado na varredura de fumaça em 390px. */
+main.conteudo { padding-bottom: 72px; }
+
 .captura-caixa {
     width: min(360px, calc(100vw - 32px));
 }
