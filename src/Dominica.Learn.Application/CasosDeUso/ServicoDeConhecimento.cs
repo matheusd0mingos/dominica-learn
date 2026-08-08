@@ -123,6 +123,30 @@ public sealed partial class ServicoDeConhecimento(
             : Resultado.Falha(r.Motivo ?? MotivoDaFalha.Invalida, r.Mensagem ?? "Não consegui salvar o ciclo.");
     }
 
+    // O PLANO DA SEMANA mora noutra nota do vault, pela mesma razão do ciclo: é plano do usuário. As metas
+    // são propostas pela fraqueza (ver PlanoDaSemana.Propor), mas o que fica gravado é o que a pessoa aceitou.
+
+    private static CaminhoNota CaminhoDoPlano => CaminhoNota.De(PlanoDaSemana.CaminhoDaNota);
+
+    public async Task<IReadOnlyList<MetaDaSemana>> PlanoDaSemanaAsync(CancellationToken ct = default)
+    {
+        var nota = await repositorio.LerAsync(CaminhoDoPlano, ct);
+        return PlanoDaSemana.Ler(nota?.Conteudo);
+    }
+
+    public async Task<Resultado> SalvarPlanoAsync(IReadOnlyList<MetaDaSemana> metas, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(metas);
+        var atual = await repositorio.LerAsync(CaminhoDoPlano, ct);
+        var conteudo = PlanoDaSemana.Escrever(metas);
+
+        // Mesma proteção do ciclo: se a nota mudou por fora (Obsidian), recusa em vez de atropelar.
+        var r = await notas.SalvarAsync(CaminhoDoPlano, conteudo, atual?.Impressao, autor: null, ct);
+        return r.Ok
+            ? Resultado.Sucesso
+            : Resultado.Falha(r.Motivo ?? MotivoDaFalha.Invalida, r.Mensagem ?? "Não consegui salvar o plano.");
+    }
+
     // —— RENDERIZAÇÃO ————————————————————————————————————————————————————————————————
     public async Task<NotaRenderizada> RenderizarAsync(string markdown, CancellationToken ct = default)
     {

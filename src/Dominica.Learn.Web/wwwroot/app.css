@@ -1078,3 +1078,12 @@ kbd.tecla {
 
 /* Bloco já feito nesta volta: riscado e apagado, como tarefa concluída. */
 .ciclo-feito { text-decoration: line-through; color: var(--ink-soft); }
+
+/* ——— O PLANO DA SEMANA ——————————————————————————————————————————————————————————————— */
+/* Cada meta é uma linha com uma barra de progresso feito/meta — o "quanto falta" da semana. */
+.plano-linha {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--linha);
+}
+.plano-linha:last-of-type { border-bottom: none; }
+.plano-barra { height: 8px; }

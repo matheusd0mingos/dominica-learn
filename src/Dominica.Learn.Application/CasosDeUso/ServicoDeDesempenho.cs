@@ -88,6 +88,23 @@ public sealed class ServicoDeDesempenho(
         return MapaDeHoras.Montar(await registro.SessoesAsync(desde, ct), hoje, semanas);
     }
 
+    /// <summary>
+    /// Horas estudadas POR MATÉRIA nesta semana (da segunda até agora). É o "feito" que o plano da semana
+    /// mede contra a meta de cada matéria — e sai do MESMO registro de sessões, siga a pessoa o plano ou não.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Materia, TimeSpan>> HorasPorMateriaNaSemanaAsync(CancellationToken ct = default)
+    {
+        var hoje = DateOnly.FromDateTime(relogio.Agora.ToLocalTime().DateTime);
+        var recuo = ((int)hoje.DayOfWeek + 6) % 7;   // segunda → 0, domingo → 6
+        var segunda = hoje.AddDays(-recuo);
+        var desde = new DateTimeOffset(segunda.ToDateTime(TimeOnly.MinValue), relogio.Agora.Offset);
+
+        var sessoes = await registro.SessoesAsync(desde, ct);
+        return sessoes
+            .GroupBy(s => s.Materia)
+            .ToDictionary(g => g.Key, g => new TimeSpan(g.Sum(s => s.Duracao.Ticks)));
+    }
+
     /// <summary>Quantos lançamentos a tela mostra. Uma tela, não um histórico — ver <see cref="UltimosAsync"/>.</summary>
     public const int UltimosPadrao = 12;
 
