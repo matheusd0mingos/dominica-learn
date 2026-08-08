@@ -267,6 +267,130 @@ public sealed class ServicoDeConhecimento(
         return new MapaDeEtiquetas(nos, posicoes, pares, largura, altura);
     }
 
+    // —— ETIQUETAS DA NOTA ABERTA ——————————————————————————————————————————————————————
+    /// <summary>
+    /// Põe uma etiqueta na nota, escrevendo no frontmatter dela.
+    ///
+    /// POR QUE ISTO EXISTE, e por que não bastava o "#" no editor: o autocompletar do "#" resolve para
+    /// quem já sabe que "#" é etiqueta e já está com o cursor no texto. Ele não resolve VER o que a nota
+    /// tem, não resolve TIRAR, e não resolve etiquetar uma nota inteira sem escolher em que frase enfiar
+    /// o rótulo. Mesma história do "[[": a sintaxe fica, mas ela não pode ser o único caminho.
+    ///
+    /// ACEITA TEXTO CRU e valida aqui, porque o campo da tela deixa digitar etiqueta que ainda não
+    /// existe — que é o gesto mais comum de todos: a primeira nota de um assunto novo.
+    /// </summary>
+    public async Task<Resultado<Etiqueta>> MarcarEtiquetaAsync(
+        CaminhoNota caminho, string? bruta, CancellationToken ct = default)
+    {
+        if (Etiqueta.TentarCriar(bruta) is not { } etiqueta)
+            return Resultado<Etiqueta>.Invalida(
+                "Etiqueta inválida. Ela não pode ter espaço nem ser só número — \"#lei-14133\" vale, \"#14133\" não.");
+
+        var nota = await repositorio.LerAsync(caminho, ct);
+        if (nota is null) return Resultado<Etiqueta>.NaoEncontrada($"A nota \"{caminho}\"");
+
+        var (conteudo, oQueHouve) = EtiquetasDaNota.Marcar(nota.Conteudo, etiqueta, nota.Analise.Etiquetas);
+        if (oQueHouve == EtiquetasDaNota.Resultado.JaTinha) return Resultado<Etiqueta>.Sucesso(etiqueta);
+
+        var salva = await notas.SalvarAsync(caminho, conteudo, nota.Impressao, autor: null, ct);
+        if (!salva.Ok)
+            return Resultado<Etiqueta>.Falha(salva.Motivo ?? MotivoDaFalha.Invalida,
+                salva.Mensagem ?? "Não consegui gravar a etiqueta.");
+
+        log.LogInformation("Etiquetei {Nota} com {Etiqueta}.", caminho, etiqueta);
+        return Resultado<Etiqueta>.Sucesso(etiqueta);
+    }
+
+    /// <summary>
+    /// Tira uma etiqueta do frontmatter da nota. Etiqueta escrita no meio do texto NÃO sai por aqui —
+    /// ver <see cref="EtiquetasDaNota"/>: apagá-la reescreveria a frase de alguém.
+    /// </summary>
+    public async Task<Resultado<bool>> DesmarcarEtiquetaAsync(
+        CaminhoNota caminho, Etiqueta etiqueta, CancellationToken ct = default)
+    {
+        var nota = await repositorio.LerAsync(caminho, ct);
+        if (nota is null) return Resultado<bool>.NaoEncontrada($"A nota \"{caminho}\"");
+
+        var (conteudo, oQueHouve) = EtiquetasDaNota.Desmarcar(nota.Conteudo, etiqueta);
+        if (oQueHouve == EtiquetasDaNota.Resultado.NaoTinha)
+            return Resultado<bool>.Invalida(
+                $"\"{etiqueta}\" está escrita no texto da nota, e não nos metadados. " +
+                "Tirá-la daqui mudaria a frase — apague no editor, onde dá para ver o que some.");
+
+        var salva = await notas.SalvarAsync(caminho, conteudo, nota.Impressao, autor: null, ct);
+        if (!salva.Ok)
+            return Resultado<bool>.Falha(salva.Motivo ?? MotivoDaFalha.Invalida,
+                salva.Mensagem ?? "Não consegui tirar a etiqueta.");
+
+        log.LogInformation("Tirei {Etiqueta} de {Nota}.", etiqueta, caminho);
+        return Resultado<bool>.Sucesso(true);
+    }
+
+    /// <summary>
+    /// AS ETIQUETAS QUE COSTUMAM VIR JUNTO DAS QUE ESTA NOTA JÁ TEM.
+    ///
+    /// É A RELAÇÃO ENTRE ETIQUETAS APARECENDO ONDE ELA SERVE. A coocorrência já existia — é ela que
+    /// desenha o mapa em /etiquetas/mapa —, mas um mapa responde "o que anda junto no meu vault", que é
+    /// uma pergunta de fim de semana. A pergunta do dia a dia é outra: "acabei de marcar #tributário
+    /// nesta nota; o que eu costumo marcar junto e esqueci agora?". A resposta é a MESMA conta, servida
+    /// no lugar onde ela vira ação em vez de contemplação.
+    ///
+    /// COMO SE LÊ: "#tributário e #decorar dividem nota 8 vezes no seu vault". Ninguém escreveu essa
+    /// ligação — ela existe só no conjunto, e é por isso que ela surpreende quem a vê.
+    ///
+    /// NOTA SEM ETIQUETA NENHUMA recebe as MAIS USADAS do vault, e não uma lista vazia. É exatamente
+    /// quem mais precisa de sugestão: uma nota nova não tem com o que coocorrer, e uma caixa vazia ali
+    /// ensinaria que este bloco não serve para nada.
+    /// </summary>
+    public async Task<IReadOnlyList<EtiquetaSugerida>> SugerirEtiquetasAsync(
+        IReadOnlyCollection<Etiqueta> jaTem, int limite = 6, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(jaTem);
+
+        var porNota = await indice.EtiquetasPorNotaAsync(ct);
+        var (nos, pares) = GrafoDeEtiquetas.Montar(porNota);
+        if (nos.Count == 0) return [];
+
+        var tem = jaTem.ToHashSet();
+
+        // Para cada etiqueta que a nota NÃO tem, quantas notas ela divide com as que a nota tem. Somar
+        // os pesos (em vez de contar vizinhas) é o que faz "#decorar, que anda com #tributário em 8
+        // notas" ganhar de "#teclado, que dividiu uma nota com ela uma única vez".
+        var peso = new Dictionary<Etiqueta, int>();
+        foreach (var p in pares)
+        {
+            var a = nos[p.De].Etiqueta;
+            var b = nos[p.Para].Etiqueta;
+
+            if (tem.Contains(a) && !tem.Contains(b)) peso[b] = peso.GetValueOrDefault(b) + p.Peso;
+            else if (tem.Contains(b) && !tem.Contains(a)) peso[a] = peso.GetValueOrDefault(a) + p.Peso;
+        }
+
+        var sugeridas = peso
+            .OrderByDescending(x => x.Value)
+            .ThenBy(x => x.Key.Valor, StringComparer.Ordinal)   // desempate estável
+            .Take(limite)
+            .Select(x => new EtiquetaSugerida(x.Key, x.Value, PorCoocorrencia: true))
+            .ToList();
+
+        // COMPLETA COM AS MAIS USADAS quando a coocorrência não enche a lista — e some com o bloco só
+        // quando não houver NADA a oferecer. O buraco que isto tapa apareceu no navegador: uma nota cujas
+        // etiquetas são todas exclusivas dela não coocorre com nada, e o bloco simplesmente sumia —
+        // exatamente na nota mais isolada do vault, que é a que mais precisa de um caminho de volta.
+        if (sugeridas.Count < limite)
+        {
+            var jaOferecidas = sugeridas.Select(s => s.Etiqueta).ToHashSet();
+            sugeridas.AddRange(nos
+                .Where(n => !tem.Contains(n.Etiqueta) && !jaOferecidas.Contains(n.Etiqueta) && n.Notas > 1)
+                .OrderByDescending(n => n.Notas)
+                .ThenBy(n => n.Etiqueta.Valor, StringComparer.Ordinal)
+                .Take(limite - sugeridas.Count)
+                .Select(n => new EtiquetaSugerida(n.Etiqueta, n.Notas, PorCoocorrencia: false)));
+        }
+
+        return sugeridas;
+    }
+
     // —— LIGAR DUAS NOTAS ——————————————————————————————————————————————————————————————
     /// <summary>
     /// Escreve em <paramref name="dentroDe"/> uma ligação para <paramref name="apontarPara"/>.
@@ -719,6 +843,21 @@ public sealed record SugestaoDeLigacao(string Nome, string Pasta, string Inserca
 /// saber decidir entre "1 nota" e "1 notas", e essa é uma decisão de idioma, não de tela.
 /// </summary>
 public sealed record SugestaoDeEtiqueta(string Valor, string Uso);
+
+/// <summary>
+/// Uma etiqueta oferecida à nota aberta.
+///
+/// <see cref="PorCoocorrencia"/> separa duas coisas que pareceriam iguais na tela e não são: quando é
+/// coocorrência, <see cref="Peso"/> é "em quantas notas ela divide espaço com o que esta nota já tem";
+/// quando não é — nota sem etiqueta nenhuma —, é só "em quantas notas do vault ela aparece". Mostrar os
+/// dois números com a mesma frase faria a tela mentir sobre o que ela sabe.
+/// </summary>
+public sealed record EtiquetaSugerida(Etiqueta Etiqueta, int Peso, bool PorCoocorrencia)
+{
+    public string Explicacao => PorCoocorrencia
+        ? Peso == 1 ? "divide 1 nota com as desta" : $"divide {Peso} notas com as desta"
+        : Peso == 1 ? "1 nota" : $"{Peso} notas";
+}
 
 /// <summary>Uma menção não ligada, com a nota em que ela está.</summary>
 public sealed record MencaoEmNota(CaminhoNota Onde, string Titulo, Mencao Mencao);

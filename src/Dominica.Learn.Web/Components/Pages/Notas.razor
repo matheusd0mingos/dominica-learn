@@ -3,6 +3,7 @@
 @using Dominica.Learn.Application
 @using Dominica.Learn.Application.CasosDeUso
 @using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Domain.Analise
 @using Dominica.Learn.Domain.Anexos
 @using Dominica.Learn.Domain.Cartoes
 @using Dominica.Learn.Domain.Vault
@@ -313,6 +314,89 @@
     {
     <MudItem xs="12" md="3" Class="col-contexto">
         <MudPaper Class="pa-3" Elevation="0" Outlined="true">
+            @* —— ETIQUETAS DESTA NOTA ——
+
+               VEM PRIMEIRO na coluna porque é o que se olha primeiro numa nota: o que ela É antes do que
+               ela cita. E existe porque etiquetar só tinha UM caminho — digitar "#assim" no meio do
+               texto. Quem não conhece a sintaxe não etiquetava; quem conhece não tinha como VER as
+               etiquetas da nota aberta sem procurá-las com o olho, nem como tirar uma. Mesma história do
+               "[[" e do botão de ligar: a sintaxe fica, mas deixa de ser pedágio. *@
+            <MudText Typo="Typo.overline" Class="d-block">Etiquetas</MudText>
+
+            @if (_etiquetasDaNota.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Nenhuma. Etiqueta boa é a que <b>atravessa</b> as matérias — <b>#súmula</b>,
+                    <b>#pegadinha</b>, <b>#errei-na-prova</b>. A que só repete o nome da pasta não
+                    acrescenta nada.
+                </MudText>
+            }
+            else
+            {
+                <div class="d-flex flex-wrap gap-1 mt-1">
+                    @foreach (var e in _etiquetasDaNota)
+                    {
+                        @* A ORIGEM APARECE, e ela decide o botão. A que está escrita no meio de uma frase
+                           não pode sair por clique: apagá-la reescreveria o texto da pessoa. Ela vem sem
+                           "x" e com a explicação no tooltip — honesto ganha de conveniente. *@
+                        @if (e.PodeTirar)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                                     OnClose="@(() => TirarEtiquetaAsync(e.Etiqueta))" Disabled="_etiquetando"
+                                     title="@($"Clique no x para tirar {e.Etiqueta} desta nota")">
+                                @e.Etiqueta.ToString()
+                            </MudChip>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                     OnClick="@(() => FiltrarPorEtiquetaAsync(new EtiquetaContada(e.Etiqueta, 0)))"
+                                     title="@($"{e.Etiqueta} está escrita no texto da nota. Para tirar, apague no editor — assim dá para ver o que some.")">
+                                @e.Etiqueta.ToString()
+                            </MudChip>
+                        }
+                    }
+                </div>
+            }
+
+            @* O CAMPO ACEITA O QUE NÃO EXISTE AINDA. Um seletor fechado só das etiquetas do vault
+               impediria o gesto mais comum de todos: a primeira nota de um assunto novo. *@
+            <MudAutocomplete T="string" @bind-Value="_etiquetaNova" Dense="true" Margin="Margin.Dense"
+                             Variant="Variant.Outlined" Class="mt-2" Placeholder="pôr uma etiqueta…"
+                             SearchFunc="ProcurarEtiqueta" CoerceValue="true" ResetValueOnEmptyText="true"
+                             Immediate="true" MaxItems="10" Disabled="_etiquetando"
+                             AdornmentIcon="@Icons.Material.Filled.Sell" Adornment="Adornment.Start"
+                             OnKeyUp="AoTeclarNaEtiqueta" aria-label="Pôr uma etiqueta nesta nota" />
+
+            @* —— O QUE COSTUMA VIR JUNTO ——
+
+               A COOCORRÊNCIA SERVIDA ONDE ELA VIRA AÇÃO. A conta é a mesma que desenha o mapa das
+               etiquetas, mas o mapa responde "o que anda junto no meu vault", que é pergunta de fim de
+               semana. Aqui a pergunta é a do dia: "marquei #tributário; o que eu costumo marcar junto e
+               esqueci agora?". Ninguém escreveu essas ligações — elas só existem no conjunto. *@
+            @if (_sugestoesDeEtiqueta.Count > 0)
+            {
+                @* O TÍTULO SEGUE O QUE A LISTA DE FATO TEM. As por coocorrência vêm primeiro; quando não
+                   há nenhuma, o que sobra são as mais usadas do vault, e chamá-las de "costumam vir
+                   junto" seria a tela afirmando um parentesco que ela não calculou. Cada ficha ainda
+                   explica a si mesma no tooltip. *@
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">
+                    @(_sugestoesDeEtiqueta.Any(s => s.PorCoocorrencia) ? "Costumam vir junto:" : "As mais usadas no vault:")
+                </MudText>
+                <div class="d-flex flex-wrap gap-1">
+                    @foreach (var s in _sugestoesDeEtiqueta)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Default"
+                                 Disabled="_etiquetando" title="@s.Explicacao"
+                                 OnClick="@(() => PorEtiquetaAsync(s.Etiqueta.Valor))">
+                            + @s.Etiqueta.ToString()
+                        </MudChip>
+                    }
+                </div>
+            }
+
+            <MudDivider Class="my-3" />
+
             <MudText Typo="Typo.overline" Class="d-block">Aponta para esta nota</MudText>
 
             @* OS DOIS BOTÕES DE LIGAR, e eles ficam AQUI porque é aqui que as ligações vivem. Juntar
@@ -468,6 +552,11 @@
     private IReadOnlyList<MencaoEmNota>? _mencoes;
     private IReadOnlyList<Cartao> _cartoes = [];
     private bool _ligando;
+
+    private IReadOnlyList<EtiquetaDaNota> _etiquetasDaNota = [];
+    private IReadOnlyList<EtiquetaSugerida> _sugestoesDeEtiqueta = [];
+    private string? _etiquetaNova;
+    private bool _etiquetando;
     private IReadOnlyList<Acerto> _acertos = [];
     private string _termo = string.Empty;
     private string _estado = string.Empty;
@@ -825,9 +914,11 @@
         // As menções vêm DEPOIS. A varredura lê arquivos do disco, e segurar a abertura da nota por
         // causa de um painel lateral seria trocar o essencial pelo acessório — quem abriu quer escrever.
         _cartoes = AnalisadorDeCartoes.Analisar(caminho, _aberta.Nota.Conteudo);
+        AtualizarEtiquetasDaNota();
 
         _mencoes = null;
         _ = CarregarMencoesAsync(caminho);
+        _ = CarregarSugestoesDeEtiquetaAsync(caminho);
     }
 
     /// <summary>
@@ -1141,6 +1232,111 @@
     {
         _termo = e.Etiqueta.ToString();
         _acertos = await Servico.BuscarAsync(new ConsultaDeBusca { Etiqueta = e.Etiqueta });
+    }
+
+    // —— ETIQUETAS DA NOTA ABERTA ————————————————————————————————————————————————————
+
+    /// <summary>
+    /// Sai da ANÁLISE da nota aberta, e não de uma consulta: as etiquetas já foram lidas do texto ao
+    /// abrir. Uma ida ao índice aqui mostraria o que estava indexado, que atrasa uma gravação em relação
+    /// ao que está na tela — e a ficha recém-posta piscaria fora e voltaria.
+    /// </summary>
+    private void AtualizarEtiquetasDaNota() =>
+        _etiquetasDaNota = _aberta is null ? [] : EtiquetasDaNota.De(_aberta.Nota.Analise);
+
+    /// <summary>
+    /// As sugestões rodam SOLTAS, fora do caminho de abertura: a coocorrência varre as etiquetas de
+    /// todas as notas, e segurar a abertura por causa de um bloco lateral seria trocar o essencial pelo
+    /// acessório. Mesma regra das menções — inclusive a conferência do caminho no fim.
+    /// </summary>
+    private async Task CarregarSugestoesDeEtiquetaAsync(CaminhoNota caminho)
+    {
+        var quais = _etiquetasDaNota.Select(e => e.Etiqueta).ToList();
+        var sugestoes = await Conhecimento.SugerirEtiquetasAsync(quais);
+
+        // Quem abre uma nota e clica logo na seguinte teria as sugestões da primeira aterrissando sobre
+        // a segunda — e sugestão errada aqui vira etiqueta errada no arquivo com um clique.
+        if (_aberta is null || _aberta.Nota.Caminho != caminho) return;
+
+        _sugestoesDeEtiqueta = sugestoes;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Enter põe a etiqueta digitada. É o gesto que a mão espera num campo de etiqueta.</summary>
+    private async Task AoTeclarNaEtiqueta(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or "NumpadEnter") await PorEtiquetaAsync(_etiquetaNova);
+    }
+
+    private async Task PorEtiquetaAsync(string? bruta)
+    {
+        if (_aberta is null || _etiquetando || string.IsNullOrWhiteSpace(bruta)) return;
+
+        _etiquetando = true;
+        try
+        {
+            // GRAVA O QUE ESTÁ NO EDITOR ANTES. Marcar escreve no arquivo a partir do que está no DISCO;
+            // sem isto, o texto ainda não salvo do CodeMirror seria sobrescrito pela versão anterior —
+            // e o gesto de pôr uma etiqueta apagaria o parágrafo recém-digitado.
+            await GravarOQueEstaNoEditorAsync();
+
+            var r = await Conhecimento.MarcarEtiquetaAsync(_aberta.Nota.Caminho, bruta);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui pôr a etiqueta.", Severity.Warning);
+                return;
+            }
+
+            _etiquetaNova = string.Empty;
+            await RecarregarDepoisDeEtiquetarAsync();
+        }
+        finally { _etiquetando = false; }
+    }
+
+    private async Task TirarEtiquetaAsync(Etiqueta etiqueta)
+    {
+        if (_aberta is null || _etiquetando) return;
+
+        _etiquetando = true;
+        try
+        {
+            await GravarOQueEstaNoEditorAsync();
+
+            var r = await Conhecimento.DesmarcarEtiquetaAsync(_aberta.Nota.Caminho, etiqueta);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui tirar a etiqueta.", Severity.Warning);
+                return;
+            }
+
+            await RecarregarDepoisDeEtiquetarAsync();
+        }
+        finally { _etiquetando = false; }
+    }
+
+    /// <summary>
+    /// A etiqueta foi gravada NO ARQUIVO, então o conteúdo do editor está velho — reabre, exatamente
+    /// como o favorito faz, para que a próxima gravação não desfaça a etiqueta por conflito de impressão
+    /// digital. Reabrir já recalcula as fichas e as sugestões.
+    /// </summary>
+    private async Task RecarregarDepoisDeEtiquetarAsync()
+    {
+        if (_aberta is null) return;
+        await AbrirAsync(_aberta.Nota.Caminho);
+
+        // A lista da esquerda conta notas por etiqueta: sem isto, o número ao lado dela ficaria
+        // desatualizado em relação ao que esta mesma tela acabou de escrever.
+        _etiquetas = await Servico.EtiquetasAsync();
+    }
+
+    /// <summary>
+    /// O mesmo autocompletar do "#" no editor, servido para o campo. Uma fonte só para as duas portas:
+    /// duas listas de etiqueta que discordassem seriam pior que nenhuma.
+    /// </summary>
+    private async Task<IEnumerable<string>> ProcurarEtiqueta(string? termo, CancellationToken ct)
+    {
+        var sugestoes = await Conhecimento.ParaCompletarEtiquetaAsync(termo, limite: 10, ct);
+        return sugestoes.Select(s => s.Valor);
     }
 
     private async Task RecarregarLateraisAsync()

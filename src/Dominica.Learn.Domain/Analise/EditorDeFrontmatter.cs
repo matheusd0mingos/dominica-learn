@@ -89,6 +89,92 @@ public static class EditorDeFrontmatter
         return string.Join('\n', linhas);
     }
 
+    /// <summary>
+    /// Define (ou substitui) um campo de LISTA. Lista vazia remove o campo, pelo mesmo motivo do favorito.
+    ///
+    /// PRESERVA O ESTILO DE QUEM JÁ ESCREVEU: se o campo estava em bloco ("tags:" e itens "- x" abaixo),
+    /// ele volta em bloco; se estava em linha, volta em linha. O frontmatter é lido por gente, no
+    /// Obsidian, e reescrever o estilo de alguém a cada clique é mexer no arquivo sem ser pedido. Campo
+    /// novo nasce EM LINHA, que é a forma compacta e a mais comum para etiquetas.
+    /// </summary>
+    public static string DefinirLista(string conteudo, string chave, IReadOnlyList<string> valores)
+    {
+        ArgumentNullException.ThrowIfNull(valores);
+
+        if (valores.Count == 0) return DefinirCampo(conteudo, chave, null);
+
+        var texto = (conteudo ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
+        var linhas = texto.Split('\n').ToList();
+        var frontmatter = Frontmatter.Ler(linhas);
+        var alvo = chave.Trim().ToLowerInvariant();
+
+        // Sem bloco, ou sem o campo: DefinirCampo já sabe abrir o bloco e inserir a linha no lugar certo.
+        // Passar a lista pronta como texto evita duplicar aqui a lógica de "onde entra a primeira linha".
+        var indiceDoCampo = IndiceDoCampo(linhas, frontmatter, alvo);
+        if (indiceDoCampo < 0) return DefinirCampoCru(conteudo, alvo, EmLinha(valores));
+
+        // Bloco: a linha da chave fica, e os itens embaixo são trocados pelos novos.
+        var emBloco = linhas[indiceDoCampo][(linhas[indiceDoCampo].IndexOf(':') + 1)..].Trim().Length == 0;
+        var quantosItens = 0;
+        for (var j = indiceDoCampo + 1;
+             j < frontmatter.LinhasOcupadas - 1 && linhas[j].TrimStart().StartsWith("- ", StringComparison.Ordinal);
+             j++) quantosItens++;
+
+        linhas.RemoveRange(indiceDoCampo, 1 + quantosItens);
+
+        if (emBloco && quantosItens > 0)
+        {
+            linhas.Insert(indiceDoCampo, $"{alvo}:");
+            for (var i = 0; i < valores.Count; i++)
+                linhas.Insert(indiceDoCampo + 1 + i, $"  - {Escapar(valores[i])}");
+        }
+        else
+        {
+            linhas.Insert(indiceDoCampo, $"{alvo}: {EmLinha(valores)}");
+        }
+
+        return string.Join('\n', linhas);
+    }
+
+    /// <summary>Lê um campo de lista já como texto cru, sem reinterpretar. Vazio quando ausente.</summary>
+    private static int IndiceDoCampo(IReadOnlyList<string> linhas, Frontmatter frontmatter, string alvo)
+    {
+        if (!frontmatter.Existe) return -1;
+        for (var i = 1; i < frontmatter.LinhasOcupadas - 1; i++)
+        {
+            var doisPontos = linhas[i].IndexOf(':');
+            if (doisPontos <= 0) continue;
+            if (string.Equals(linhas[i][..doisPontos].Trim(), alvo, StringComparison.OrdinalIgnoreCase)) return i;
+        }
+        return -1;
+    }
+
+    private static string EmLinha(IReadOnlyList<string> valores) =>
+        "[" + string.Join(", ", valores.Select(Escapar)) + "]";
+
+    /// <summary>
+    /// Como <see cref="DefinirCampo"/>, mas com o valor JÁ FORMATADO — sem passar pelo escape, que
+    /// transformaria "[a, b]" numa string entre aspas e a lista viraria um texto só.
+    /// </summary>
+    private static string DefinirCampoCru(string? conteudo, string alvo, string valorPronto)
+    {
+        var texto = (conteudo ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
+        var linhas = texto.Split('\n').ToList();
+        var frontmatter = Frontmatter.Ler(linhas);
+
+        if (!frontmatter.Existe)
+        {
+            var novo = new StringBuilder();
+            novo.Append("---\n").Append(alvo).Append(": ").Append(valorPronto).Append("\n---\n");
+            if (texto.Length > 0 && !texto.StartsWith('\n')) novo.Append('\n');
+            novo.Append(texto);
+            return novo.ToString();
+        }
+
+        linhas.Insert(frontmatter.LinhasOcupadas - 1, $"{alvo}: {valorPronto}");
+        return string.Join('\n', linhas);
+    }
+
     /// <summary>Marca ou desmarca a nota como favorita.</summary>
     public static string DefinirFavorito(string conteudo, bool favorito) =>
         // Remover o campo (em vez de gravar "false") mantém o frontmatter limpo: quem desfavoritou não
