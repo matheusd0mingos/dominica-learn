@@ -42,22 +42,28 @@ export function desligar() {
 /// não ia a lugar nenhum. `AutoFocus` no MudTextField também não resolve quando o diálogo é aberto
 /// por código. Achar o input no DOM é o caminho que não depende de nenhuma dessas suposições.
 export function focarBusca() {
-  // INSISTE, e a insistência é o remédio para um problema específico: o diálogo do MudBlazor tem
-  // armadilha de foco própria, que puxa o foco para a sobreposição DEPOIS que o conteúdo entra no
-  // DOM. Uma única tentativa — mesmo já com o campo na tela — era desfeita logo em seguida; medido,
-  // o activeElement voltava a ser "DIV.fixed pointer-events-none".
+  // VIGIA POR UM SEGUNDO E MEIO, e não "tenta até conseguir uma vez". A versão anterior parava assim
+  // que o foco pegava — e a armadilha de foco do MudBlazor ativa DEPOIS, roubando o foco de volta
+  // para a sobreposição. Medido: 700 ms depois do atalho, o activeElement era "DIV.fixed" de novo, e
+  // digitar não ia para o campo. O conserto parecia funcionar porque a primeira tentativa "pegava".
   //
-  // Então tentamos algumas vezes ao longo de ~400 ms e paramos assim que o campo REALMENTE ficou com
-  // o foco. É contorno, não elegância: o certo seria o MudBlazor aceitar um elemento inicial de foco.
-  let tentativas = 0
-  const tentar = () => {
+  // Agora a vigília cobre a janela inteira em que a armadilha pode agir: enquanto o diálogo estiver
+  // na tela e o foco não estiver no campo, devolve-o. Devolver é inofensivo — focus() em quem já tem
+  // foco é não-op, então digitar não é atrapalhado. É contorno, não elegância: o certo seria o
+  // MudBlazor aceitar um elemento inicial de foco.
+  const inicio = Date.now()
+  const vigiar = () => {
     const campo = document.querySelector('.mud-dialog input[type="text"]')
-    if (campo) {
+    if (!campo) {
+      // O diálogo pode ainda não ter entrado no DOM — ou já ter sido fechado. Só desiste no prazo.
+      if (Date.now() - inicio < 1500) setTimeout(vigiar, 40)
+      return
+    }
+    if (document.activeElement !== campo) {
       campo.focus()
       campo.select()
-      if (document.activeElement === campo) return
     }
-    if (++tentativas < 20) setTimeout(tentar, 20)
+    if (Date.now() - inicio < 1500) setTimeout(vigiar, 40)
   }
-  tentar()
+  vigiar()
 }

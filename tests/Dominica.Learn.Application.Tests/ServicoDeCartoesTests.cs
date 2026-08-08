@@ -1,3 +1,4 @@
+using Dominica.Learn.Domain.Analise;
 using Dominica.Learn.Application.CasosDeUso;
 using Dominica.Learn.Domain.Cartoes;
 using Dominica.Learn.Domain.Vault;
@@ -126,6 +127,76 @@ public class ServicoDeCartoesTests
         var fila = await c.Cartoes.FilaAsync(Materia.De("Direito"));
 
         Assert.Equal("Direito/A.md", Assert.Single(fila.Cartoes).Nota.Valor);
+    }
+
+    // —— A FILA POR ETIQUETA ————————————————————————————————————————————————————————
+
+    [Fact]
+    public async Task A_fila_de_uma_etiqueta_so_traz_os_cartoes_das_notas_marcadas()
+    {
+        var c = Montar();
+        await Criar(c, "Direito/A.md", "# A\n\n#decorar\n\nP1::R1\n");
+        await Criar(c, "Direito/B.md", "# B\n\nP2::R2\n");
+
+        var fila = await c.Cartoes.FilaAsync(etiqueta: Etiqueta.TentarCriar("decorar"));
+
+        Assert.Equal("Direito/A.md", Assert.Single(fila.Cartoes).Nota.Valor);
+    }
+
+    [Fact]
+    public async Task A_fila_por_etiqueta_entende_a_hierarquia()
+    {
+        // Revisar #direito TEM de trazer o que está marcado só como #direito/penal — a mesma regra do
+        // painel de etiquetas. Duas telas discordando sobre o que "#direito" significa seria pior que
+        // nenhuma das duas.
+        var c = Montar();
+        await Criar(c, "A.md", "# A\n\n#direito/penal\n\nP::R\n");
+        await Criar(c, "B.md", "# B\n\n#portugues\n\nP::R\n");
+
+        var fila = await c.Cartoes.FilaAsync(etiqueta: Etiqueta.TentarCriar("direito"));
+
+        Assert.Equal("A.md", Assert.Single(fila.Cartoes).Nota.Valor);
+    }
+
+    [Fact]
+    public async Task O_ciclo_do_errei_na_prova_fecha()
+    {
+        // O produto CRIA "#errei-na-prova" sozinho a cada erro registrado. Este teste prova que a ponta
+        // solta foi amarrada: registrar o erro e pedir a fila da etiqueta devolve exatamente o cartão
+        // que nasceu do erro — "hoje só reviso o que errei" passou a existir.
+        var c = Montar();
+        await Criar(c, "Direito/Qualquer.md", "# Qualquer\n\nOutro::Cartão\n");
+        await c.Cartoes.RegistrarErroAsync(Materia.De("Direito"), "Prescrição x decadência::A primeira extingue a pretensão");
+
+        var fila = await c.Cartoes.FilaAsync(etiqueta: Etiqueta.TentarCriar("errei-na-prova"));
+
+        var cartao = Assert.Single(fila.Cartoes);
+        Assert.Contains("Prescrição x decadência", cartao.Frente);
+    }
+
+    [Fact]
+    public async Task Materia_e_etiqueta_compoem()
+    {
+        var c = Montar();
+        await Criar(c, "Direito/A.md", "# A\n\n#decorar\n\nP1::R1\n");
+        await Criar(c, "Português/B.md", "# B\n\n#decorar\n\nP2::R2\n");
+
+        var fila = await c.Cartoes.FilaAsync(Materia.De("Direito"), Etiqueta.TentarCriar("decorar"));
+
+        Assert.Equal("Direito/A.md", Assert.Single(fila.Cartoes).Nota.Valor);
+    }
+
+    [Fact]
+    public async Task Etiqueta_sem_nota_marcada_da_fila_vazia_e_nao_a_fila_inteira()
+    {
+        // Degradar para "tudo" aqui seria perigoso: quem pediu "só meus erros" e recebeu o vault
+        // inteiro responderia cartões achando que tudo aquilo era erro de prova.
+        var c = Montar();
+        await Criar(c, "A.md", "# A\n\nP::R\n");
+
+        var fila = await c.Cartoes.FilaAsync(etiqueta: Etiqueta.TentarCriar("nunca-usada"));
+
+        Assert.Empty(fila.Cartoes);
     }
 
     // —— RESPONDER ————————————————————————————————————————————————————————————————

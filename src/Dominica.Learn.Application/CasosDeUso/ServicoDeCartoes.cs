@@ -60,10 +60,22 @@ public sealed class ServicoDeCartoes(
     /// um bloco de cartões da mesma nota (onde a pessoa lembra do que leu, não do conceito).
     /// </summary>
     public async Task<FilaDeRevisao> FilaAsync(
-        Materia? materia = null, int limite = 100, CancellationToken ct = default)
+        Materia? materia = null, Etiqueta? etiqueta = null, int limite = 100, CancellationToken ct = default)
     {
         var hoje = Hoje;
         var fila = new List<Cartao>();
+
+        // POR ETIQUETA, além de por matéria — e isto fecha um ciclo que estava pela metade: o produto
+        // CRIA "#errei-na-prova" sozinho a cada erro registrado, mas não havia como dizer "hoje só
+        // reviso o que errei". A busca do índice já entende a hierarquia (#direito traz #direito/penal),
+        // então a mesma pergunta que o painel de etiquetas responde é a que recorta a fila.
+        HashSet<CaminhoNota>? comEtiqueta = null;
+        if (etiqueta is not null)
+        {
+            var acertos = await indice.BuscarAsync(
+                new ConsultaDeBusca { Etiqueta = etiqueta, Limite = int.MaxValue }, ct);
+            comEtiqueta = [.. acertos.Select(a => a.Nota.Caminho)];
+        }
 
         // TODOS os cartões, e não só os vencidos: o teto diário precisa saber quantos inéditos JÁ foram
         // respondidos hoje, e esses saíram da fila justamente por terem sido respondidos.
@@ -71,6 +83,7 @@ public sealed class ServicoDeCartoes(
 
         foreach (var caminho in await CaminhosAsync(materia, ct))
         {
+            if (comEtiqueta is not null && !comEtiqueta.Contains(caminho)) continue;
             var nota = await repositorio.LerAsync(caminho, ct);
             if (nota is null) continue;
 

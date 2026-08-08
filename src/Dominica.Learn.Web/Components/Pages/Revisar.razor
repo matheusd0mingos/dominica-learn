@@ -1,17 +1,21 @@
 @page "/revisar"
 @page "/revisar/{*nome}"
 @using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Analise
 @using Dominica.Learn.Domain.Cartoes
 @using Dominica.Learn.Domain.Vault
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
 @attribute [Authorize]
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 @using Dominica.Learn.Application.Portas
 @inject ServicoDeCartoes Cartoes
 @inject IPreferenciasDoUsuario Preferencias
 @inject NavigationManager Navegacao
 @inject ISnackbar Avisos
 @inject IDialogService Dialogos
+@inject IJSRuntime JS
 
 <PageTitle>Revisar · Dominica Learn</PageTitle>
 
@@ -20,11 +24,11 @@
 <MudPaper Class="pa-4" Elevation="0" Outlined="true">
     <div class="d-flex align-center flex-wrap gap-3 mb-4">
         <MudText Typo="Typo.h6">
-            @(_materia is null ? "Revisar" : $"Revisar — {_materia.Rotulo}")
+            @Titulo
         </MudText>
-        @if (_materia is not null)
+        @if (_materia is not null || _etiqueta is not null)
         {
-            <MudButton Size="Size.Small" Variant="Variant.Text" Href="revisar">Todas as matérias</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Text" Href="revisar">Revisar tudo</MudButton>
         }
 
         @* ESCOLHER A MATÉRIA TEM DE SER POSSÍVEL COM A FILA CHEIA. A lista lá embaixo só aparece quando
@@ -206,10 +210,13 @@
             }
         </MudPaper>
 
+        @* AS TECLAS SÃO ESCRITAS NOS BOTÕES, e não só documentadas: atalho que ninguém vê é atalho que
+           ninguém usa — a mesma regra do "[[" e do botão de ligar. O <kbd> é discreto de propósito;
+           quem revisa de mouse não é atrapalhado por ele. Ver js/revisao.js. *@
         @if (!_revelado)
         {
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large"
-                       OnClick="@(() => _revelado = true)">Mostrar resposta</MudButton>
+                       OnClick="@(() => _revelado = true)">Mostrar resposta&nbsp;<kbd class="tecla">espaço</kbd></MudButton>
             <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">
                 Tente lembrar antes de virar — é o esforço de lembrar que fixa, não a leitura.
             </MudText>
@@ -218,13 +225,13 @@
         {
             <div class="d-flex flex-wrap gap-2">
                 <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="_gravando"
-                           OnClick="@(() => ResponderAsync(Resposta.Errei))">Errei</MudButton>
+                           OnClick="@(() => ResponderAsync(Resposta.Errei))">Errei&nbsp;<kbd class="tecla">1</kbd></MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Warning" Disabled="_gravando"
-                           OnClick="@(() => ResponderAsync(Resposta.Dificil))">Difícil</MudButton>
+                           OnClick="@(() => ResponderAsync(Resposta.Dificil))">Difícil&nbsp;<kbd class="tecla">2</kbd></MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_gravando"
-                           OnClick="@(() => ResponderAsync(Resposta.Bom))">Bom</MudButton>
+                           OnClick="@(() => ResponderAsync(Resposta.Bom))">Bom&nbsp;<kbd class="tecla">3</kbd></MudButton>
                 <MudButton Variant="Variant.Filled" Color="Color.Success" Disabled="_gravando"
-                           OnClick="@(() => ResponderAsync(Resposta.Facil))">Fácil</MudButton>
+                           OnClick="@(() => ResponderAsync(Resposta.Facil))">Fácil&nbsp;<kbd class="tecla">4</kbd></MudButton>
             </div>
             <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">
                 @_previsao
@@ -243,7 +250,24 @@
     /// com o nome do tipo o sombreia dentro do componente e "Materia.De(...)" deixa de compilar.</summary>
     [Parameter] public string? Nome { get; set; }
 
+    /// <summary>
+    /// Etiqueta na QUERY — "revisar?etiqueta=errei-na-prova". Na query e não na rota porque compõe com
+    /// a matéria do caminho, e porque o recorte precisa ser ENDEREÇO: "revisar meus erros de prova" tem
+    /// de caber num favorito. Inválida na URL degrada para a fila inteira, sem erro — mesma regra das
+    /// outras telas.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "etiqueta")] public string? EtiquetaPedida { get; set; }
+
     private Materia? _materia;
+    private Etiqueta? _etiqueta;
+
+    private string Titulo => (_materia, _etiqueta) switch
+    {
+        (not null, not null) => $"Revisar — {_materia.Rotulo} · {_etiqueta}",
+        (not null, null) => $"Revisar — {_materia.Rotulo}",
+        (null, not null) => $"Revisar — {_etiqueta}",
+        _ => "Revisar",
+    };
     private IReadOnlyList<Cartao> _fila = [];
     private int _teto = TetoDeCartoesNovos.Padrao;
     private int _ineditosSegurados;
@@ -277,14 +301,73 @@
     protected override async Task OnParametersSetAsync()
     {
         _materia = string.IsNullOrWhiteSpace(Nome) ? null : Materia.De(Uri.UnescapeDataString(Nome));
+        _etiqueta = Etiqueta.TentarCriar(EtiquetaPedida);
         _revisados = 0;
         await CarregarAsync();
+    }
+
+    // —— O TECLADO ————————————————————————————————————————————————————————————————————
+    // Espaço vira, 1/2/3/4 respondem. O módulo JS só reporta a tecla; QUEM DECIDE é aqui, com o estado
+    // de verdade — cartão virado, gravação em andamento, fila vazia. Ver js/revisao.js.
+    private IJSObjectReference? _teclado;
+    private DotNetObjectReference<Revisar>? _referencia;
+
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (!primeiraVez) return;
+        _referencia = DotNetObjectReference.Create(this);
+        _teclado = await JS.InvokeAsync<IJSObjectReference>("import", "./js/revisao.js");
+        await _teclado.InvokeVoidAsync("ligar", _referencia);
+    }
+
+    [JSInvokable]
+    public async Task AoTeclarNaRevisaoAsync(string tecla)
+    {
+        if (_carregando || _gravando || _atual is null) return;
+
+        if (!_revelado)
+        {
+            // Antes de virar, SÓ o espaço faz algo. Um dígito aqui seria responder sem ter lembrado —
+            // exatamente o gesto que a repetição espaçada existe para impedir.
+            if (tecla == "espaco") { _revelado = true; StateHasChanged(); }
+            return;
+        }
+
+        var resposta = tecla switch
+        {
+            "1" => Resposta.Errei,
+            "2" => Resposta.Dificil,
+            "3" => Resposta.Bom,
+            "4" => Resposta.Facil,
+            _ => (Resposta?)null,
+        };
+        if (resposta is null) return;
+
+        await ResponderAsync(resposta.Value);
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // O circuito pode já ter caído: descartar módulo JS em conexão morta lança, e a exceção subiria
+        // como erro do circuito sem nada de útil ter acontecido. Mesmo padrão do Grafo.
+        try
+        {
+            if (_teclado is not null)
+            {
+                await _teclado.InvokeVoidAsync("desligar");
+                await _teclado.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (OperationCanceledException) { }
+        _referencia?.Dispose();
     }
 
     private async Task CarregarAsync()
     {
         _carregando = true;
-        var hoje = await Cartoes.FilaAsync(_materia);
+        var hoje = await Cartoes.FilaAsync(_materia, _etiqueta);
         _fila = hoje.Cartoes;
         _teto = hoje.Teto;
         _ineditosSegurados = hoje.IneditosSegurados;

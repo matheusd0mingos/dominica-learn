@@ -162,7 +162,18 @@ else
             }
             else
             {
-                <MudText Typo="Typo.h6">@_selecionada.ToString()</MudText>
+                <div class="d-flex align-center gap-2">
+                    <MudText Typo="Typo.h6">@_selecionada.ToString()</MudText>
+                    @* A PONTE PARA A REVISÃO. É o que fecha o ciclo do "#errei-na-prova": o produto cria
+                       a etiqueta sozinho a cada erro registrado, e este botão é onde ela vira sessão de
+                       estudo — "hoje só reviso o que errei". A fila entende a hierarquia, como tudo
+                       aqui: revisar #direito traz os cartões de #direito/penal. *@
+                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Style"
+                               Href="@($"revisar?etiqueta={Uri.EscapeDataString(_selecionada.Valor)}")">
+                        Revisar estas notas
+                    </MudButton>
+                </div>
                 <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
                     @_notas.Count nota(s), contando as marcadas com etiquetas abaixo desta.
                 </MudText>

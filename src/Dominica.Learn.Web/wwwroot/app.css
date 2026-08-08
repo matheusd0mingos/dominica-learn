@@ -437,6 +437,18 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
    lê. */
 .no-do-grafo:focus-visible > g > text { font-weight: 700; }
 
+/* A tecla escrita no botão (revisão: espaço, 1–4). Atalho que ninguém vê é atalho que ninguém usa —
+   e um <kbd> discreto dentro do botão ensina sem aula. Herda a cor do botão com transparência para
+   funcionar sobre qualquer uma das quatro cores de resposta. */
+kbd.tecla {
+    font-family: inherit;
+    font-size: .72em;
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
+    opacity: .75;
+}
+
 /* O item sob as setas no abridor rápido. Sem marca visível, navegar de teclado é digitar às cegas. */
 .busca-rapida-atual {
     background: color-mix(in srgb, var(--ouro) 18%, transparent) !important;
