@@ -57,6 +57,10 @@ public static class ExportadorDeAnki
         .Replace("<", "&lt;", StringComparison.Ordinal)
         .Replace(">", "&gt;", StringComparison.Ordinal)
         .Replace("\r\n", "\n", StringComparison.Ordinal)
+        // O "\r" SOZINHO também tem de sair: o importador do Anki quebra registro em "\r" tanto quanto
+        // em "\n", então um return solto (nota vinda de arquivo de Mac antigo) partiria a linha em duas
+        // e deslocaria o baralho inteiro dali para baixo.
+        .Replace("\r", "\n", StringComparison.Ordinal)
         .Replace("\t", " ", StringComparison.Ordinal)
         .Replace("\n", "<br>", StringComparison.Ordinal);
 

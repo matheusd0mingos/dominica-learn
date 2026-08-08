@@ -3,25 +3,33 @@ using System.Text.RegularExpressions;
 using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Domain.Vault;
 using Markdig;
+using Markdig.Renderers;
+using Markdig.Syntax;
+using Markdig.Syntax.Inlines;
 
 namespace Dominica.Learn.Infrastructure.Renderizacao;
 
 /// <summary>
 /// Adaptador de <see cref="IRenderizadorDeMarkdown"/> sobre o Markdig.
 ///
-/// A DECISÃO DE SEGURANÇA, e por que ela é assim:
+/// A DECISÃO DE SEGURANÇA, em DUAS frentes — e a segunda foi um furo achado numa auditoria:
 ///
-/// `DisableHtml()` faz o Markdig ESCAPAR o HTML bruto em vez de repassá-lo. `&lt;script&gt;` vira texto
-/// visível, não script executado. Isso é diferente — e melhor — que sanitizar depois: sanitizador é
-/// lista de bloqueio, e lista de bloqueio é uma corrida contra quem inventa vetor novo (`&lt;svg
-/// onload&gt;`, `javascript:` em href, entidade dupla). Recusar na origem não tem essa corrida.
+/// 1. HTML BRUTO. `DisableHtml()` faz o Markdig ESCAPAR o HTML bruto em vez de repassá-lo:
+///    `&lt;script&gt;` vira texto visível, não script executado. Recusar na origem não tem a corrida de
+///    um sanitizador por lista de bloqueio. O preço declarado: um `&lt;iframe&gt;` de vídeo colado vira
+///    texto — aceitável num vault de estudo; o inverso (HTML arbitrário numa sessão autenticada) não.
 ///
-/// O preço é real e vale declarar: quem cola um `&lt;iframe&gt;` de vídeo numa nota vai ver o texto do
-/// iframe, não o vídeo. Para um vault de estudo isso é aceitável — e o inverso (executar HTML arbitrário
-/// numa aplicação com sessão autenticada) não é.
+/// 2. O ESQUEMA DOS LINKS. `DisableHtml` NÃO cobre isto, e o comentário antigo dizia que sim — era
+///    mentira confortável. `[clique](javascript:...)` é link MARKDOWN, não HTML bruto: o Markdig o
+///    emite como `&lt;a href="javascript:..."&gt;` intacto, e clicar EXECUTA. A CSP não salva, porque
+///    o `'unsafe-inline'` que o Blazor Server exige também libera `javascript:`. E o vault não é só o
+///    que a pessoa digitou: a importação convida a trazer "o resumo que um colega mandou". Por isso
+///    <see cref="EsquemaSeguro"/> passa cada href/src por uma lista de PERMISSÃO (http, https, mailto,
+///    tel, relativo) e neutraliza o resto — depois do parse, no próprio href, sem depender de regex no
+///    HTML já montado.
 ///
-/// A CSP em <c>CabecalhosDeSeguranca</c> é a segunda linha. Duas linhas de defesa porque a primeira
-/// eventualmente falha.
+/// A CSP em <c>CabecalhosDeSeguranca</c> continua sendo a linha de trás. Duas linhas porque a da frente
+/// eventualmente falha — e desta vez falhou.
 /// </summary>
 public sealed partial class RenderizadorMarkdig : IRenderizadorDeMarkdown
 {
@@ -30,8 +38,61 @@ public sealed partial class RenderizadorMarkdig : IRenderizadorDeMarkdown
         .UseEmphasisExtras()
         .UsePipeTables()
         .UseTaskLists()
-        .DisableHtml()                // ← a linha que decide a segurança do produto
+        .DisableHtml()                // trava o HTML bruto — ver a frente 1 do resumo
         .Build();
+
+    /// <summary>
+    /// Renderiza o Markdown para HTML, JÁ com os esquemas de link neutralizados. É o caminho único: o
+    /// <c>Markdown.ToHtml</c> não deixa mexer no href entre o parse e o render, então parseamos,
+    /// caminhamos a árvore e só então renderizamos. Ver a frente 2 do resumo da classe.
+    /// </summary>
+    private string RenderizarSeguro(string texto)
+    {
+        var documento = Markdown.Parse(texto, _pipeline);
+
+        foreach (var link in documento.Descendants<LinkInline>())
+            if (!EsquemaSeguro(link.Url, link.IsImage))
+                // "#" para link (clicar não faz nada); vazio para imagem (não carrega). O payload some,
+                // o texto do link fica — a nota continua legível, sem a arma.
+                link.Url = link.IsImage ? string.Empty : "#";
+
+        using var escritor = new StringWriter();
+        var renderizador = new HtmlRenderer(escritor);
+        _pipeline.Setup(renderizador);
+        renderizador.Render(documento);
+        escritor.Flush();
+        return escritor.ToString();
+    }
+
+    /// <summary>
+    /// O esquema do href/src está na lista de permissão?
+    ///
+    /// LISTA DE PERMISSÃO, não de bloqueio: bloquear "javascript" esquece "vbscript", "data:text/html",
+    /// e o "java\tscript:" que o navegador remonta. Permitir só o punhado seguro fecha a categoria
+    /// inteira. Relativo (sem esquema) é sempre seguro — é como saem os nossos "notas/…", "anexos/…" e
+    /// as âncoras "#".
+    /// </summary>
+    private static bool EsquemaSeguro(string? url, bool ehImagem)
+    {
+        if (string.IsNullOrEmpty(url)) return true;
+
+        // O navegador IGNORA espaços e caracteres de controle ao decidir o esquema, então "java\tscript:"
+        // vira "javascript:". Removemos os mesmos caracteres SÓ para a decisão — o href de verdade não é
+        // tocado quando é seguro.
+        var limpa = new string([.. url.Where(c => !char.IsControl(c) && !char.IsWhiteSpace(c))]);
+
+        var doisPontos = limpa.IndexOf(':');
+        var primeiraBarra = limpa.IndexOfAny(['/', '?', '#']);
+        // Sem ':' antes de '/','?' ou '#' → é caminho relativo, não tem esquema. Seguro.
+        if (doisPontos < 0 || (primeiraBarra >= 0 && primeiraBarra < doisPontos)) return true;
+
+        var esquema = limpa[..doisPontos].ToLowerInvariant();
+        if (esquema is "http" or "https" or "mailto" or "tel") return true;
+        // Imagem pode ser data:image/… — a CSP img-src já permite data:, e o contexto <img> não executa.
+        if (ehImagem && limpa.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)) return true;
+
+        return false;   // javascript:, data:text/html, vbscript:, file:, …
+    }
 
     public NotaRenderizada Renderizar(string markdown, Func<string, CaminhoNota?> resolver,
         Func<string, string?>? anexos = null, Func<string, string?>? notas = null)
@@ -50,7 +111,7 @@ public sealed partial class RenderizadorMarkdig : IRenderizadorDeMarkdown
         var transclusoes = new List<Transclusao>();
         texto = ConverterWikilinks(texto, resolver, anexos, notas, transclusoes, out var alvosQuebrados);
 
-        var html = Markdown.ToHtml(texto, _pipeline);
+        var html = RenderizarSeguro(texto);
         html = MarcarLinksQuebrados(html, alvosQuebrados);
 
         // A TRANSCLUSÃO É SUBSTITUÍDA DEPOIS do Markdig, e não emitida no meio do Markdown — porque o

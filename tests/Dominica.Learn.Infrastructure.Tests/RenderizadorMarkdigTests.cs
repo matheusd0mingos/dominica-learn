@@ -51,6 +51,66 @@ public class RenderizadorMarkdigTests
         Assert.DoesNotContain("<svg", html, StringComparison.OrdinalIgnoreCase);
     }
 
+    // —— ESQUEMA DE LINK ————————————————————————————————————————————————————————————————
+    //
+    // Achado numa auditoria: "[x](javascript:...)" é link MARKDOWN, não HTML bruto — o DisableHtml não o
+    // toca, e clicar EXECUTA (a CSP não salva por causa do 'unsafe-inline' do Blazor). O vault recebe
+    // conteúdo importado ("o resumo que um colega mandou"), então isto é XSS de verdade. A defesa é lista
+    // de permissão de esquema.
+
+    [Fact]
+    public void Link_javascript_e_neutralizado()
+    {
+        var html = Render("[clique](javascript:alert(document.cookie))");
+        Assert.DoesNotContain("javascript:", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(">clique<", html);   // o texto fica; só a arma sai
+    }
+
+    [Fact]
+    public void Imagem_javascript_e_neutralizada()
+    {
+        var html = Render("![x](javascript:alert(1))");
+        Assert.DoesNotContain("javascript:", html, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Data_text_html_e_vbscript_tambem_saem()
+    {
+        Assert.DoesNotContain("data:text/html", Render("[a](data:text/html;base64,PHNjcmlwdD4=)"),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("vbscript:", Render("[b](vbscript:msgbox(1))"),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Nenhum_link_javascript_executavel_sobrevive_a_ofuscacao()
+    {
+        // Duas ofuscações clássicas, e as duas ficam inertes por caminhos diferentes: o tab LITERAL
+        // quebra a sintaxe de link do Markdown (vira texto, sem <a>); a entidade "&#9;" forma link, mas
+        // o esquema "java&#9;script" não está na permissão e é neutralizado. O que importa provar é a
+        // consequência comum: nenhum <a> executável sai.
+        foreach (var vetor in new[] { "[x](java\tscript:alert(1))", "[x](java&#9;script:alert(1))" })
+        {
+            var html = Render(vetor);
+            Assert.DoesNotContain("<a href=\"java", html, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public void Link_http_e_https_continuam_valendo()
+    {
+        var html = Render("[site](https://exemplo.com) e [outro](http://x.org)");
+        Assert.Contains("href=\"https://exemplo.com\"", html);
+        Assert.Contains("href=\"http://x.org\"", html);
+    }
+
+    [Fact]
+    public void Mailto_e_ancora_continuam_valendo()
+    {
+        Assert.Contains("href=\"mailto:a@b.com\"", Render("[mail](mailto:a@b.com)"));
+        Assert.Contains("href=\"#secao\"", Render("[ir](#secao)"));
+    }
+
     // —— WIKILINKS ——————————————————————————————————————————————————————————————————————
     [Fact]
     public void Wikilink_para_nota_existente_vira_link_navegavel()
