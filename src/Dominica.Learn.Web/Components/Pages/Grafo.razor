@@ -115,7 +115,9 @@
                            aria-label="Enquadrar tudo" OnClick="EnquadrarAsync" />
         </div>
 
-        <svg id="@IdDoSvg" viewBox="@Viewbox" width="100%" style="height:64vh; touch-action:none" role="img"
+        @* Sem viewBox no markup: o grafo.js é o dono dele. Bindado, cada render do Blazor reaplicaria o
+           enquadramento do servidor e desfaria o zoom — era por isso que o botão + não segurava. *@
+        <svg id="@IdDoSvg" width="100%" style="height:64vh; touch-action:none" role="img"
              aria-label="@($"Grafo de ligações — {TituloDaPagina}")">
             @* Com "só as órfãs" ligado não há aresta a desenhar — órfã é, por definição, a nota de grau
                zero. Deixar as linhas na tela mostraria ligações entre pontos que sumiram. *@
@@ -157,8 +159,11 @@
 
                    O aria-label repete o <title> porque nome acessível vindo de <title> em SVG dentro de
                    HTML é irregular entre leitores — e um ponto sem nome é um "link" sem destino. *@
+                @* data-previa: o nó é uma NOTA, então passar o mouse (ou focar por teclado) mostra a
+                   prévia dela sem sair do grafo — o mesmo popover dos links de nota. É o que faltava para
+                   o ponto não ser só "clique e seja teleportado": dá para olhar antes de ir. Ver previa.js. *@
                 <g class="no-do-grafo" style="cursor:pointer" @onclick="@(() => Ir(no.Caminho))"
-                   tabindex="0" role="link" aria-label="@descricao"
+                   tabindex="0" role="link" aria-label="@descricao" data-previa="@no.Caminho.Valor"
                    @onkeydown="@(e => AoTeclarNoNo(e, no.Caminho))">
                     @* O "title" nomeia a MATÉRIA em todos os nós — é o que impede a identidade de sair
                        só da cor, exigência da paleta validada (ver PaletaDeMaterias). *@

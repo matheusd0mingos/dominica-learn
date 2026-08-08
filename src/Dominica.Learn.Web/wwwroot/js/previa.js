@@ -27,13 +27,20 @@ let popover = null
 let cronometro = 0
 let ancoraAtual = null
 
-function caminhoDaNota(a) {
-  // O href pode ser relativo ("notas/X.md", das telas) ou absoluto ("/notas/X.md", do renderizador).
-  // a.pathname já vem resolvido pelo navegador; o que interessa é o que vem depois de "/notas/".
+// O caminho da nota a prever, DE DOIS TIPOS DE ALVO:
+//   • um <a href> de nota (das telas e do renderizador) — tira do pathname, que já vem codificado;
+//   • um nó de grafo, que é um <g> sem href e carrega o caminho cru em data-previa — codifica aqui.
+// Devolve o caminho JÁ CODIFICADO para virar tanto a URL do fetch quanto a chave do cache, para que o
+// mesmo destino visto pelo link ou pelo ponto do grafo compartilhe a mesma prévia guardada.
+function caminhoParaPrevia(el) {
+  const bruto = el.getAttribute?.('data-previa')
+  if (bruto) return bruto.split('/').map(encodeURIComponent).join('/')
+
+  if (el.tagName !== 'A') return null
   const marca = '/notas/'
-  const i = a.pathname.indexOf(marca)
+  const i = el.pathname.indexOf(marca)
   if (i < 0) return null
-  const resto = a.pathname.slice(i + marca.length)
+  const resto = el.pathname.slice(i + marca.length)
   // "novo" é a tela de criar nota (link quebrado) — não há o que prever.
   if (resto === 'novo' || resto.length === 0) return null
   return resto
@@ -73,7 +80,7 @@ function esconderSoOPopover() {
 }
 
 async function aoParar(ancora, caminho) {
-  const chave = ancora.href
+  const chave = caminho   // o caminho codificado já é único por nota — serve de chave e de URL
   const guardada = cache.get(chave)
   if (!guardada || Date.now() - guardada.quando > validadeMs) {
     try {
@@ -91,9 +98,9 @@ export function ligar() {
   // popover, Escape fecha. :focus-visible separa o foco de teclado do foco que um clique deixa —
   // sem isso, todo clique em link abriria um popover atrás da navegação.
   document.addEventListener('focusin', (e) => {
-    const ancora = e.target.closest?.('a[href]')
+    const ancora = e.target.closest?.('a[href], [data-previa]')
     if (!ancora || !ancora.matches(':focus-visible')) return
-    const caminho = caminhoDaNota(ancora)
+    const caminho = caminhoParaPrevia(ancora)
     if (!caminho) return
 
     esconder()
@@ -117,9 +124,9 @@ export function ligar() {
   if (!window.matchMedia('(hover: hover)').matches) return
 
   document.addEventListener('mouseover', (e) => {
-    const ancora = e.target.closest('a[href]')
+    const ancora = e.target.closest('a[href], [data-previa]')
     if (!ancora || ancora === ancoraAtual) return
-    const caminho = caminhoDaNota(ancora)
+    const caminho = caminhoParaPrevia(ancora)
     if (!caminho) return
 
     esconder()

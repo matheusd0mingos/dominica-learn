@@ -15,12 +15,14 @@
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 
 @inject ServicoDeConhecimento Conhecimento
 @inject ServicoDeNotas Servico
 @inject NavigationManager Navegacao
 @inject IDialogService Dialogos
 @inject ISnackbar Avisos
+@inject IJSRuntime JS
 
 <PageTitle>Etiquetas · Dominica Learn</PageTitle>
 
@@ -51,7 +53,8 @@
 
 @if (EhMapa)
 {
-    <MudPaper Class="pa-3 ma-2" Elevation="0" Outlined="true">
+    @* position:relative ancora os controles de zoom — ver grafo-controles no app.css. *@
+    <MudPaper Class="pa-3 ma-2" Elevation="0" Outlined="true" Style="position:relative">
         @if (_mapa is null)
         {
             <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
@@ -68,8 +71,19 @@
             @* A JANELA É AJUSTADA AO DESENHO, e não a moldura inteira do layout: com poucas etiquetas o
                mapa saía amontoado num canto, com dois terços da tela em branco. Mesmo Enquadramento do
                grafo de notas — a régua de legibilidade é a mesma nos dois mapas. *@
-            <svg viewBox="@Enquadramento.Ajustar(_mapa.Posicoes, _mapa.Largura, _mapa.Altura).ParaViewBox()"
-                 style="width:100%;height:70vh" role="img" aria-label="Mapa das etiquetas">
+            @* Zoom e arrasto, o mesmo módulo do grafo (grafo.js só mexe no viewBox). *@
+            <div class="grafo-controles">
+                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add"
+                               aria-label="Aproximar" OnClick="@(() => ZoomAsync(true))" />
+                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Remove"
+                               aria-label="Afastar" OnClick="@(() => ZoomAsync(false))" />
+                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.CenterFocusStrong"
+                               aria-label="Enquadrar tudo" OnClick="EnquadrarAsync" />
+            </div>
+
+            @* Sem viewBox no markup: o grafo.js é o dono dele (ver o comentário igual em MapaDasMaterias). *@
+            <svg id="@IdDoSvg"
+                 style="width:100%;height:70vh; touch-action:none" role="img" aria-label="Mapa das etiquetas">
                 @foreach (var par in _mapa.Pares)
                 {
                     var de = _mapa.Posicoes[par.De];
@@ -390,6 +404,48 @@ else
 
     /// <summary>Ponto flutuante no SVG SEMPRE com ponto decimal — em pt-BR, "12,5" quebraria o atributo.</summary>
     private static string N(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    private const string IdDoSvg = "mapa-de-etiquetas";
+
+    /// <summary>O enquadramento do desenho — passado ao SVG e ao grafo.js, para nascerem no mesmo lugar.</summary>
+    private string ViewboxDoMapa => _mapa is null
+        ? "0 0 800 600"
+        : Enquadramento.Ajustar(_mapa.Posicoes, _mapa.Largura, _mapa.Altura).ParaViewBox();
+
+    // —— ZOOM E ARRASTO — mesmo módulo do grafo (só mexe no viewBox). Só liga quando o mapa está na tela. ——
+    private IJSObjectReference? _js;
+
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (!EhMapa || _mapa is not { Nos.Count: > 0 }) return;
+
+        _js ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/grafo.js");
+        await _js.InvokeVoidAsync("ligar", IdDoSvg, ViewboxDoMapa);
+    }
+
+    private async Task ZoomAsync(bool aproximar)
+    {
+        if (_js is not null) await _js.InvokeVoidAsync("passo", IdDoSvg, aproximar);
+    }
+
+    private async Task EnquadrarAsync()
+    {
+        if (_js is not null) await _js.InvokeVoidAsync("enquadrar", IdDoSvg);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_js is not null)
+            {
+                await _js.InvokeVoidAsync("desligar", IdDoSvg);
+                await _js.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (OperationCanceledException) { }
+    }
 
     protected override async Task OnInitializedAsync() =>
         _arvore = await Conhecimento.PainelDeEtiquetasAsync();

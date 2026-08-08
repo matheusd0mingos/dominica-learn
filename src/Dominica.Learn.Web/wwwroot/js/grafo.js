@@ -19,11 +19,24 @@ export function ligar(id, viewBoxInicial) {
   const svg = document.getElementById(id)
   if (!svg) return
 
+  // JÁ LIGADO NO MESMO SVG E MESMO ENQUADRAMENTO → mantém o zoom atual e REAFIRMA no atributo.
+  // O `ligar` é chamado a cada render, e reinicializar aqui zerava o zoom de volta ao enquadramento —
+  // então o botão + aproximava e o render seguinte desfazia (a roda escapava só por não disparar
+  // render). Preservar `atual` entre renders é o que mantém o zoom vivo; reafirmá-lo no atributo é o
+  // que sobrevive a um render do Blazor que tenha reescrito o viewBox. Só reinicia de verdade quando
+  // troca a matéria (SVG novo) ou o layout (enquadramento novo).
+  const jaLigado = estados.get(id)
+  if (jaLigado && jaLigado.svg === svg && jaLigado.viewBoxInicial === viewBoxInicial) {
+    const v = jaLigado.atual
+    svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`)
+    return
+  }
+
   desligar(id)   // trocar de matéria recria o SVG; sem isto os ouvintes se acumulariam
 
   const [x, y, w, h] = viewBoxInicial.split(' ').map(Number)
   const inicial = { x, y, w, h }
-  const estado = { svg, inicial, atual: { ...inicial }, ouvintes: [] }
+  const estado = { svg, inicial, viewBoxInicial, atual: { ...inicial }, ouvintes: [] }
   estados.set(id, estado)
 
   const aplicar = () => {

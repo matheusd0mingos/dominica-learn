@@ -437,6 +437,23 @@ h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
    lê. */
 .no-do-grafo:focus-visible > g > text { font-weight: 700; }
 
+/* APONTAR TEM DE FAZER ALGUMA COISA. Sem isto o mapa parecia morto: passar o mouse não dava retorno
+   nenhum, só o clique reagia. Agora o ponto cresce um pouco sob o cursor e o rótulo encorpa — o
+   feedback que diz "este alvo é vivo, dá para tocar".
+
+   O `transform-box: fill-box` com origem no centro é a fórmula que faz o SVG escalar o círculo em
+   torno DELE MESMO, e não do canto do desenho — sem ela, o ponto "escorregaria" ao crescer. Escala só
+   o CÍRCULO (cada um em torno do próprio centro), não o grupo inteiro, para o rótulo não deslizar
+   junto com o texto que fica abaixo dele. */
+.no-do-grafo > circle {
+    transition: transform .1s ease;
+    transform-box: fill-box;
+    transform-origin: center;
+}
+
+.no-do-grafo:hover > circle { transform: scale(1.18); }
+.no-do-grafo:hover text { font-weight: 700; }
+
 /* A tecla escrita no botão (revisão: espaço, 1–4). Atalho que ninguém vê é atalho que ninguém usa —
    e um <kbd> discreto dentro do botão ensina sem aula. Herda a cor do botão com transparência para
    funcionar sobre qualquer uma das quatro cores de resposta. */

@@ -8,9 +8,11 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 @implements IDisposable
+@implements IAsyncDisposable
 @inject ServicoDeConhecimento Conhecimento
 @inject EstadoDoTema Tema
 @inject NavigationManager Navegacao
+@inject IJSRuntime JS
 
 @* O TOPO DO DRILL DO GRAFO. Três níveis, cada um com endereço:
 
@@ -33,7 +35,8 @@
 
 <ProvedoresDoMud />
 
-<MudPaper Class="pa-3" Elevation="0" Outlined="true">
+@* position:relative ancora os controles de zoom DENTRO do painel — ver grafo-controles no app.css. *@
+<MudPaper Class="pa-3" Elevation="0" Outlined="true" Style="position:relative">
     <div class="d-flex align-center flex-wrap gap-3 mb-3">
         <MudText Typo="Typo.h6">Mapa das matérias</MudText>
         <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ZoomIn"
@@ -53,7 +56,22 @@
     }
     else
     {
-        <svg viewBox="@Viewbox" width="100%" style="height:64vh" role="img"
+        @* Zoom e arrasto, o mesmo módulo do grafo de notas (grafo.js só mexe no viewBox). Sem eles o
+           mapa era um retrato fixo; com poucas matérias num canto, dava vontade de aproximar e não dava. *@
+        <div class="grafo-controles">
+            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add"
+                           aria-label="Aproximar" OnClick="@(() => ZoomAsync(true))" />
+            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Remove"
+                           aria-label="Afastar" OnClick="@(() => ZoomAsync(false))" />
+            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.CenterFocusStrong"
+                           aria-label="Enquadrar tudo" OnClick="EnquadrarAsync" />
+        </div>
+
+        @* SEM viewBox no markup, de propósito: o JS (grafo.js) é o dono do viewBox. Se o Blazor o
+           bindasse, cada render reaplicaria o enquadramento do servidor e desfaria o zoom — o botão +
+           aproximava e o render seguinte voltava tudo. O grafo.js aplica o enquadramento inicial no
+           `ligar`, logo após o primeiro render. *@
+        <svg id="@IdDoSvg" width="100%" style="height:64vh; touch-action:none" role="img"
              aria-label="Mapa das matérias — quais assuntos se citam">
             @foreach (var ponte in _mapa.Pontes)
             {
@@ -214,11 +232,49 @@
     private const double Altura = 620;
     private const double TamanhoDoRotulo = 10;
 
+    private const string IdDoSvg = "mapa-das-materias";
+
     protected override void OnInitialized() => Tema.Mudou += AoMudarTema;
 
     public void Dispose() => Tema.Mudou -= AoMudarTema;
 
     private void AoMudarTema() => InvokeAsync(StateHasChanged);
+
+    // —— ZOOM E ARRASTO — o mesmo módulo do grafo de notas (só mexe no viewBox, não recalcula layout). ——
+    private IJSObjectReference? _js;
+
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (_carregando || _mapa.Nos.Count < 2) return;
+
+        _js ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/grafo.js");
+        await _js.InvokeVoidAsync("ligar", IdDoSvg, Viewbox);
+    }
+
+    private async Task ZoomAsync(bool aproximar)
+    {
+        if (_js is not null) await _js.InvokeVoidAsync("passo", IdDoSvg, aproximar);
+    }
+
+    private async Task EnquadrarAsync()
+    {
+        if (_js is not null) await _js.InvokeVoidAsync("enquadrar", IdDoSvg);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // O circuito pode já ter caído: descartar um módulo JS numa conexão morta lança à toa.
+        try
+        {
+            if (_js is not null)
+            {
+                await _js.InvokeVoidAsync("desligar", IdDoSvg);
+                await _js.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (OperationCanceledException) { }
+    }
 
     protected override async Task OnInitializedAsync()
     {
