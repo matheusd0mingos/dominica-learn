@@ -112,6 +112,29 @@ else
                 </div>
             </div>
 
+            @* —— OS PRÓXIMOS 7 DIAS ——
+               A pergunta que o "para hoje" não responde: dá para viajar quinta? A repetição espaçada
+               agenda sozinha, e agenda que ninguém vê vira surpresa — o pico de quarta só é gerenciável
+               se aparecer na segunda. Vencidos NÃO entram aqui (já estão no "para hoje"; contá-los de
+               novo somaria os mesmos cartões em dois números da mesma tela), e inéditos também não —
+               eles não têm data, entram pelo teto do dia. *@
+            @if (_r.TotalDeCartoes > 0 && _r.ProximosDias.Count > 0)
+            {
+                <div class="mt-4">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Revisões agendadas — próximos 7 dias</MudText>
+                    <div class="previsao" role="img" aria-label="@RotuloDaPrevisao()">
+                        @foreach (var dia in _r.ProximosDias)
+                        {
+                            <div class="previsao-dia">
+                                <span class="previsao-numero">@dia.Cartoes</span>
+                                <div class="previsao-barra" style="height:@AlturaDaBarra(dia.Cartoes)px"></div>
+                                <span class="previsao-rotulo">@DiaCurto(dia.Dia)</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
             <div class="d-flex flex-wrap gap-2 mt-4">
                 @if (_r.ParaHoje > 0)
                 {
@@ -386,6 +409,38 @@ else
         _r = await Cartoes.PainelAsync();
         _d = await Desempenho.ResumoAsync();
         _ultimos = await Desempenho.UltimosAsync();
+    }
+
+    // —— A PREVISÃO DE 7 DIAS ————————————————————————————————————————————————————————
+
+    // A barra mais alta tem 40px e as outras são proporcionais A ELA, não a uma escala fixa: o que a
+    // faixa responde é "qual dia pesa mais?", e essa comparação vale igual com máximo 3 ou máximo 60.
+    // Dia com zero mostra 2px — a linha de chão que diz "olhei, não tem nada", diferente de buraco.
+    private double AlturaDaBarra(int cartoes)
+    {
+        if (_r is null || cartoes == 0) return 2;
+        var maximo = Math.Max(1, _r.ProximosDias.Max(d => d.Cartoes));
+        return Math.Max(2, 40.0 * cartoes / maximo);
+    }
+
+    // Nome do dia sem depender da cultura do servidor: o app é pt-BR onde quer que rode.
+    private static string DiaCurto(DateOnly dia) => dia.DayOfWeek switch
+    {
+        DayOfWeek.Monday => "seg",
+        DayOfWeek.Tuesday => "ter",
+        DayOfWeek.Wednesday => "qua",
+        DayOfWeek.Thursday => "qui",
+        DayOfWeek.Friday => "sex",
+        DayOfWeek.Saturday => "sáb",
+        _ => "dom",
+    };
+
+    /// <summary>A faixa inteira num rótulo só: barras individuais não são nada para um leitor de tela.</summary>
+    private string RotuloDaPrevisao()
+    {
+        if (_r is null) return string.Empty;
+        var partes = _r.ProximosDias.Select(d => $"{DiaCurto(d.Dia)} {d.Cartoes}");
+        return $"Revisões agendadas para os próximos 7 dias: {string.Join(", ", partes)}.";
     }
 
     /// <summary>

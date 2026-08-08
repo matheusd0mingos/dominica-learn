@@ -55,15 +55,32 @@
     {
         <svg viewBox="@Viewbox" width="100%" style="height:64vh" role="img"
              aria-label="Mapa das matérias — quais assuntos se citam">
-            <g stroke="var(--mud-palette-lines-default)">
-                @foreach (var ponte in _mapa.Pontes)
-                {
-                    var de = _mapa.Posicoes[ponte.De];
-                    var para = _mapa.Posicoes[ponte.Para];
+            @foreach (var ponte in _mapa.Pontes)
+            {
+                var de = _mapa.Posicoes[ponte.De];
+                var para = _mapa.Posicoes[ponte.Para];
+                var materiaDe = _mapa.Nos[ponte.De].Materia;
+                var materiaPara = _mapa.Nos[ponte.Para].Materia;
+                var escolhida = PonteEscolhida(materiaDe, materiaPara);
+
+                @* A PONTE É CLICÁVEL — é o clique que transforma "há relação" em "vou ler a relação".
+                   A linha visível tem 2–6px, que é alvo de mira impossível: por isso o <g> carrega uma
+                   SEGUNDA linha, invisível e gorda (14px), que é quem recebe o toque — o truque padrão
+                   de área de acerto em SVG. Teclado no mesmo padrão dos nós: link, Enter. *@
+                <g class="no-do-grafo" style="cursor:pointer"
+                   tabindex="0" role="link"
+                   aria-label="@($"Ponte {materiaDe.Rotulo} e {materiaPara.Rotulo} — {ponte.Peso} par(es) de notas. Ver quais.")"
+                   @onclick="@(() => AbrirPonte(materiaDe, materiaPara))"
+                   @onkeydown="@(e => AoTeclarNaPonte(e, materiaDe, materiaPara))">
+                    <title>@materiaDe.Rotulo ↔ @materiaPara.Rotulo — @ponte.Peso par(es) de notas</title>
                     <line x1="@N(de.X)" y1="@N(de.Y)" x2="@N(para.X)" y2="@N(para.Y)"
-                          stroke-width="@N(1.6 + Math.Min(ponte.Peso, 5) * 0.9)" stroke-opacity="0.75" />
-                }
-            </g>
+                          stroke="transparent" stroke-width="14" />
+                    <line x1="@N(de.X)" y1="@N(de.Y)" x2="@N(para.X)" y2="@N(para.Y)"
+                          stroke="@(escolhida ? "var(--mud-palette-primary)" : "var(--mud-palette-lines-default)")"
+                          stroke-width="@N((escolhida ? 1.2 : 0) + 1.6 + Math.Min(ponte.Peso, 5) * 0.9)"
+                          stroke-opacity="@(escolhida ? "1" : "0.75")" />
+                </g>
+            }
 
             @foreach (var p in _mapa.Posicoes)
             {
@@ -129,10 +146,65 @@
                 com <code>[[wikilinks]]</code>, elas aparecem aqui.
             </MudAlert>
         }
+
+        @* —— A PONTE ABERTA ——
+           O painel dos pares, ABAIXO do mapa e não num diálogo: a ponte escolhida está na URL
+           (?de=&para=), então dá para mandar por mensagem "olha o que Direito puxa de Contabilidade" —
+           um diálogo é estado que morre com o clique fora. *@
+        @if (_ponteDe is not null && _pontePara is not null)
+        {
+            <MudPaper Class="pa-3 mt-3" Elevation="0" Outlined="true">
+                <div class="d-flex align-center gap-2 flex-wrap">
+                    <MudText Typo="Typo.subtitle1">
+                        A ponte <b>@_ponteDe.Rotulo</b> ↔ <b>@_pontePara.Rotulo</b>
+                    </MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                        @_pares.Count par(es) de notas
+                    </MudText>
+                    <MudSpacer />
+                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
+                                   aria-label="Fechar a ponte" Href="grafo/materias" />
+                </div>
+
+                @if (_pares.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                        Nenhum par entre essas duas — a ponte pode ter sumido numa edição recente.
+                    </MudText>
+                }
+                else
+                {
+                    @* CADA LADO É UM LINK PARA A SUA NOTA. É aqui que a relação vira leitura: o par
+                       mais citado vem primeiro, porque é o mais provável de ser o que se procura. *@
+                    <MudList T="string" Dense="true">
+                        @foreach (var par in _pares)
+                        {
+                            <MudListItem T="string">
+                                <MudLink Href="@Rotas.Nota(par.De.Caminho)">@par.De.Titulo</MudLink>
+                                <span class="mud-text-secondary"> ↔ </span>
+                                <MudLink Href="@Rotas.Nota(par.Para.Caminho)">@par.Para.Titulo</MudLink>
+                                @if (par.Vezes > 1)
+                                {
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary d-inline"> · @par.Vezes citações</MudText>
+                                }
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            </MudPaper>
+        }
     }
 </MudPaper>
 
 @code {
+    /// <summary>A ponte aberta, na QUERY: o recorte precisa ser endereço — ver o comentário do painel.</summary>
+    [SupplyParameterFromQuery(Name = "de")] public string? De { get; set; }
+    [SupplyParameterFromQuery(Name = "para")] public string? Para { get; set; }
+
+    private Materia? _ponteDe;
+    private Materia? _pontePara;
+    private IReadOnlyList<ParDaPonte> _pares = [];
+
     private MapaDeMaterias _mapa = MapaDeMaterias.Vazio;
     private bool _carregando = true;
     private Dictionary<Materia, int> _slots = [];
@@ -171,6 +243,36 @@
             TamanhoDoRotulo);
 
         _carregando = false;
+    }
+
+    // A PONTE ESCOLHIDA SAI DA QUERY, e a leitura mora aqui e não no OnInitializedAsync: navegar de
+    // "?de=A&para=B" para "?de=A&para=C" reusa o componente (mesma página), e só OnParametersSetAsync
+    // roda de novo — a mesma lição da tela de etiquetas. O mapa em si fica no OnInitializedAsync,
+    // porque ele não muda com a query.
+    //
+    // NULO ≠ VAZIO, de propósito: parâmetro AUSENTE (null) é "nenhuma ponte aberta"; presente e vazio
+    // ("?de=&para=X") é a ponte com "Sem matéria" — Materia.De("") devolve Nenhuma, que é matéria
+    // legítima no mapa. Sem essa distinção, a ponte com a raiz do vault não teria endereço.
+    protected override async Task OnParametersSetAsync()
+    {
+        _ponteDe = De is null ? null : Materia.De(De);
+        _pontePara = Para is null ? null : Materia.De(Para);
+        _pares = _ponteDe is not null && _pontePara is not null
+            ? await Conhecimento.PonteAsync(_ponteDe, _pontePara)
+            : [];
+    }
+
+    private bool PonteEscolhida(Materia a, Materia b) =>
+        _ponteDe is not null && _pontePara is not null &&
+        ((a == _ponteDe && b == _pontePara) || (a == _pontePara && b == _ponteDe));
+
+    private void AbrirPonte(Materia a, Materia b) =>
+        Navegacao.NavigateTo(
+            $"grafo/materias?de={Uri.EscapeDataString(a.Nome)}&para={Uri.EscapeDataString(b.Nome)}");
+
+    private void AoTeclarNaPonte(KeyboardEventArgs e, Materia a, Materia b)
+    {
+        if (e.Key is "Enter" or "NumpadEnter") AbrirPonte(a, b);
     }
 
     /// <summary>Descer um nível: o grafo da matéria. URL relativa — ver Rotas.</summary>

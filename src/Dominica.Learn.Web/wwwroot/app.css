@@ -708,6 +708,45 @@ kbd.tecla {
 .atencao-materiacustando { border-left-color: var(--perigo); }
 .atencao-materiasemcartoes { border-left-color: var(--ouro); }
 
+/* A previsão dos próximos 7 dias: sete colunas iguais, número em cima, barra, dia embaixo. As barras
+   crescem de baixo para cima (flex-end) porque é assim que se lê "quanto pesa" — a altura vem inline,
+   calculada em C# junto do resto do painel. */
+.previsao {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    margin-top: 6px;
+    max-width: 420px;
+}
+
+.previsao-dia {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+}
+
+.previsao-numero {
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+}
+
+.previsao-barra {
+    width: 100%;
+    max-width: 34px;
+    border-radius: 3px 3px 0 0;
+    background: var(--ouro);
+    opacity: 0.85;
+}
+
+.previsao-rotulo {
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+}
+
 .numero {
     text-align: right;
     font-variant-numeric: tabular-nums;

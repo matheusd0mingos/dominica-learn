@@ -400,6 +400,27 @@ public sealed class ServicoDeConhecimento(
         return new MapaDeMaterias(nos, posicoes, pontes, largura, altura);
     }
 
+    /// <summary>
+    /// Os pares de notas de uma ponte do mapa das matérias. A regra é do domínio
+    /// (<see cref="GrafoDeMaterias.ParesDaPonte"/>); aqui só se monta o mesmo grafo de sempre.
+    /// </summary>
+    public async Task<IReadOnlyList<ParDaPonte>> PonteAsync(
+        Materia a, Materia b, CancellationToken ct = default)
+    {
+        var caminhos = (await indice.TodosOsCaminhosAsync(ct)).Where(EhConteudoDeEstudo).ToList();
+        if (caminhos.Count == 0) return [];
+
+        var ligacoes = new List<LigacaoResolvida>();
+        var titulos = new Dictionary<CaminhoNota, string>();
+        foreach (var c in caminhos)
+        {
+            ligacoes.AddRange(await indice.LigacoesDeAsync(c, ct));
+            if (await indice.ObterAsync(c, ct) is { } n) titulos[c] = n.Titulo;
+        }
+
+        return GrafoDeMaterias.ParesDaPonte(GrafoDoVault.Montar(caminhos, ligacoes, titulos), a, b);
+    }
+
     // —— LIGAR DUAS NOTAS ——————————————————————————————————————————————————————————————
     /// <summary>
     /// Escreve em <paramref name="dentroDe"/> uma ligação para <paramref name="apontarPara"/>.

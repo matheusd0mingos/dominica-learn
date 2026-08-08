@@ -335,6 +335,75 @@ public class PainelTests
         Assert.Equal(40, r.TotalDeNotas);
     }
 
+    // —— A PREVISÃO DOS PRÓXIMOS 7 DIAS ———————————————————————————————————————————————
+    //
+    // O "para hoje" não responde "dá para viajar quinta?". A previsão responde — e só presta se cada
+    // cartão aparecer numa contagem SÓ: o vencido já está em RevisoesVencidas, o inédito entra pelo
+    // teto. Um cartão contado em dois números da mesma tela é o defeito que já custou confiança duas
+    // vezes neste painel.
+
+    [Fact]
+    public void A_previsao_tem_sempre_sete_dias_comecando_amanha()
+    {
+        // Dia sem nada é ZERO na lista, não buraco: "olhei, não tem nada" é informação — uma lista de
+        // tamanho variável obrigaria a tela a adivinhar qual dia cada posição é.
+        var r = PainelDeEstudo.Montar([], Notas(), [], Hoje, teto: 20);
+
+        Assert.Equal(7, r.ProximosDias.Count);
+        Assert.Equal(Hoje.AddDays(1), r.ProximosDias[0].Dia);
+        Assert.Equal(Hoje.AddDays(7), r.ProximosDias[^1].Dia);
+        Assert.All(r.ProximosDias, d => Assert.Equal(0, d.Cartoes));
+    }
+
+    [Fact]
+    public void Cada_dia_conta_os_cartoes_que_vencem_NELE()
+    {
+        var r = PainelDeEstudo.Montar(
+            [Com("Direito/a.md", 2, 250, 2), Com("Direito/b.md", 2, 250, 2), Com("Direito/c.md", 5, 250, 5)],
+            Notas(("Direito", 3)), [], Hoje, teto: 20);
+
+        Assert.Equal(2, r.ProximosDias[1].Cartoes);   // hoje+2
+        Assert.Equal(1, r.ProximosDias[4].Cartoes);   // hoje+5
+        Assert.Equal(0, r.ProximosDias[0].Cartoes);
+    }
+
+    [Fact]
+    public void Vencido_e_o_de_hoje_NAO_entram_na_previsao()
+    {
+        // Eles já são o "para hoje". Contá-los de novo em "amanhã" somaria o mesmo cartão duas vezes.
+        var r = PainelDeEstudo.Montar(
+            [Com("Direito/a.md", 1, 250, -3), Com("Direito/b.md", 1, 250, 0)],
+            Notas(("Direito", 2)), [], Hoje, teto: 20);
+
+        Assert.Equal(2, r.ParaHoje);
+        Assert.All(r.ProximosDias, d => Assert.Equal(0, d.Cartoes));
+    }
+
+    [Fact]
+    public void Inedito_e_suspenso_ficam_fora_da_previsao()
+    {
+        // O inédito não tem data — ele estreia conforme o teto do dia, e prever a estreia seria
+        // inventar um cronograma que o próprio teto pode mudar. O suspenso está guardado, como em
+        // todo o resto do painel.
+        var r = PainelDeEstudo.Montar(
+            [Inedito("Direito/a.md"), Com("Direito/b.md", 3, 250, 3, suspenso: true)],
+            Notas(("Direito", 2)), [], Hoje, teto: 20);
+
+        Assert.All(r.ProximosDias, d => Assert.Equal(0, d.Cartoes));
+    }
+
+    [Fact]
+    public void O_que_vence_depois_da_semana_fica_fora()
+    {
+        // A previsão é dos SETE dias — o cartão maduro de trinta dias não pesa em decisão nenhuma
+        // desta semana.
+        var r = PainelDeEstudo.Montar(
+            [Com("Direito/a.md", 30, 260, 8), Com("Direito/b.md", 30, 260, 30)],
+            Notas(("Direito", 2)), [], Hoje, teto: 20);
+
+        Assert.All(r.ProximosDias, d => Assert.Equal(0, d.Cartoes));
+    }
+
     [Fact]
     public void Referencia_com_cartoes_continua_entrando_na_revisao()
     {

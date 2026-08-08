@@ -11,6 +11,9 @@ public sealed record MateriaNoMapa(Materia Materia, int Notas, int Vizinhas);
 /// </summary>
 public sealed record PonteEntreMaterias(int De, int Para, int Peso);
 
+/// <summary>Um par de notas que forma parte de uma ponte. <see cref="Vezes"/> = quantas citações.</summary>
+public sealed record ParDaPonte(NoDoGrafo De, NoDoGrafo Para, int Vezes);
+
 /// <summary>
 /// O MAPA DAS MATÉRIAS — o topo do drill: quais matérias conversam entre si.
 ///
@@ -39,6 +42,43 @@ public sealed record PonteEntreMaterias(int De, int Para, int Peso);
 /// </summary>
 public static class GrafoDeMaterias
 {
+    /// <summary>
+    /// OS PARES DE NOTAS QUE FORMAM A PONTE entre duas matérias — a resposta ao clique na linha.
+    ///
+    /// POR QUE ISTO PRECISA EXISTIR: o mapa diz QUE Direito conversa com Contabilidade, mas a linha é
+    /// só tinta — "quais notas se citam?" não tinha resposta em tela nenhuma. É o clique que transforma
+    /// "há relação" em "vou ler essa relação".
+    ///
+    /// A NOTA DA MATÉRIA <paramref name="a"/> VEM À ESQUERDA, sempre: quem clicou na ponte pensando
+    /// "o que Direito puxa de Contabilidade?" lê os pares na direção em que perguntou, e não na ordem
+    /// interna dos índices — que é um detalhe de armazenamento, não uma resposta.
+    ///
+    /// ORDENADO POR VEZES (a citação repetida primeiro) e depois por caminho: o par mais reafirmado é
+    /// o mais provável de ser o que a pessoa procura, e o desempate estável mantém a lista igual entre
+    /// aberturas.
+    /// </summary>
+    public static IReadOnlyList<ParDaPonte> ParesDaPonte(GrafoDoVault grafo, Materia a, Materia b)
+    {
+        ArgumentNullException.ThrowIfNull(grafo);
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+
+        var pares = new List<ParDaPonte>();
+        foreach (var aresta in grafo.Arestas)
+        {
+            var de = grafo.Nos[aresta.De];
+            var para = grafo.Nos[aresta.Para];
+
+            if (de.Materia == a && para.Materia == b) pares.Add(new ParDaPonte(de, para, aresta.Peso));
+            else if (de.Materia == b && para.Materia == a) pares.Add(new ParDaPonte(para, de, aresta.Peso));
+        }
+
+        return [.. pares
+            .OrderByDescending(p => p.Vezes)
+            .ThenBy(p => p.De.Caminho.Valor, StringComparer.Ordinal)
+            .ThenBy(p => p.Para.Caminho.Valor, StringComparer.Ordinal)];
+    }
+
     public static (IReadOnlyList<MateriaNoMapa> Nos, IReadOnlyList<PonteEntreMaterias> Pontes) Montar(
         GrafoDoVault grafo)
     {

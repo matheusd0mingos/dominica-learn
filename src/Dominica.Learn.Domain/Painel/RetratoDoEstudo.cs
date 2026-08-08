@@ -30,6 +30,9 @@ public sealed record MateriaNoPainel(
 /// <summary>O que merece atenção, e por quê. O texto é a metade que importa.</summary>
 public sealed record Atencao(TipoDeAtencao Tipo, string Titulo, string Motivo);
 
+/// <summary>Um dia da previsão de carga: quantas revisões já têm hora marcada para ele.</summary>
+public sealed record DiaDePrevisao(DateOnly Dia, int Cartoes);
+
 public enum TipoDeAtencao
 {
     /// <summary>A pessoa escreveu e não fez cartão nenhum: nada daquilo vai voltar.</summary>
@@ -70,10 +73,19 @@ public sealed record RetratoDoEstudo(
     int Suspensos,
     IReadOnlyList<MateriaNoPainel> Materias,
     IReadOnlyList<Sugestao> Agora,
-    IReadOnlyList<Atencao> Atencoes)
+    IReadOnlyList<Atencao> Atencoes,
+    /// <summary>
+    /// AS REVISÕES AGENDADAS dos próximos sete dias, um número por dia (amanhã primeiro).
+    ///
+    /// É a previsão de carga do Anki, e o que ela compra é planejamento: sem ela, o dia pesado chega
+    /// de surpresa — e o sábado com 45 cartões vira o sábado em que se pula a revisão. SÓ OS
+    /// AGENDADOS: inédito não tem data, ele entra conforme o teto do dia — prever quando cada um
+    /// estreia seria inventar um cronograma que o próprio teto pode mudar amanhã.
+    /// </summary>
+    IReadOnlyList<DiaDePrevisao> ProximosDias)
 {
     public static readonly RetratoDoEstudo Vazio =
-        new(0, 0, 0, 0, 0, 0, 0, 0, [], [], []);
+        new(0, 0, 0, 0, 0, 0, 0, 0, [], [], [], []);
 
     /// <summary>
     /// O que a fila vai entregar hoje, somando revisão e estreia.
@@ -192,7 +204,25 @@ public static class PainelDeEstudo
             Suspensos: cartoes.Count(c => c.Suspenso),
             Materias: materias,
             Agora: Agora(materias, porEscrever, novosHoje, ineditos - novosHoje),
-            Atencoes: Atencoes(materias, porEscrever, vivos));
+            Atencoes: Atencoes(materias, porEscrever, vivos),
+            ProximosDias: Previsao(vivos, hoje));
+    }
+
+    /// <summary>
+    /// Um número por dia, de amanhã a hoje+7. O ATRASADO NÃO ENTRA aqui: ele já está em
+    /// <see cref="RevisoesVencidas"/> — contá-lo de novo em "amanhã" somaria o mesmo cartão duas vezes
+    /// na mesma tela, que é a forma mais rápida de o painel perder a confiança.
+    /// </summary>
+    private static IReadOnlyList<DiaDePrevisao> Previsao(IReadOnlyList<Cartao> vivos, DateOnly hoje)
+    {
+        var porDia = vivos
+            .Where(c => c.Agendamento is { } a && a.Vence > hoje)
+            .GroupBy(c => c.Agendamento!.Vence)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        return [.. Enumerable.Range(1, 7)
+            .Select(i => hoje.AddDays(i))
+            .Select(dia => new DiaDePrevisao(dia, porDia.GetValueOrDefault(dia)))];
     }
 
     /// <summary>
