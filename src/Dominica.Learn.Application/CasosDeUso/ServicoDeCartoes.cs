@@ -60,7 +60,8 @@ public sealed class ServicoDeCartoes(
     /// um bloco de cartões da mesma nota (onde a pessoa lembra do que leu, não do conceito).
     /// </summary>
     public async Task<FilaDeRevisao> FilaAsync(
-        Materia? materia = null, Etiqueta? etiqueta = null, int limite = 100, CancellationToken ct = default)
+        Materia? materia = null, Etiqueta? etiqueta = null, Etiqueta? etiqueta2 = null,
+        int limite = 100, CancellationToken ct = default)
     {
         var hoje = Hoje;
         var fila = new List<Cartao>();
@@ -69,12 +70,18 @@ public sealed class ServicoDeCartoes(
         // CRIA "#errei-na-prova" sozinho a cada erro registrado, mas não havia como dizer "hoje só
         // reviso o que errei". A busca do índice já entende a hierarquia (#direito traz #direito/penal),
         // então a mesma pergunta que o painel de etiquetas responde é a que recorta a fila.
+        //
+        // DUAS ETIQUETAS = INTERSEÇÃO, não união. É o recorte que a linha do mapa oferece — "o que eu
+        // errei E é pegadinha" — e a interseção é o que faz duas etiquetas dizerem mais que uma: a união
+        // diria menos.
         HashSet<CaminhoNota>? comEtiqueta = null;
-        if (etiqueta is not null)
+        foreach (var e in new[] { etiqueta, etiqueta2 }.Where(e => e is not null))
         {
             var acertos = await indice.BuscarAsync(
-                new ConsultaDeBusca { Etiqueta = etiqueta, Limite = int.MaxValue }, ct);
-            comEtiqueta = [.. acertos.Select(a => a.Nota.Caminho)];
+                new ConsultaDeBusca { Etiqueta = e, Limite = int.MaxValue }, ct);
+            var caminhos = acertos.Select(a => a.Nota.Caminho).ToHashSet();
+            if (comEtiqueta is null) comEtiqueta = caminhos;
+            else comEtiqueta.IntersectWith(caminhos);
         }
 
         // TODOS os cartões, e não só os vencidos: o teto diário precisa saber quantos inéditos JÁ foram

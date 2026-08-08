@@ -320,6 +320,29 @@ public sealed partial class ServicoDeConhecimento(
         return new MapaDeEtiquetas(nos, posicoes, pares, largura, altura);
     }
 
+    /// <summary>
+    /// As notas que têm AS DUAS etiquetas — a resposta ao clique na linha do mapa.
+    ///
+    /// INTERSEÇÃO, e cada lado com a hierarquia que TODA consulta de etiqueta do produto já entende:
+    /// "#direito ∩ #pegadinha" traz a nota marcada só com "#direito/penal #pegadinha". Por isso a lista
+    /// pode ser MAIOR que o peso da linha clicada — a linha conta a coocorrência literal, a consulta
+    /// desce a árvore — e nunca menor: tudo que fez a linha existir está aqui.
+    ///
+    /// A ordem é a do primeiro lado, que a busca já devolve estável.
+    /// </summary>
+    public async Task<IReadOnlyList<NotaIndexada>> NotasComAmbasAsync(
+        Etiqueta a, Etiqueta b, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+
+        var deA = await indice.BuscarAsync(new ConsultaDeBusca { Etiqueta = a, Limite = int.MaxValue }, ct);
+        var deB = await indice.BuscarAsync(new ConsultaDeBusca { Etiqueta = b, Limite = int.MaxValue }, ct);
+        var caminhosDeB = deB.Select(x => x.Nota.Caminho).ToHashSet();
+
+        return [.. deA.Select(x => x.Nota).Where(n => caminhosDeB.Contains(n.Caminho))];
+    }
+
     // —— ETIQUETAS DA NOTA ABERTA ——————————————————————————————————————————————————————
     /// <summary>
     /// Põe uma etiqueta na nota, escrevendo no frontmatter dela.

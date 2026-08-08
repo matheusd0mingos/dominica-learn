@@ -199,6 +199,37 @@ public class ServicoDeCartoesTests
         Assert.Empty(fila.Cartoes);
     }
 
+    [Fact]
+    public async Task Duas_etiquetas_sao_INTERSECAO_e_nao_uniao()
+    {
+        // O recorte da linha do mapa: "o que eu errei E é pegadinha". A união diria menos que qualquer
+        // uma das duas sozinha; a interseção é o que faz duas etiquetas valerem o clique.
+        var c = Montar();
+        await Criar(c, "A.md", "# A\n\n#pegadinha #errei-na-prova\n\nP1::R1\n");
+        await Criar(c, "B.md", "# B\n\n#pegadinha\n\nP2::R2\n");
+        await Criar(c, "C.md", "# C\n\n#errei-na-prova\n\nP3::R3\n");
+
+        var fila = await c.Cartoes.FilaAsync(
+            etiqueta: Etiqueta.TentarCriar("pegadinha"), etiqueta2: Etiqueta.TentarCriar("errei-na-prova"));
+
+        Assert.Equal("A.md", Assert.Single(fila.Cartoes).Nota.Valor);
+    }
+
+    [Fact]
+    public async Task A_intersecao_tambem_entende_a_hierarquia()
+    {
+        // Cada lado desce a árvore, como toda consulta de etiqueta: #direito ∩ #pegadinha traz a nota
+        // marcada só com #direito/penal #pegadinha.
+        var c = Montar();
+        await Criar(c, "A.md", "# A\n\n#direito/penal #pegadinha\n\nP1::R1\n");
+        await Criar(c, "B.md", "# B\n\n#direito/penal\n\nP2::R2\n");
+
+        var fila = await c.Cartoes.FilaAsync(
+            etiqueta: Etiqueta.TentarCriar("direito"), etiqueta2: Etiqueta.TentarCriar("pegadinha"));
+
+        Assert.Equal("A.md", Assert.Single(fila.Cartoes).Nota.Valor);
+    }
+
     // —— RESPONDER ————————————————————————————————————————————————————————————————
 
     [Fact]

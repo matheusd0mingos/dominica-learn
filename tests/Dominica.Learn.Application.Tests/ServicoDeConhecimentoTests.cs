@@ -530,4 +530,45 @@ public class ServicoDeConhecimentoTests
 
         Assert.Empty(renderizador.Transcluidos);
     }
+
+    // —— AS NOTAS COM AS DUAS ETIQUETAS — a linha do mapa ————————————————————————————
+
+    [Fact]
+    public async Task Notas_com_ambas_e_INTERSECAO()
+    {
+        var c = Montar();
+        await Criar(c, "A.md", "# A\n\n#pegadinha #errei-na-prova\n");
+        await Criar(c, "B.md", "# B\n\n#pegadinha\n");
+        await Criar(c, "C.md", "# C\n\n#errei-na-prova\n");
+
+        var notas = await c.Conhecimento.NotasComAmbasAsync(
+            Etiqueta.TentarCriar("pegadinha")!, Etiqueta.TentarCriar("errei-na-prova")!);
+
+        Assert.Equal("A.md", Assert.Single(notas).Caminho.Valor);
+    }
+
+    [Fact]
+    public async Task Notas_com_ambas_desce_a_hierarquia_dos_dois_lados()
+    {
+        // A linha do mapa liga as etiquetas LITERAIS, mas a consulta desce a árvore como toda consulta
+        // de etiqueta do produto — a lista pode ser maior que o peso da linha, nunca menor.
+        var c = Montar();
+        await Criar(c, "A.md", "# A\n\n#direito/penal #prova/cespe\n");
+        await Criar(c, "B.md", "# B\n\n#direito/penal\n");
+
+        var notas = await c.Conhecimento.NotasComAmbasAsync(
+            Etiqueta.TentarCriar("direito")!, Etiqueta.TentarCriar("prova")!);
+
+        Assert.Equal("A.md", Assert.Single(notas).Caminho.Valor);
+    }
+
+    [Fact]
+    public async Task Notas_com_ambas_sem_par_nenhum_da_lista_vazia()
+    {
+        var c = Montar();
+        await Criar(c, "A.md", "# A\n\n#pegadinha\n");
+
+        Assert.Empty(await c.Conhecimento.NotasComAmbasAsync(
+            Etiqueta.TentarCriar("pegadinha")!, Etiqueta.TentarCriar("decorar")!));
+    }
 }

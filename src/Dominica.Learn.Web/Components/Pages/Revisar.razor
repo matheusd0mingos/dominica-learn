@@ -26,7 +26,7 @@
         <MudText Typo="Typo.h6">
             @Titulo
         </MudText>
-        @if (_materia is not null || _etiqueta is not null)
+        @if (_materia is not null || _etiqueta is not null || _etiqueta2 is not null)
         {
             <MudButton Size="Size.Small" Variant="Variant.Text" Href="revisar">Revisar tudo</MudButton>
         }
@@ -258,14 +258,32 @@
     /// </summary>
     [SupplyParameterFromQuery(Name = "etiqueta")] public string? EtiquetaPedida { get; set; }
 
+    /// <summary>
+    /// A SEGUNDA etiqueta — "revisar?etiqueta=pegadinha&amp;e2=errei-na-prova" é a INTERSEÇÃO: só os
+    /// cartões de notas com as duas. É o recorte que a linha do mapa de etiquetas oferece, e ele diz
+    /// mais que qualquer etiqueta sozinha. Sem a primeira, vale sozinha — URL montada à mão não pode
+    /// depender da ordem dos parâmetros.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "e2")] public string? Etiqueta2Pedida { get; set; }
+
     private Materia? _materia;
     private Etiqueta? _etiqueta;
+    private Etiqueta? _etiqueta2;
 
-    private string Titulo => (_materia, _etiqueta) switch
+    /// <summary>As etiquetas do recorte, como o título mostra. "+" porque é E, não OU.</summary>
+    private string? RotuloDasEtiquetas => (_etiqueta, _etiqueta2) switch
     {
-        (not null, not null) => $"Revisar — {_materia.Rotulo} · {_etiqueta}",
+        ({ } a, { } b) => $"{a} + {b}",
+        ({ } a, null) => a.ToString(),
+        (null, { } b) => b.ToString(),
+        _ => null,
+    };
+
+    private string Titulo => (_materia, RotuloDasEtiquetas) switch
+    {
+        (not null, not null) => $"Revisar — {_materia.Rotulo} · {RotuloDasEtiquetas}",
         (not null, null) => $"Revisar — {_materia.Rotulo}",
-        (null, not null) => $"Revisar — {_etiqueta}",
+        (null, not null) => $"Revisar — {RotuloDasEtiquetas}",
         _ => "Revisar",
     };
     private IReadOnlyList<Cartao> _fila = [];
@@ -302,6 +320,7 @@
     {
         _materia = string.IsNullOrWhiteSpace(Nome) ? null : Materia.De(Uri.UnescapeDataString(Nome));
         _etiqueta = Etiqueta.TentarCriar(EtiquetaPedida);
+        _etiqueta2 = Etiqueta.TentarCriar(Etiqueta2Pedida);
         _revisados = 0;
         await CarregarAsync();
     }
@@ -367,7 +386,7 @@
     private async Task CarregarAsync()
     {
         _carregando = true;
-        var hoje = await Cartoes.FilaAsync(_materia, _etiqueta);
+        var hoje = await Cartoes.FilaAsync(_materia, _etiqueta, _etiqueta2);
         _fila = hoje.Cartoes;
         _teto = hoje.Teto;
         _ineditosSegurados = hoje.IneditosSegurados;
