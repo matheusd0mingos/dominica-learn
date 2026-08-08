@@ -34,6 +34,8 @@ builder.Services.AddScoped<IQuadroDeTinta, QuadroDeTintaJs>();
 builder.Services.AddScoped<IRenderizadorDoCliente, RenderizadorDoCliente>();
 // Escopo de circuito: o tema é de quem está com a aba aberta, não do servidor.
 builder.Services.AddScoped<EstadoDoTema>();
+// O cronômetro de estudo: escopo de CIRCUITO, para o tempo sobreviver à navegação. Ver EstadoDoCronometro.
+builder.Services.AddScoped<Dominica.Learn.Web.Estudo.EstadoDoCronometro>();
 // A ÚNICA tradução de "existe cookie válido" para "este vault é do fulano". Tudo o mais recebe apelido.
 builder.Services.AddScoped<ApelidoDeQuemEntrou>();
 builder.Services.AddScoped<IUsuarioAtual, UsuarioAtualDoCircuito>();

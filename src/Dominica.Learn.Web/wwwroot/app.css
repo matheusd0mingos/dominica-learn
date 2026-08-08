@@ -984,3 +984,73 @@ kbd.tecla {
 .calor-2 { background: color-mix(in srgb, var(--ouro) 55%, var(--panel-2)); }
 .calor-3 { background: color-mix(in srgb, var(--ouro) 80%, var(--panel-2)); }
 .calor-4 { background: var(--ouro); }
+
+/* ——— O CRONÔMETRO DE ESTUDO ———————————————————————————————————————————————————————————
+   Fixo no canto inferior direito, longe do alternador de tema (canto superior). É a âncora da "máquina
+   de estudar": aparece em toda tela e o tempo continua correndo quando se navega — o estado mora no
+   serviço do circuito, não neste desenho. */
+.cronometro {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 1400;
+}
+
+/* Parado e fechado: só a pílula "Estudar", discreta. */
+.cronometro-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--linha);
+    background: var(--panel);
+    color: var(--ink);
+    box-shadow: var(--sombra);
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.cronometro-pill:hover { border-color: var(--ouro); }
+
+/* Aberto (escolhendo ou contando): o painel. */
+.cronometro-painel {
+    background: var(--panel);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    box-shadow: var(--sombra);
+    padding: 8px 10px;
+}
+
+.cronometro-linha {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cronometro-select { min-width: 150px; }
+
+.cronometro-info {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+    margin-right: 4px;
+    min-width: 96px;
+}
+
+.cronometro-materia {
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* O tempo é o herói do widget: números tabulares para ele não "dançar" a cada segundo. */
+.cronometro-tempo {
+    font-size: 1.35rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+}
