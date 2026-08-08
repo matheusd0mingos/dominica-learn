@@ -69,20 +69,33 @@ export function ligar(id, viewBoxInicial) {
   }
 
   // —— arrasto ——————————————————————————————————————————————————————————————————————————
+  //
+  // O ARRASTO SÓ COMEÇA DEPOIS DE 4px DE MOVIMENTO, e o motivo é um defeito que ficou meses invisível:
+  // capturar o ponteiro já no pointerdown (`setPointerCapture`) redireciona TODOS os eventos seguintes
+  // — inclusive o click — para o próprio svg. Resultado: o @onclick dos nós e das linhas NUNCA disparava
+  // com mouse; só teclado e hover continuavam vivos, e foi por isso que os testes de então não viram.
+  // Com o limiar, o clique parado chega ao nó, e o arrasto de verdade (que sempre passa de 4px) captura
+  // o ponteiro só quando vira arrasto.
+  let pressionado = false
   let arrastando = false
   let ultimoX = 0, ultimoY = 0
 
   const aoPressionar = (e) => {
     if (e.button !== 0) return
-    arrastando = true
+    pressionado = true
+    arrastando = false
     ultimoX = e.clientX
     ultimoY = e.clientY
-    svg.style.cursor = 'grabbing'
-    svg.setPointerCapture?.(e.pointerId)
   }
 
   const aoMover = (e) => {
-    if (!arrastando) return
+    if (!pressionado) return
+    if (!arrastando) {
+      if (Math.abs(e.clientX - ultimoX) + Math.abs(e.clientY - ultimoY) < 4) return
+      arrastando = true
+      svg.style.cursor = 'grabbing'
+      svg.setPointerCapture?.(e.pointerId)
+    }
     const v = estado.atual
     const r = svg.getBoundingClientRect()
     // converte pixels de tela para unidades do desenho: sem isso, o arrasto fica lento com zoom
@@ -95,6 +108,8 @@ export function ligar(id, viewBoxInicial) {
   }
 
   const aoSoltar = (e) => {
+    if (!pressionado) return
+    pressionado = false
     if (!arrastando) return
     arrastando = false
     svg.style.cursor = 'grab'
