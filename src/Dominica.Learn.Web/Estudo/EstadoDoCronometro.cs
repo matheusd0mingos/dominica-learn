@@ -29,6 +29,15 @@ public sealed class EstadoDoCronometro(IRelogio relogio)
     public Materia? Materia { get; private set; }
     public bool Rodando { get; private set; }
 
+    /// <summary>
+    /// O que a pessoa estudou, nas palavras dela — opcional, vai junto quando a sessão é registrada.
+    ///
+    /// MORA AQUI, e não no widget, pela mesma razão do tempo: o widget é recriado a cada navegação, e
+    /// perder o texto digitado por ter aberto uma nota no meio do bloco seria pedir para ninguém usar o
+    /// campo. Escrever no meio do estudo é normal; o estado tem que aguentar.
+    /// </summary>
+    public string Observacao { get; set; } = string.Empty;
+
     /// <summary>Há um cronômetro na tela — rodando ou pausado com tempo já contado.</summary>
     public bool Ativo => Rodando || _acumulado > TimeSpan.Zero;
 
@@ -38,6 +47,7 @@ public sealed class EstadoDoCronometro(IRelogio relogio)
     public void Iniciar(Materia materia)
     {
         Materia = materia;
+        Observacao = string.Empty;   // a descrição é DESTA sessão; a da anterior não pode vazar para cá
         _acumulado = TimeSpan.Zero;
         _inicio = relogio.Agora;
         Rodando = true;
@@ -66,6 +76,7 @@ public sealed class EstadoDoCronometro(IRelogio relogio)
         Materia = null;
         Rodando = false;
         _acumulado = TimeSpan.Zero;
+        Observacao = string.Empty;
         Mudou?.Invoke();
     }
 }

@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using Dominica.Learn.Application.Portas;
+using Dominica.Learn.Domain.Desempenho;
 using Dominica.Learn.Domain.Vault;
 using Microsoft.Extensions.Logging;
 
@@ -72,40 +73,20 @@ public sealed class EmpacotadorEmZip(
 
     private async Task ExportarRegistroAsync(ZipArchive zip, CancellationToken ct)
     {
+        // O formato das linhas mora no domínio (RegistroEmCsv), porque o /sessoes.csv entrega o mesmo
+        // arquivo — e o fuso vai junto: o banco fala UTC, a planilha fala o dia do concurseiro.
         var desdeSempre = DateTimeOffset.MinValue;
 
         var lotes = await registro.QuestoesAsync(desdeSempre, ct);
         if (lotes.Count > 0)
-        {
-            var linhas = new List<string> { "data;materia;questoes;acertos;segundos;fonte" };
-            linhas.AddRange(lotes.Select(l =>
-                $"{l.Em:yyyy-MM-dd HH:mm};{Campo(l.Materia.Nome)};{l.Total};{l.Acertos};" +
-                $"{(int)l.Tempo.TotalSeconds};{Campo(l.Fonte)}"));
-            await EscreverAsync(zip, $"{PastaDoRegistro}/questoes.csv", linhas, ct);
-        }
+            await EscreverAsync(zip, $"{PastaDoRegistro}/questoes.csv",
+                RegistroEmCsv.Questoes(lotes, relogio.Fuso), ct);
 
         var sessoes = await registro.SessoesAsync(desdeSempre, ct);
         if (sessoes.Count > 0)
-        {
-            var linhas = new List<string> { "inicio;materia;minutos;observacao" };
-            linhas.AddRange(sessoes.Select(s =>
-                $"{s.Inicio:yyyy-MM-dd HH:mm};{Campo(s.Materia.Nome)};" +
-                $"{(int)s.Duracao.TotalMinutes};{Campo(s.Observacao)}"));
-            await EscreverAsync(zip, $"{PastaDoRegistro}/sessoes.csv", linhas, ct);
-        }
+            await EscreverAsync(zip, $"{PastaDoRegistro}/sessoes.csv",
+                RegistroEmCsv.Sessoes(sessoes, relogio.Fuso), ct);
     }
-
-    /// <summary>
-    /// PONTO E VÍRGULA como separador, e o campo com aspas quando precisa.
-    ///
-    /// Vírgula seria o padrão internacional e o errado aqui: o Excel em português usa ponto e vírgula, e
-    /// um CSV com vírgula abre com tudo numa coluna só. O backup existe para ser aberto, não para estar
-    /// tecnicamente certo.
-    /// </summary>
-    private static string Campo(string texto) =>
-        texto.Contains(';') || texto.Contains('"') || texto.Contains('\n')
-            ? '"' + texto.Replace("\"", "\"\"") + '"'
-            : texto;
 
     private static async Task EscreverAsync(ZipArchive zip, string nome, IEnumerable<string> linhas, CancellationToken ct)
     {

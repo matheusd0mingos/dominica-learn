@@ -232,8 +232,19 @@ else
         <MudPaper Class="pa-4" Elevation="0" Outlined="true">
             <div class="d-flex align-center justify-space-between flex-wrap gap-2">
                 <MudText Typo="Typo.h6">Nas últimas 4 semanas</MudText>
-                <MudButton Size="Size.Small" Variant="Variant.Text"
-                           StartIcon="@Icons.Material.Filled.PostAdd" OnClick="RegistrarAsync">Registrar</MudButton>
+                <div class="d-flex align-center gap-1">
+                    @* O HISTÓRICO INTEIRO em planilha — não só as 4 semanas da tela. Href relativo, sem
+                       barra: com barra o download sairia do sub-caminho e daria 404, como no vault.zip.
+                       Só aparece quando há hora registrada: botão de exportar nada é ruído. *@
+                    @if (_horas is { Vazio: false })
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text"
+                                   StartIcon="@Icons.Material.Filled.Download" Href="sessoes.csv"
+                                   Target="_top">Exportar CSV</MudButton>
+                    }
+                    <MudButton Size="Size.Small" Variant="Variant.Text"
+                               StartIcon="@Icons.Material.Filled.PostAdd" OnClick="RegistrarAsync">Registrar</MudButton>
+                </div>
             </div>
 
             @* —— O HISTÓRICO DE HORAS ——

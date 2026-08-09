@@ -1038,6 +1038,10 @@ kbd.tecla {
 
 .cronometro-select { min-width: 150px; }
 
+/* A descrição da sessão: cabe no painel sem alargá-lo — o texto rola dentro do campo. */
+.cronometro-observacao { width: 230px; margin-top: 4px; }
+.cronometro-observacao .mud-input { font-size: 0.8rem; }
+
 .cronometro-info {
     display: flex;
     flex-direction: column;

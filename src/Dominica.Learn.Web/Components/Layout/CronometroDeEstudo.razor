@@ -69,6 +69,14 @@
                     <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small"
                                    aria-label="Descartar" OnClick="Descartar" />
                 </div>
+                @* O QUE FOI ESTUDADO, nas palavras da pessoa — opcional, e vai junto no registro quando
+                   o cronômetro para. O valor mora no EstadoDoCronometro (não aqui): o widget é recriado
+                   a cada navegação, e o texto digitado tem que sobreviver a abrir uma nota no meio do
+                   bloco. Aparece só com o cronômetro ativo: parado, não há sessão a descrever. *@
+                <MudTextField T="string" @bind-Value="Crono.Observacao" Immediate="true"
+                              Placeholder="O que você estudou? (opcional)" Variant="Variant.Outlined"
+                              Margin="Margin.Dense" MaxLength="512" Class="cronometro-observacao"
+                              aria-label="Descrição da sessão de estudo" />
             }
         </div>
     }
@@ -146,7 +154,10 @@
             var duracao = Crono.Decorrido;
             Crono.Pausar();
 
-            var r = await Desempenho.RegistrarSessaoAsync(materia, duracao, observacao: "Cronômetro");
+            // Vazio vira "Cronômetro" — o marcador de sempre, que distingue o cronometrado do digitado
+            // à mão na lista de lançamentos. Quem escreveu algo ganha o texto DELA no lugar.
+            var observacao = string.IsNullOrWhiteSpace(Crono.Observacao) ? "Cronômetro" : Crono.Observacao.Trim();
+            var r = await Desempenho.RegistrarSessaoAsync(materia, duracao, observacao);
             if (r.Ok)
             {
                 Avisos.Add($"Registrado: {(int)duracao.TotalMinutes} min em {materia.Rotulo}.", Severity.Success);
