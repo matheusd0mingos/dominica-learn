@@ -149,9 +149,18 @@
 
     @* Formulário HTML comum, e não um botão do MudBlazor: criar um vault RECARREGA tudo, porque a tela
        inteira foi montada a partir do vault anterior. Ver RotaDeTrocaDeVault. *@
+    @* O QUE FOI RECUSADO, dito na tela. O endpoint devolve o nome tentado em ?nome=; a mensagem é
+       gerada AQUI, pela mesma regra de domínio — nada que veio na URL vira texto da página. *@
+    @if (RecusaDoNome is { } recusa)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mt-3">
+            Não criei o vault: @recusa
+        </MudAlert>
+    }
+
     <form action="vault/criar" method="post" class="d-flex align-center gap-2 mt-3">
         <AntiforgeryToken />
-        <input type="text" name="nome" placeholder="trabalho" required
+        <input type="text" name="nome" placeholder="trabalho" required value="@Nome"
                minlength="@NomeDoVault.TamanhoMinimo" maxlength="@NomeDoVault.TamanhoMaximo"
                class="mud-input-slot" style="padding:.5rem .75rem;border:1px solid var(--mud-palette-lines-default);border-radius:4px" />
         <button type="submit" class="mud-button-root mud-button mud-button-outlined mud-button-outlined-primary mud-button-outlined-size-medium">
@@ -166,6 +175,20 @@
 @code {
     private IReadOnlyList<NomeDoVault> _vaults = [];
     private NomeDoVault _atual = NomeDoVault.Padrao;
+
+    /// <summary>O nome que a pessoa tentou criar, devolvido pelo endpoint quando ele recusou.</summary>
+    [SupplyParameterFromQuery(Name = "nome")]
+    public string? Nome { get; set; }
+
+    /// <summary>
+    /// Por que o nome tentado não serve — null quando não houve tentativa ou o nome era válido (aí a
+    /// criação aconteceu e ninguém volta para cá). A mensagem sai da REGRA, não da URL: ver o comentário
+    /// da recusa em RotaDeTrocaDeVault.
+    /// </summary>
+    private string? RecusaDoNome =>
+        string.IsNullOrEmpty(Nome) || NomeDoVault.TentarCriar(Nome, out _, out var porQue)
+            ? null
+            : porQue ?? "esse nome não serve.";
 
     /// <summary>
     /// A lista sai do DISCO — mesma escolha da barra e da matéria. Ver RaizDoVaultDoUsuario.VaultsDe.

@@ -91,8 +91,16 @@ public static class RotaDeTrocaDeVault
 
             if (!NomeDoVault.TentarCriar(nome, out var novo, out var porQue) || novo is null)
             {
+                // A RECUSA TEM QUE APARECER. Antes daqui a volta era um redirect mudo para /backup: quem
+                // digitava "Notas Pessoais" (espaço) ou "revisão" (acento) via a tela piscar e nada
+                // acontecer — "criar não está criando", sem uma palavra sobre o porquê. O motivo ia só
+                // para o log do servidor, que é o único lugar onde ninguém que usa o produto olha.
+                //
+                // VOLTA O QUE FOI DIGITADO, não a mensagem: a tela reexecuta a MESMA validação de domínio
+                // e imprime o texto que ELA gerar. Assim nada que venha na URL chega à tela como texto —
+                // um link forjado não consegue escrever uma mensagem nossa na página de ninguém.
                 log.LogWarning("Criação de vault recusada para {Apelido}: {Motivo}", apelido, porQue);
-                return Results.Redirect(Absoluto(ctx, "backup"));
+                return Results.Redirect(Absoluto(ctx, $"backup?nome={Uri.EscapeDataString(nome ?? "")}"));
             }
 
             // Criar por cima de um vault que já existe não estraga nada — a pasta simplesmente já está
