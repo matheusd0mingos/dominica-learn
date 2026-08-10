@@ -368,6 +368,41 @@ public class ServicoDeConhecimentoTests
         Assert.Equal(mapa.Nos.Count, mapa.Posicoes.Count);
     }
 
+    /// <summary>
+    /// REGRESSÃO — o mapa de POUCAS etiquetas tem que caber num desenho pequeno.
+    ///
+    /// Com área fixa de 800×600, a distância ideal do layout de força (k = √(área/n)) dava ~400 px para
+    /// três etiquetas: elas iam para cantos opostos e a tela ficava com três pontinhos perdidos no
+    /// branco. Chegou como "clicar em Mapa não está funcionando" — e de fato não parecia um mapa.
+    /// A régua aqui é o VÃO do desenho, não a estética: com 3 nós ele não pode ocupar a área de 24.
+    /// </summary>
+    [Fact]
+    public async Task Mapa_de_poucas_etiquetas_nao_espalha_os_pontos_pela_tela_inteira()
+    {
+        var c = Montar();
+        await Criar(c, "1.md", "#agua #teste");
+        await Criar(c, "2.md", "#agua");
+        await Criar(c, "3.md", "#materia");
+
+        var mapa = await c.Conhecimento.MapaDeEtiquetasAsync();
+
+        var vaoX = mapa.Posicoes.Max(p => p.X) - mapa.Posicoes.Min(p => p.X);
+        var vaoY = mapa.Posicoes.Max(p => p.Y) - mapa.Posicoes.Min(p => p.Y);
+        Assert.True(vaoX < 400, $"três etiquetas espalhadas por {vaoX:0} px na horizontal");
+        Assert.True(vaoY < 400, $"três etiquetas espalhadas por {vaoY:0} px na vertical");
+    }
+
+    [Theory]
+    [InlineData(1, 800, 0.32)]      // vault recém-nascido: o desenho encolhe, não vira um ponto num deserto
+    [InlineData(24, 800, 1.0)]      // a referência: n = 24 usa a área pedida
+    [InlineData(2400, 800, 4.0)]    // vault enorme: cresce, mas com teto (senão vira parede de rolagem)
+    public void A_area_do_desenho_acompanha_o_numero_de_nos(int nos, double largura, double fatorEsperado)
+    {
+        var (l, a) = ServicoDeConhecimento.AreaParaOsNos(nos, largura, 600);
+        Assert.Equal(largura * fatorEsperado, l, 1);
+        Assert.Equal(600 * fatorEsperado, a, 1);
+    }
+
     // —— TEMPLATES ————————————————————————————————————————————————————————————————————
 
     [Fact]

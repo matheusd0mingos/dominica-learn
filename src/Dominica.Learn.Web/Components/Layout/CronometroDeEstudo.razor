@@ -89,12 +89,26 @@
     private IReadOnlyList<MateriaContada> _materias = [];
     private IJSObjectReference? _js;
 
+    private bool _descartado;
+
     protected override void OnInitialized() => Crono.Mudou += AoMudar;
 
-    private void AoMudar() => InvokeAsync(async () =>
+    // O EVENTO VEM DE FORA DO RENDERIZADOR, e é por isso que ele precisa do try daqui: o que estoura
+    // dentro de um InvokeAsync que ninguém aguarda NÃO cai no ErrorBoundary — vira exceção não tratada
+    // e derruba o CIRCUITO INTEIRO (a aba para de responder a clique, em toda tela, e só o F5 resolve).
+    // Acontece na troca de página: o widget é recriado por página, e o antigo continua inscrito no
+    // evento até o descarte assíncrono — aí o Mudou chega num componente que já morreu.
+    private void AoMudar() => _ = InvokeAsync(async () =>
     {
-        StateHasChanged();
-        await SincronizarDisplayAsync();
+        if (_descartado) return;
+        try
+        {
+            StateHasChanged();
+            await SincronizarDisplayAsync();
+        }
+        catch (ObjectDisposedException) { }        // componente/circuito já descartado — nada a atualizar
+        catch (JSDisconnectedException) { }        // aba fechada ou rede caiu no meio do interop
+        catch (OperationCanceledException) { }
     });
 
     protected override async Task OnInitializedAsync() =>
@@ -102,11 +116,19 @@
 
     protected override async Task OnAfterRenderAsync(bool primeiraVez)
     {
-        _js ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/cronometro.js");
-        // RE-LIGA O DISPLAY A CADA RENDER, e é isso que faz o cronômetro "reaparecer contando" quando a
-        // pessoa navega para outra página: o componente é novo, o serviço não, então o display retoma do
-        // ponto em que o serviço está. É idempotente — o próprio módulo troca o intervalo.
-        await SincronizarDisplayAsync();
+        // Mesmo motivo do AoMudar: um interop que falha aqui (navegação no meio do import, aba fechando)
+        // sobe como exceção não tratada e leva o circuito junto. O widget é acessório — ele pode falhar
+        // calado; o que não pode é derrubar a tela inteira por causa do relógio do canto.
+        try
+        {
+            _js ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/cronometro.js");
+            // RE-LIGA O DISPLAY A CADA RENDER, e é isso que faz o cronômetro "reaparecer contando" quando
+            // a pessoa navega para outra página: o componente é novo, o serviço não, então o display
+            // retoma do ponto em que o serviço está. É idempotente — o próprio módulo troca o intervalo.
+            await SincronizarDisplayAsync();
+        }
+        catch (JSDisconnectedException) { }
+        catch (OperationCanceledException) { }
     }
 
     private async Task SincronizarDisplayAsync()
@@ -175,6 +197,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        _descartado = true;   // corta o AoMudar que chegar entre o desinscrever e o fim do descarte
         Crono.Mudou -= AoMudar;
         try
         {

@@ -240,7 +240,15 @@
 
     public void Dispose() => Tema.Mudou -= AoMudarTema;
 
-    private void AoMudarTema() => InvokeAsync(StateHasChanged);
+    // Guardado pelo mesmo motivo do grafo de notas: exceção em InvokeAsync não aguardado escapa do
+    // ErrorBoundary e derruba o circuito — trocar o tema no instante da navegação alcança uma
+    // instância já descartada. Ver o comentário longo em Grafo.razor.
+    private void AoMudarTema() => _ = InvokeAsync(() =>
+    {
+        try { StateHasChanged(); }
+        catch (ObjectDisposedException) { }
+        catch (OperationCanceledException) { }
+    });
 
     // —— ZOOM E ARRASTO — o mesmo módulo do grafo de notas (só mexe no viewBox, não recalcula layout). ——
     private IJSObjectReference? _js;

@@ -459,6 +459,22 @@ public sealed partial class ServicoDeConhecimento(
     /// SAI DO ÍNDICE, numa consulta só: as etiquetas já foram extraídas na indexação, então isto não lê
     /// arquivo nenhum. É o que permite a tela abrir tão rápido quanto o grafo de notas.
     /// </summary>
+    /// <summary>
+    /// A área do desenho para N nós — a régua que faz um mapa de 3 pontos e um de 300 ficarem legíveis
+    /// com o MESMO layout de força.
+    ///
+    /// O motor usa k = √(área/n) como distância ideal entre nós. Com área FIXA, k explode quando n é
+    /// pequeno (3 nós em 800×600 → k ≈ 400 px, os pontos vão para cantos opostos de uma tela vazia) e
+    /// some quando n é grande (300 nós → k ≈ 40 px, tudo empilhado). Amarrar a área a n mantém o k na
+    /// casa dos 100 px sempre. A referência é 24 nós = a área pedida; o piso e o teto existem para o
+    /// mapa não virar um selo nem uma parede de rolagem.
+    /// </summary>
+    public static (double Largura, double Altura) AreaParaOsNos(int nos, double largura, double altura)
+    {
+        var fator = Math.Clamp(Math.Sqrt(Math.Max(1, nos) / 24.0), 0.32, 4.0);
+        return (largura * fator, altura * fator);
+    }
+
     public async Task<MapaDeEtiquetas> MapaDeEtiquetasAsync(
         double largura = 800, double altura = 600, CancellationToken ct = default)
     {
@@ -469,16 +485,22 @@ public sealed partial class ServicoDeConhecimento(
         // GRUPO -1 PARA TODAS: etiqueta não tem matéria, e não há aglomerado a insinuar. Quem forma
         // aglomerado aqui é a coocorrência, que já é a aresta — inventar um grupo faria o desenho
         // afirmar um parentesco que ninguém declarou.
+        // A ÁREA ACOMPANHA O Nº DE ETIQUETAS — e ENCOLHE quando são poucas, que é o caso que quebrava.
+        // O layout de força usa k = √(área/n) como distância ideal entre nós: numa área fixa de
+        // 800×600, TRÊS etiquetas ganham k ≈ 400 px e são atiradas para cantos opostos. O desenho ficava
+        // três pontinhos perdidos numa tela vazia — que é como "clicar em Mapa não faz nada" aparece
+        // para quem olha. Escalar a área mantém o k na casa de 100 px em qualquer tamanho de vault.
+        var (larguraDoLayout, alturaDoLayout) = AreaParaOsNos(nos.Count, largura, altura);
         var posicoes = LayoutDeForca.Posicionar(
             [.. nos.Select(e => e.Etiqueta.Valor)],
             [.. nos.Select(e => e.Vizinhas)],
             [.. nos.Select(_ => -1)],
             [.. pares.Select(p => new ArestaDoGrafo(p.De, p.Para, p.Peso))],
-            largura, altura);
+            larguraDoLayout, alturaDoLayout);
 
         // A moldura REAL, não a pedida: a separação de sobrepostos pode ter empurrado nós para fora
         // da área — e a janela da tela usa a moldura como teto. Ver LayoutDeForca.Moldura.
-        var (larguraReal, alturaReal) = LayoutDeForca.Moldura(posicoes, largura, altura);
+        var (larguraReal, alturaReal) = LayoutDeForca.Moldura(posicoes, larguraDoLayout, alturaDoLayout);
         return new MapaDeEtiquetas(nos, posicoes, pares, larguraReal, alturaReal);
     }
 
@@ -664,15 +686,18 @@ public sealed partial class ServicoDeConhecimento(
         // A SEMENTE É O RÓTULO, não o Nome: "Sem matéria" tem Nome vazio, e duas sementes vazias
         // colapsariam no mesmo hash. O grau que vira raio é QUANTAS NOTAS — o tamanho do nó diz
         // "quanto existe ali dentro", que é a única grandeza que este nível tem.
+        // Mesma escala do mapa de etiquetas: com três matérias, área fixa espalharia os pontos pelos
+        // cantos. Ver AreaParaOsNos.
+        var (larguraDoLayout, alturaDoLayout) = AreaParaOsNos(nos.Count, largura, altura);
         var posicoes = LayoutDeForca.Posicionar(
             [.. nos.Select(n => n.Materia.Rotulo)],
             [.. nos.Select(n => n.Notas)],
             [.. nos.Select(_ => -1)],
             [.. pontes.Select(p => new ArestaDoGrafo(p.De, p.Para, p.Peso))],
-            largura, altura);
+            larguraDoLayout, alturaDoLayout);
 
         // Mesma razão do mapa de etiquetas: a moldura segue o desenho, ou a janela corta a borda.
-        var (larguraReal, alturaReal) = LayoutDeForca.Moldura(posicoes, largura, altura);
+        var (larguraReal, alturaReal) = LayoutDeForca.Moldura(posicoes, larguraDoLayout, alturaDoLayout);
         return new MapaDeMaterias(nos, posicoes, pontes, larguraReal, alturaReal);
     }
 

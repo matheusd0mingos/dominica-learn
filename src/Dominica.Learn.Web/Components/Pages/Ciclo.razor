@@ -97,20 +97,40 @@
 
     <MudDivider Class="my-3" />
 
-    @* ADICIONAR BLOCO: matéria + minutos. Some o mesmo bloco duas vezes para dar mais peso a uma matéria. *@
-    <div class="d-flex align-end flex-wrap gap-2">
-        <MudSelect T="string" @bind-Value="_novaMateria" Label="Matéria" Dense="true" Variant="Variant.Outlined"
-                   Margin="Margin.Dense" Style="min-width:180px">
-            @foreach (var m in _materias)
-            {
-                <MudSelectItem T="string" Value="@m.Materia.Nome">@m.Materia.Rotulo</MudSelectItem>
-            }
-        </MudSelect>
-        <MudNumericField T="int" @bind-Value="_novosMinutos" Label="Minutos" Min="5" Max="180" Step="5"
-                         Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:110px" />
-        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add"
-                   Disabled="@string.IsNullOrEmpty(_novaMateria)" OnClick="AdicionarAsync">Adicionar bloco</MudButton>
-    </div>
+    @* ADICIONAR BLOCO: matéria + minutos. Some o mesmo bloco duas vezes para dar mais peso a uma matéria.
+
+       SEM MATÉRIA NENHUMA, ISTO É UM BECO SEM SAÍDA — e era. O ciclo é uma fila de MATÉRIAS, e matéria
+       aqui é pasta do vault: quem só tem notas soltas na raiz abria esta tela, achava um seletor que
+       não abre nada e um botão apagado, sem uma palavra sobre o porquê. Foi assim que chegou
+       ("o Ciclo não funciona"). Dizer o que falta — e levar até lá — é o conserto. *@
+    @if (!_carregando && _materias.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mt-1">
+            <MudText Typo="Typo.body2">
+                O ciclo é uma fila de <b>matérias</b>, e no vault uma matéria é uma <b>pasta</b> — você
+                ainda não tem nenhuma. Suas notas soltas na raiz não entram na fila.
+            </MudText>
+            <MudButton Size="Size.Small" Variant="Variant.Text" Class="mt-1"
+                       StartIcon="@Icons.Material.Filled.CreateNewFolder"
+                       Href="notas">Criar uma matéria em Notas</MudButton>
+        </MudAlert>
+    }
+    else
+    {
+        <div class="d-flex align-end flex-wrap gap-2">
+            <MudSelect T="string" @bind-Value="_novaMateria" Label="Matéria" Dense="true" Variant="Variant.Outlined"
+                       Margin="Margin.Dense" Style="min-width:180px">
+                @foreach (var m in _materias)
+                {
+                    <MudSelectItem T="string" Value="@m.Materia.Nome">@m.Materia.Rotulo</MudSelectItem>
+                }
+            </MudSelect>
+            <MudNumericField T="int" @bind-Value="_novosMinutos" Label="Minutos" Min="5" Max="180" Step="5"
+                             Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:110px" />
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add"
+                       Disabled="@string.IsNullOrEmpty(_novaMateria)" OnClick="AdicionarAsync">Adicionar bloco</MudButton>
+        </div>
+    }
 </MudPaper>
 
 @code {

@@ -399,7 +399,18 @@
 
     // As cores das matérias são escolhidas em C# a partir do tema. Sem este redesenho, alternar para o
     // escuro deixaria o grafo com os tons do tema claro até a próxima navegação.
-    private void AoMudarTema() => InvokeAsync(StateHasChanged);
+    //
+    // O TRY NÃO É ZELO EXCESSIVO: o evento vem do serviço de tema, fora do renderizador, e o que
+    // estoura num InvokeAsync que ninguém aguarda não cai no ErrorBoundary — derruba o CIRCUITO
+    // inteiro (a aba para de responder a clique em TODAS as telas). Trocar o tema no instante da
+    // navegação alcança esta instância já descartada; redesenhar um componente morto não é erro,
+    // é um nada — e é assim que tem que terminar.
+    private void AoMudarTema() => _ = InvokeAsync(() =>
+    {
+        try { StateHasChanged(); }
+        catch (ObjectDisposedException) { }
+        catch (OperationCanceledException) { }
+    });
 
     protected override async Task OnParametersSetAsync()
     {
