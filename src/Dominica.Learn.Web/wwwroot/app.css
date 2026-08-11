@@ -115,8 +115,15 @@ html, body {
 
        100% e não "none": "none" também desliga o ajuste quando a pessoa gira o telefone, e aí o texto
        de leitura fica pequeno de verdade na horizontal. Aqui só se pede para o navegador não inventar
-       um tamanho — o nosso já é escolhido, e o desenho depende dele. */
+       um tamanho — o nosso já é escolhido, e o desenho depende dele.
+
+       Os três prefixos são três navegadores, não redundância: -webkit- pega o Safari do iPhone, -moz-
+       pega o Firefox do Android (que infla texto igual e quebraria o grafo do mesmo jeito) e a forma sem
+       prefixo é a padrão. O Firefox de desktop não implementa a padrão e reclama dela no console — mas
+       lá não existe inflação nenhuma, então não se perde nada, e é o aviso que se prefere a tirar a
+       propriedade certa do arquivo. */
     -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
     text-size-adjust: 100%;
 }
 
