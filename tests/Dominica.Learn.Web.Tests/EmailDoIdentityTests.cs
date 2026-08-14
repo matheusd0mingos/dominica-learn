@@ -58,7 +58,7 @@ public class EmailDoIdentityTests
     // O link que o Identity entrega já vem passado por HtmlEncoder na tela que pediu o envio: os `&`
     // da query chegam como `&amp;`. É essa forma que tem de ir para o HTML.
     private const string LinkComoOIdentityEntrega =
-        "https://dominica.app.br/private/dominica-learn/Account/ResetPassword?code=abc&amp;returnUrl=%2Fnotas";
+        "https://learn.dominica.app.br/Account/ResetPassword?code=abc&amp;returnUrl=%2Fnotas";
 
     [Fact]
     public async Task O_link_de_redefinir_vai_inteiro_e_sem_codificar_de_novo()

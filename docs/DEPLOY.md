@@ -4,11 +4,10 @@
 
 **Agora é — o `novo/plataforma/deploy.sh` sobe os dois.**
 
-Era preciso que fosse. Servir o Learn em `/private/dominica-learn` põe ele no
-domínio da plataforma, então quem encaminha a requisição é o **Caddy da
-plataforma** — e o Caddy só alcança o contêiner do Learn se os dois estiverem na
-mesma rede do Compose. Não havia como manter dois stacks separados e o caminho ao
-mesmo tempo.
+Era preciso que fosse — e continua sendo depois da mudança para o subdomínio.
+Quem encaminha a requisição de `learn.SEU_DOMINIO` é o **Caddy da plataforma**, e
+o Caddy só alcança o contêiner do Learn se os dois estiverem na mesma rede do
+Compose. Subdomínio muda o endereço, não a topologia: seguem sendo um stack só.
 
 Juntar trouxe duas vantagens além dessa obrigação, e as duas contam num VPS pequeno:
 
@@ -35,7 +34,7 @@ para subir, pule para o passo 2.
 | arquivo | o que faz |
 |---|---|
 | `novo/plataforma/docker-compose.learn.yml` | overlay com os serviços `learn` e `learn-bancos` |
-| `novo/plataforma/Caddyfile` | o `handle /private/dominica-learn*` |
+| `novo/plataforma/Caddyfile` | o bloco de site `learn.{$DOMINICA_DOMAIN}` + o redirecionamento do caminho antigo |
 | `novo/plataforma/deploy.sh` | pergunta, grava no `.env` e junta o overlay quando `LEARN=on` |
 
 É **overlay opt-in**, no mesmo mecanismo do antivírus e do painel de métricas, e
@@ -100,7 +99,7 @@ vez pelo `.env` — nunca editando o compose, que é versionado:
 echo 'LEARN_CADASTRO_ABERTO=true' >> .env && bash deploy.sh
 ```
 
-Acesse `https://SEU_DOMINIO/private/dominica-learn/Account/Register` e crie a conta
+Acesse `https://learn.SEU_DOMINIO/Account/Register` e crie a conta
 com **o mesmo e-mail** que está em `LEARN_ADMIN_EMAIL` — é a igualdade desses dois
 que faz de você o admin. Depois feche:
 
@@ -117,7 +116,7 @@ conta, e cada conta nova é uma pasta nova de vault no seu disco.
 
 ## Quando não funciona: leia o SINTOMA
 
-O caminho `/private/dominica-learn` pode responder três coisas bem diferentes, e
+O endereço `learn.SEU_DOMINIO` pode responder três coisas bem diferentes, e
 cada uma aponta para um lugar distinto. Confundi-las custa horas.
 
 ### "Caí na home da plataforma" (a tela de obra)
@@ -239,7 +238,7 @@ menus e botões, mesmo que o circuito nunca conecte. O que falta é invisível.
 Confira o arquivo do qual tudo depende:
 
 ```bash
-curl -sI https://SEU_DOMINIO/private/dominica-learn/_framework/blazor.web.js | head -1
+curl -sI https://learn.SEU_DOMINIO/_framework/blazor.web.js | head -1
 ```
 
 **404 aqui é a resposta.** Sem esse arquivo não há circuito e nenhum clique
@@ -334,22 +333,71 @@ falharia só no primeiro envio, com alguém já esperando o e-mail.
 
 ---
 
-## O que muda entre sub-caminho e subdomínio
+## A mudança para o subdomínio
 
-Só uma variável: `Hospedagem__CaminhoBase`.
+O Learn nasceu em `dominica.app.br/private/dominica-learn` e hoje mora em
+**`learn.dominica.app.br`**. O código é o mesmo nos dois casos — foi por isso que
+a troca não exigiu recompilar nada.
 
-| | sub-caminho | subdomínio |
+| | sub-caminho (como era) | subdomínio (como é) |
 |---|---|---|
-| `Hospedagem__CaminhoBase` | `/private/dominica-learn` | *(vazio)* |
-| Caddy | `handle /private/dominica-learn*` no site da plataforma | um bloco de site próprio para `learn.dominica.app.br` |
+| `Hospedagem__CaminhoBase` | `/private/dominica-learn` | *(vazio)* — vem de `LEARN_CAMINHO_BASE` no `.env` |
+| Caddy | `handle /private/dominica-learn*` proxeando | bloco de site `learn.{$DOMINICA_DOMAIN}`; o caminho antigo só **redireciona** |
 | cookie | `Path` restrito ao caminho, nome próprio | nome próprio já basta |
 
-O código é o mesmo nos dois casos, e é por isso que a escolha pode mudar depois
-sem recompilar nada.
+### O que o operador precisa fazer
+
+1. **DNS primeiro.** `learn.SEU_DOMINIO` tem de resolver para o IP desta máquina
+   **antes** do deploy. O Caddy emite o certificado sozinho, mas só consegue
+   depois que o nome resolve — sem isso o navegador nem chega ao servidor.
+2. `LEARN_CAMINHO_BASE=` (vazio) no `.env`. É o padrão; só existe para o caminho
+   de volta.
+3. Deploy normal. O `handle_path` do caminho antigo passa a redirecionar.
+4. **Confira que `https://learn.SEU_DOMINIO` abre e que um clique responde** (ver
+   a seção sobre a conexão cair — página que renderiza não prova circuito vivo).
+5. Só então troque o `302` do redirecionamento por `308` no `Caddyfile`.
+
+### O que muda para quem já usava
+
+- **Todo mundo é deslogado uma vez.** Cookie é por origem: o de
+  `dominica.app.br` não é enviado para `learn.dominica.app.br`. Não há perda de
+  dado — o vault é arquivo no disco do servidor —, é só entrar de novo.
+- **Quem instalou o PWA precisa reinstalar.** O service worker e o `start_url`
+  são presos à origem antiga; a instalação velha continua apontando para lá e vai
+  cair no redirecionamento, saindo da janela do app. Desinstale e instale de novo
+  pelo endereço novo.
+- **O tema salvo volta ao padrão** uma vez, pelo mesmo motivo do cookie:
+  `localStorage` é por origem.
+- **Links antigos continuam funcionando**, inclusive com nome de nota acentuado e
+  com a query dos e-mails de redefinição de senha — conferido rodando o Caddy
+  contra a linha que está no repositório:
+
+  | pedido no endereço antigo | para onde vai |
+  |---|---|
+  | `/private/dominica-learn` | `https://learn.…/` |
+  | `/private/dominica-learn/notas/Direito/Aula%201` | `https://learn.…/notas/Direito/Aula%201` |
+  | `/private/dominica-learn/Account/ResetPassword?code=abc&returnUrl=%2Fnotas` | mesma query, intacta |
+  | `/inicio` (a plataforma) | não é tocado |
+
+  Enquanto for `302`, um **POST** de aba velha vira GET no caminho — é o preço de
+  o redirecionamento ser reversível. Com `308` ele continua POST.
+
+### Por que 302 e não 301
+
+301 e 308 ficam no cache do navegador por tempo indeterminado. Se o subdomínio
+subisse com DNS errado ou sem certificado, quem visitasse o endereço antigo uma
+única vez ficaria preso — e reverter o `Caddyfile` não soltaria, porque o
+navegador nem chega a perguntar de novo. O `302` custa um pouco de latência e
+compra a possibilidade de voltar atrás. Promova depois de confirmar.
 
 ---
 
 ## As armadilhas do sub-caminho, e como elas foram fechadas
+
+Esta seção descreve o modo **sub-caminho**, que hoje é o caminho de volta e não o
+normal. Ela fica porque as quatro armadilhas voltam no instante em que alguém
+preencher `LEARN_CAMINHO_BASE` — e porque a 3ª (nenhum link com barra inicial)
+vale nos dois modos.
 
 Servir um app .NET sob um caminho é onde este deploy tem risco de verdade.
 Quatro coisas quebram, e as quatro estão resolvidas — mas se alguém mexer no
