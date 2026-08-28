@@ -12,6 +12,11 @@
 // Regra para quem mexer aqui: nenhuma REGRA DE NEGÓCIO neste arquivo. Ele move texto entre o navegador e
 // o servidor. Quem decide o que fazer com o texto é o C#.
 
+// Importação ESTÁTICA, e não `script(...)`: pares.js é módulo NOSSO, não biblioteca de terceiro. O
+// caminho resolve contra a URL deste arquivo (não contra o <base href>), então funciona igual na raiz
+// e sob /private/dominica-learn — que é exatamente a armadilha descrita em carregarCodeMirror.
+import { atalhosDePares } from './pares.js'
+
 const editores = new Map()
 
 // O autosave é POR TEMPO DE SILÊNCIO, não por tecla: salvar a cada caractere entupiria o circuito
@@ -138,6 +143,9 @@ export async function criar(id, conteudo, ouvinte) {
       Enter: 'newlineAndIndentContinueMarkdownList',
       'Ctrl-S': (editor) => enviar(editor),
       'Cmd-S': (editor) => enviar(editor),
+      // "(" fecha sozinho, "*" envolve o que estiver selecionado, e "[[" nasce inteiro — o que faz a
+      // lista de notas abrir com duas teclas em vez de quatro. Ver pares.js.
+      ...atalhosDePares(window.CodeMirror),
     },
   })
 
@@ -277,7 +285,14 @@ function contextoDeLigacao(cm) {
   // e não o que a pessoa está escrevendo agora.
   if (termo.includes(']') || termo.length > MAX_TERMO) return null
 
-  return { termo, de: { line: cur.line, ch: abre }, ate: cur }
+  // O "]]" QUE JÁ ESTÁ À DIREITA ENTRA NO TRECHO A SUBSTITUIR. Desde que os colchetes se fecham
+  // sozinhos (pares.js), digitar "[[" produz "[[]]" — e aceitar uma sugestão escrevia o "[[Nota]]"
+  // inteiro por cima só do que estava ANTES do cursor, deixando "[[Nota]]]]" na nota. Link com quatro
+  // colchetes não dá erro: ele simplesmente não é link, e a nota fica órfã sem ninguém perceber.
+  const depois = linha.slice(cur.ch)
+  const sobra = depois.startsWith(']]') ? 2 : depois.startsWith(']') ? 1 : 0
+
+  return { termo, de: { line: cur.line, ch: abre }, ate: { line: cur.line, ch: cur.ch + sobra } }
 }
 
 /**
