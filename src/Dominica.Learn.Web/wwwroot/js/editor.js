@@ -161,12 +161,17 @@ export async function criar(id, conteudo, ouvinte) {
     temporizador = setTimeout(() => enviar(cm), SILENCIO_MS)
   })
 
-  // DOIS COMPLETADORES, UM MECANISMO SÓ. Só um deles pode estar aberto por vez, e isso não é sorte: os
-  // dois contextos se excluem (dentro de um "[[" aberto, "#" é âncora de seção e não etiqueta — ver
-  // contextoDeEtiqueta). Sem essa exclusão, Enter seria tratado duas vezes.
+  // TRÊS COMPLETADORES, UM MECANISMO SÓ. Só um pode estar aberto por vez, e isso não é sorte: os
+  // contextos se excluem por construção (dentro de um "[[" aberto, "#" é âncora de seção e não
+  // etiqueta — ver contextoDeEtiqueta; e o de palavra se cala quando qualquer um dos outros dois
+  // reconhece o lugar). Sem essa exclusão, Enter seria tratado duas vezes.
+  //
+  // A ORDEM IMPORTA para a leitura, não para o funcionamento: os dois primeiros são de CONTEÚDO (o
+  // servidor decide o que casa), o terceiro é de DIGITAÇÃO (o próprio texto da nota é o dicionário).
   const completadores = [
     ligarCompletar(cm, completarLigacao(ouvinte)),
     ligarCompletar(cm, completarEtiqueta(ouvinte)),
+    ligarCompletar(cm, completarPalavra()),
   ]
   const completar = { limpar: () => completadores.forEach((c) => c.limpar()) }
 
@@ -374,6 +379,97 @@ const completarEtiqueta = (ouvinte) => ({
   texto: (s) => `#${s.valor}`,
 })
 
+// ——————————————————————————————————————————————————————————————————————————————————————————
+// COMPLETAR PALAVRA PELO PRÓPRIO TEXTO DA NOTA
+//
+// O QUE ELE RESOLVE: resumo de estudo repete palavra comprida. "Inconstitucionalidade",
+// "hipossuficiência", "responsabilidade objetiva" — quem escreve sobre um assunto escreve o nome dele
+// dezenas de vezes na mesma nota, e é digitação pura: nada a decidir, só letras a repetir. Aqui basta o
+// começo, e o resto vem do que já está escrito.
+//
+// O DICIONÁRIO É A PRÓPRIA NOTA, e não o vault inteiro. É a decisão de desenho deste completador, e há
+// duas razões:
+//
+//   1. As palavras que se está repetindo AGORA estão na nota aberta. É onde a dor está, e sai de graça:
+//      zero ida ao servidor, zero espera, funciona offline.
+//   2. O completador de alcance-vault JÁ EXISTE e chama-se "[[". Fazer este buscar no vault criaria um
+//      segundo caminho para a mesma coisa, com outra pontuação e outro resultado — e a pessoa deixaria
+//      de saber qual dos dois responde o quê.
+//
+// AS TRÊS TRAVAS QUE O IMPEDEM DE ATRAPALHAR. Este é o completador com mais chance de virar praga,
+// porque o contexto dele é "qualquer palavra" — o contrário dos outros dois, que a pessoa CONVOCA
+// digitando "[[" ou "#". Sem freio, ele pisca a cada palavra digitada:
+//
+//   PREFIXO MÍNIMO ... 3 letras. Com 1 ou 2 a lista é ruído: casa com meio texto.
+//   GANHO MÍNIMO ..... a sugestão tem de poupar ao menos 3 letras. Oferecer "carro" para quem digitou
+//                      "carr" gasta mais atenção do que economiza tecla.
+//   ENTER NÃO ACEITA . e esta é a mais importante. Nos outros dois, Enter aceitar é o esperado — a
+//                      lista foi convocada. Aqui ela aparece SOZINHA, no meio da frase, e quem aperta
+//                      Enter quer PARÁGRAFO NOVO. Enter aceitando sugestão transformaria escrever num
+//                      campo minado. Só Tab aceita (ver `aceitaEnter` em ligarCompletar).
+const MIN_PREFIXO = 3
+const GANHO_MINIMO = 3
+const MAX_PALAVRAS = 6
+
+/** A palavra que está sendo digitada — quando não é assunto de nenhum dos outros dois completadores. */
+function contextoDePalavra(cm) {
+  // OS OUTROS DOIS MANDAM NO LUGAR DELES. Dentro de "[[" ou logo depois de "#", quem responde é o
+  // completador de conteúdo; abrir os dois deixaria duas listas sobre o texto e Enter tratado duas vezes.
+  if (contextoDeLigacao(cm) || contextoDeEtiqueta(cm)) return null
+
+  const cur = cm.getCursor()
+  const linha = cm.getLine(cur.line) ?? ''
+
+  // NO MEIO DE UMA PALAVRA, NÃO. Corrigir uma letra lá no meio de "responsabilidade" abriria a lista
+  // para completar o que já está completo — e a sugestão sobrescreveria a segunda metade da palavra.
+  if (/[\p{L}\p{N}]/u.test(linha[cur.ch] ?? '')) return null
+
+  const casa = linha.slice(0, cur.ch).match(/[\p{L}][\p{L}\p{N}]*$/u)
+  if (!casa || casa[0].length < MIN_PREFIXO) return null
+
+  return { termo: casa[0], de: { line: cur.line, ch: cur.ch - casa[0].length }, ate: cur }
+}
+
+/**
+ * As palavras da nota que continuam o prefixo, das mais usadas para as menos.
+ *
+ * A CONTAGEM É POR MINÚSCULA, mas o que se insere é a forma como ela aparece escrita: "Prescrição" e
+ * "prescrição" são a mesma palavra para contar, e seriam duas linhas iguais na lista se não fossem
+ * juntadas. Já a capitalização de QUEM DIGITA vence a do texto — quem começou a frase com "Presc"
+ * quer "Prescrição", ainda que na nota ela apareça sempre em minúscula no meio das frases.
+ */
+function palavrasQueContinuam(texto, prefixo) {
+  const alvo = prefixo.toLowerCase()
+  const vistas = new Map()
+
+  for (const [palavra] of texto.matchAll(/\p{L}[\p{L}\p{N}]*/gu)) {
+    if (palavra.length < prefixo.length + GANHO_MINIMO) continue
+    const chave = palavra.toLowerCase()
+    if (!chave.startsWith(alvo)) continue
+    const j = vistas.get(chave)
+    if (j) j.n++
+    else vistas.set(chave, { forma: palavra, n: 1 })
+  }
+
+  return [...vistas.values()]
+    // Mais usada primeiro (é a que a nota está tratando). Empate: a mais curta, porque é a que compromete
+    // menos — aceitar "constitucional" e continuar digitando é fácil; desfazer "constitucionalidade" não.
+    .sort((a, b) => b.n - a.n || a.forma.length - b.forma.length || a.forma.localeCompare(b.forma, 'pt'))
+    .slice(0, MAX_PALAVRAS)
+    .map((p) => ({ palavra: p.forma, usos: p.n, insercao: prefixo + p.forma.slice(prefixo.length) }))
+}
+
+const completarPalavra = () => ({
+  aceitaEnter: false,
+  contexto: contextoDePalavra,
+  // Local e síncrono — mas devolve promessa porque o mecanismo é o mesmo dos que vão ao servidor. Varrer
+  // a nota inteira a cada tecla parece caro e não é: são microssegundos numa nota de dezenas de milhares
+  // de caracteres, e a espera de 90 ms do mecanismo já limita a frequência.
+  buscar: (termo, cm) => Promise.resolve(palavrasQueContinuam(cm.getValue(), termo)),
+  item: (s) => ({ principal: s.palavra, secundario: s.usos > 1 ? `${s.usos}×` : null }),
+  texto: (s) => s.insercao,
+})
+
 function ligarCompletar(cm, opcoes) {
   let caixa = null
   let sugestoes = []
@@ -456,7 +552,7 @@ function ligarCompletar(cm, opcoes) {
 
     clearTimeout(pedido)
     pedido = setTimeout(() => {
-      opcoes.buscar(ctx.termo)
+      opcoes.buscar(ctx.termo, cm)
         .then((r) => {
           // O cursor pode ter saído do "[[" enquanto a resposta vinha. Desenhar aqui deixaria uma lista
           // órfã flutuando sobre o texto, e ela só sumiria no próximo clique.
@@ -485,7 +581,13 @@ function ligarCompletar(cm, opcoes) {
     switch (e.key) {
       case 'ArrowDown': mover(1); break
       case 'ArrowUp': mover(-1); break
+      // ENTER ACEITA SÓ ONDE A LISTA FOI CONVOCADA ("[[", "#"). O completador de palavra aparece
+      // sozinho no meio da frase, e ali Enter quer dizer PARÁGRAFO NOVO — sequestrá-lo faria a nota
+      // ganhar uma palavra completada toda vez que se muda de linha. Fecha e deixa o Enter passar
+      // (é ele quem continua a lista de marcadores, em extraKeys).
       case 'Enter':
+        if (opcoes.aceitaEnter === false) { fechar(); return }
+        aceitar(escolhido); break
       case 'Tab': aceitar(escolhido); break
       case 'Escape': fechar(); break
       default: return
