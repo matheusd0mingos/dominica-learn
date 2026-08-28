@@ -400,15 +400,27 @@ const completarEtiqueta = (ouvinte) => ({
 // porque o contexto dele é "qualquer palavra" — o contrário dos outros dois, que a pessoa CONVOCA
 // digitando "[[" ou "#". Sem freio, ele pisca a cada palavra digitada:
 //
-//   PREFIXO MÍNIMO ... 3 letras. Com 1 ou 2 a lista é ruído: casa com meio texto.
-//   GANHO MÍNIMO ..... a sugestão tem de poupar ao menos 3 letras. Oferecer "carro" para quem digitou
-//                      "carr" gasta mais atenção do que economiza tecla.
-//   ENTER NÃO ACEITA . e esta é a mais importante. Nos outros dois, Enter aceitar é o esperado — a
-//                      lista foi convocada. Aqui ela aparece SOZINHA, no meio da frase, e quem aperta
-//                      Enter quer PARÁGRAFO NOVO. Enter aceitando sugestão transformaria escrever num
-//                      campo minado. Só Tab aceita (ver `aceitaEnter` em ligarCompletar).
-const MIN_PREFIXO = 3
-const GANHO_MINIMO = 3
+//   PREFIXO MÍNIMO ... 2 letras. Uma só casaria com quase tudo; duas já é uma escolha.
+//   PALAVRA MÍNIMA ... 5 letras. O corte é na PALAVRA, não no quanto ela poupa — e a diferença entre
+//                      as duas coisas foi um defeito de verdade, descrito abaixo.
+//   O TECLADO É DE QUEM ESCREVE. Enter é parágrafo, ↑/↓ movem o cursor. Nos outros dois completadores
+//                      a lista foi CONVOCADA ("[[", "#") e sequestrar essas teclas é o esperado; aqui
+//                      ela aparece sozinha no meio da frase, e roubar Enter ou as setas de quem está
+//                      escrevendo transformaria a nota num campo minado. Só Tab aceita — e o mouse,
+//                      que é como se escolhe um item que não seja o primeiro. Ver `aceitaEnter` e
+//                      `navegaComSetas` em ligarCompletar.
+//
+// O CORTE É NA PALAVRA, E NÃO NO GANHO — E ISTO NASCEU DE UM DEFEITO. A primeira versão exigia que a
+// sugestão poupasse 3 letras, o que parecia razoável e produzia uma lista que ENCOLHE À MEDIDA QUE SE
+// DIGITA: com "ca" o "carro" aparecia; com "car" ele sumia, porque já não poupava 3. A pessoa vê a
+// palavra que quer, digita mais uma letra na direção dela — e ela desaparece. É o pior comportamento
+// possível numa lista de sugestão, porque pune exatamente quem está acertando.
+//
+// Com o corte na palavra a lista é MONÓTONA: ela só estreita. Nada que estava lá some por você ter
+// chegado mais perto. A palavra sai da lista num caso só, e é o certo: quando você já a digitou
+// inteira (a sugestão tem de ser estritamente mais longa que o prefixo, senão não há o que completar).
+const MIN_PREFIXO = 2
+const MIN_PALAVRA = 5
 const MAX_PALAVRAS = 6
 
 /** A palavra que está sendo digitada — quando não é assunto de nenhum dos outros dois completadores. */
@@ -443,7 +455,10 @@ function palavrasQueContinuam(texto, prefixo) {
   const vistas = new Map()
 
   for (const [palavra] of texto.matchAll(/\p{L}[\p{L}\p{N}]*/gu)) {
-    if (palavra.length < prefixo.length + GANHO_MINIMO) continue
+    // Palavra curta não vale a lista: "gato" se digita mais rápido do que se escolhe.
+    if (palavra.length < MIN_PALAVRA) continue
+    // Estritamente mais longa que o prefixo — completar o que já está completo não completa nada.
+    if (palavra.length <= prefixo.length) continue
     const chave = palavra.toLowerCase()
     if (!chave.startsWith(alvo)) continue
     const j = vistas.get(chave)
@@ -452,15 +467,22 @@ function palavrasQueContinuam(texto, prefixo) {
   }
 
   return [...vistas.values()]
-    // Mais usada primeiro (é a que a nota está tratando). Empate: a mais curta, porque é a que compromete
-    // menos — aceitar "constitucional" e continuar digitando é fácil; desfazer "constitucionalidade" não.
-    .sort((a, b) => b.n - a.n || a.forma.length - b.forma.length || a.forma.localeCompare(b.forma, 'pt'))
+    // Mais usada primeiro (é a que a nota está tratando). Empate: a MAIS LONGA.
+    //
+    // O desempate já foi o contrário — "a mais curta, que compromete menos" — e estava errado por um
+    // motivo que só se vê olhando a lista pronta: com o teto de MAX_PALAVRAS, preferir as curtas
+    // EXPULSA as longas. Numa nota com "carro, campo, carga, cachorro, cadastro, Caderno, carambola,
+    // caracterização", digitar "Ca" mostrava as seis curtinhas e deixava de fora as duas únicas que
+    // valia a pena completar. Palavra de cinco letras se digita mais rápido do que se escolhe numa
+    // lista; a de catorze é o motivo de tudo isto existir.
+    .sort((a, b) => b.n - a.n || b.forma.length - a.forma.length || a.forma.localeCompare(b.forma, 'pt'))
     .slice(0, MAX_PALAVRAS)
     .map((p) => ({ palavra: p.forma, usos: p.n, insercao: prefixo + p.forma.slice(prefixo.length) }))
 }
 
 const completarPalavra = () => ({
   aceitaEnter: false,
+  navegaComSetas: false,
   contexto: contextoDePalavra,
   // Local e síncrono — mas devolve promessa porque o mecanismo é o mesmo dos que vão ao servidor. Varrer
   // a nota inteira a cada tecla parece caro e não é: são microssegundos numa nota de dezenas de milhares
@@ -579,8 +601,14 @@ function ligarCompletar(cm, opcoes) {
     }
 
     switch (e.key) {
-      case 'ArrowDown': mover(1); break
-      case 'ArrowUp': mover(-1); break
+      // ↑/↓ SÓ ANDAM NA LISTA ONDE A LISTA FOI CONVOCADA. Ver o bloco de `completarPalavra`: aquela
+      // lista abre com duas letras, ou seja, fica aberta quase o tempo todo enquanto se escreve —
+      // e roubar as setas dali faria a seta parar de mover o cursor no meio de uma nota. Fecha e
+      // deixa passar; quem quiser um item que não o primeiro escolhe com o mouse.
+      case 'ArrowDown':
+      case 'ArrowUp':
+        if (opcoes.navegaComSetas === false) { fechar(); return }
+        mover(e.key === 'ArrowDown' ? 1 : -1); break
       // ENTER ACEITA SÓ ONDE A LISTA FOI CONVOCADA ("[[", "#"). O completador de palavra aparece
       // sozinho no meio da frase, e ali Enter quer dizer PARÁGRAFO NOVO — sequestrá-lo faria a nota
       // ganhar uma palavra completada toda vez que se muda de linha. Fecha e deixa o Enter passar
