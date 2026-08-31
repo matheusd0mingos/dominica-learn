@@ -454,6 +454,16 @@ else
                                             @l.Em.ToLocalTime().ToString("dd/MM 'às' HH:mm")
                                         </MudText>
                                     </div>
+                                    @* CORRIGIR vem ANTES de apagar, e não é enfeite de ordem: apagar era
+                                       a única saída para um "300" digitado no lugar de "30", e apagar
+                                       um lançamento certo-no-dia-errado para redigitá-lo é onde a data
+                                       se perdia. Com o lápis à esquerda, a saída barata aparece primeiro. *@
+                                    <MudTooltip Text="Corrigir este lançamento">
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit"
+                                                       aria-label="@($"Corrigir {l.Descricao} de {l.Materia.Rotulo}")"
+                                                       Disabled="_apagando"
+                                                       OnClick="@(() => EditarAsync(l))" />
+                                    </MudTooltip>
                                     @* Sem confirmação: apagar UM lançamento é reversível pelo próprio
                                        gesto que o criou — registrar de novo leva dez segundos. Um diálogo
                                        de "tem certeza?" aqui cobraria mais atenção do que o erro custa. *@
@@ -564,6 +574,23 @@ else
         await CarregarHistoricoAsync();
         _temErros = await Cartoes.TemNotasDeErroAsync();
         _prazos = await Conhecimento.PrazosAsync();
+    }
+
+    /// <summary>
+    /// Abre a correção de um lançamento. Recarrega TUDO ao voltar: corrigir um número muda o resumo, o
+    /// mapa de horas, o "onde você perde" e a própria lista — recarregar só a lista deixaria a tela
+    /// mostrando o número velho ao lado do novo.
+    /// </summary>
+    private async Task EditarAsync(LancamentoRegistrado l)
+    {
+        var parametros = new DialogParameters<DialogoDeEditarLancamento> { { d => d.Lancamento, l } };
+        var dialogo = await Dialogos.ShowAsync<DialogoDeEditarLancamento>("Corrigir lançamento", parametros);
+        var r = await dialogo.Result;
+        if (r is { Canceled: false })
+        {
+            await CarregarAsync();
+            Avisos.Add("Lançamento corrigido.", Severity.Success);
+        }
     }
 
     // —— A JANELA DO HISTÓRICO ————————————————————————————————————————————————————————

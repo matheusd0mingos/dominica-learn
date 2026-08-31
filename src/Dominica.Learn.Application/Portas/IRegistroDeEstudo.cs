@@ -57,7 +57,40 @@ public interface IRegistroDeEstudo
     /// diz a verdade sobre o que aconteceu, e é uma operação a menos para manter correta.
     /// </summary>
     Task<bool> ApagarAsync(TipoDeLancamento tipo, int id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Corrige um lançamento no lugar. Devolve <c>false</c> quando ele não existe — ou não é de quem pediu.
+    ///
+    /// POR QUE ATUALIZAR, E NÃO "APAGAR E REGISTRAR DE NOVO" (que era a resposta antiga): a segunda
+    /// forma tem uma janela em que os dois existem ou nenhum existe, dependendo da ordem — e quem
+    /// corrige um "300" digitado no lugar de "30" não quer descobrir que agora tem dois lançamentos, ou
+    /// nenhum. Aqui é um UPDATE: ou a linha vira a nova, ou continua a antiga.
+    ///
+    /// O IDENTIFICADOR NÃO MUDA, e é isso que faz a correção ser correção: a lista mostra o mesmo
+    /// lançamento com outro número, no lugar de um lançamento novo no topo e um buraco onde estava o
+    /// velho. A DATA também não muda — corrigir a contagem de ontem não move o estudo para hoje, que
+    /// estragaria o mapa de calor e a sequência de dias.
+    /// </summary>
+    Task<bool> AtualizarAsync(LancamentoEditado edicao, CancellationToken ct = default);
 }
+
+/// <summary>
+/// Os valores novos de um lançamento que está sendo corrigido.
+///
+/// UM RECORD PARA OS DOIS TIPOS, e não dois métodos: quem chama já tem o <see cref="TipoDeLancamento"/>
+/// em mãos e a tela é a mesma; dois métodos fariam a tela decidir duas vezes a mesma coisa. Cada
+/// implementação usa o que lhe cabe — questões ignoram <see cref="Observacao"/>, tempo ignora
+/// <see cref="Total"/>, <see cref="Acertos"/> e <see cref="Fonte"/>.
+/// </summary>
+public sealed record LancamentoEditado(
+    TipoDeLancamento Tipo,
+    int Id,
+    Materia Materia,
+    int Total,
+    int Acertos,
+    TimeSpan Tempo,
+    string? Fonte,
+    string? Observacao);
 
 /// <summary>Qual das duas tabelas do registro — as duas são apagáveis pelo mesmo gesto.</summary>
 public enum TipoDeLancamento
@@ -76,4 +109,14 @@ public sealed record LancamentoRegistrado(
     DateTimeOffset Em,
     Materia Materia,
     /// <summary>"40 questões · 65% de acerto" ou "50 min". O texto que descreve o lançamento.</summary>
-    string Descricao);
+    string Descricao,
+    // —— OS VALORES CRUS, para a tela poder EDITAR ————————————————————————————————————————
+    // A descrição acima é texto pronto para ler; ninguém consegue voltar dela para os números. Sem
+    // estes campos, "editar" só poderia abrir um formulário em branco — e um formulário em branco não
+    // é corrigir, é digitar tudo de novo, que é exatamente o atrito que faz a pessoa desistir e deixar
+    // o número errado onde está.
+    int Total = 0,
+    int Acertos = 0,
+    TimeSpan Tempo = default,
+    string Fonte = "",
+    string Observacao = "");

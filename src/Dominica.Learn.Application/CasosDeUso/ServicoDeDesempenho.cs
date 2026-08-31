@@ -153,7 +153,43 @@ public sealed class ServicoDeDesempenho(
         int limite = UltimosPadrao, CancellationToken ct = default) => registro.UltimosAsync(limite, ct);
 
     /// <summary>
-    /// Apaga um lançamento. Corrigir é apagar e registrar de novo — ver <see cref="IRegistroDeEstudo.ApagarAsync"/>.
+    /// CORRIGE um lançamento no lugar — o "300" que era para ser "30", a matéria errada, o tempo que
+    /// ficou faltando.
+    ///
+    /// A VALIDAÇÃO É A MESMA DE REGISTRAR, e passa pelo mesmo domínio: editar não pode ser a porta dos
+    /// fundos por onde entra um lote com mais acertos que questões ou uma sessão de dezoito horas. Por
+    /// isso o valor novo é montado como se fosse um lançamento novo (<c>TentarCriar</c>) antes de virar
+    /// UPDATE; o que o domínio recusaria ao registrar, ele recusa ao corrigir, com a mesma frase.
+    ///
+    /// A DATA NÃO ENTRA. Corrigir a contagem de ontem não move o estudo para hoje — ver
+    /// <see cref="IRegistroDeEstudo.AtualizarAsync"/>.
+    /// </summary>
+    public async Task<Resultado<int>> EditarLancamentoAsync(
+        TipoDeLancamento tipo, int id, Materia materia, int total, int acertos, TimeSpan tempo,
+        string? fonte, string? observacao, CancellationToken ct = default)
+    {
+        if (tipo == TipoDeLancamento.Questoes)
+        {
+            if (!LoteDeQuestoes.TentarCriar(materia, relogio.Agora, total, acertos, tempo, fonte, out _, out var problema))
+                return Resultado<int>.Falha(MotivoDaFalha.Invalida, Explicar(problema));
+        }
+        else if (!SessaoDeEstudo.TentarCriar(materia, relogio.Agora, tempo, observacao, out _))
+        {
+            return Resultado<int>.Falha(MotivoDaFalha.Invalida,
+                $"Informe a matéria e um tempo entre 1 minuto e {SessaoDeEstudo.DuracaoMaxima.TotalHours:0} horas.");
+        }
+
+        if (!await registro.AtualizarAsync(new LancamentoEditado(tipo, id, materia, total, acertos, tempo, fonte, observacao), ct))
+            // NÃO ENCONTRADO, e não "erro": o lançamento pode ter sido apagado noutra aba enquanto esta
+            // estava aberta. Mesma leitura do apagar.
+            return Resultado<int>.NaoEncontrada("O lançamento");
+
+        log.LogInformation("Lançamento de {Tipo} corrigido ({Id}).", tipo, id);
+        return Resultado<int>.Sucesso(1);
+    }
+
+    /// <summary>
+    /// Apaga um lançamento. Para corrigir sem apagar, ver <see cref="EditarLancamentoAsync"/>.
     /// </summary>
     public async Task<Resultado<int>> ApagarLancamentoAsync(
         TipoDeLancamento tipo, int id, CancellationToken ct = default)

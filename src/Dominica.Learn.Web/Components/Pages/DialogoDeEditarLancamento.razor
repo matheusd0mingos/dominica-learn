@@ -1,0 +1,138 @@
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Domain.Desempenho
+@using Dominica.Learn.Domain.Vault
+
+@inject ServicoDeDesempenho Desempenho
+@inject ServicoDeConhecimento Conhecimento
+@inject ISnackbar Avisos
+
+@* CORRIGIR UM LANÇAMENTO.
+
+   DIÁLOGO PRÓPRIO, e não o "Registrar estudo" em modo de edição. Aquele grava DUAS coisas
+   independentes (um lote de questões e uma sessão de tempo) a partir de um formulário só — é o desenho
+   certo para registrar, e o errado para corrigir: aqui existe UM lançamento, de um tipo só, e mostrar
+   os campos do outro tipo convidaria a criar do nada o que não está sendo editado.
+
+   POR ISSO A TELA MUDA COM O TIPO: lote mostra questões, acertos e de onde; sessão mostra minutos e o
+   que foi estudado. A matéria é comum aos dois — trocar de matéria é a correção mais frequente depois
+   do número, porque o cronômetro pega a matéria de quem estava aberto na hora.
+
+   A DATA NÃO APARECE de propósito: corrigir a contagem de ontem não move o estudo para hoje. Ver
+   IRegistroDeEstudo.AtualizarAsync. *@
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Corrigir lançamento</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-3">
+            De @Lancamento.Em.ToLocalTime().ToString("dd/MM 'às' HH:mm") — a data não muda.
+        </MudText>
+
+        <MudSelect T="string" @bind-Value="_materia" Label="Matéria" Variant="Variant.Outlined" Dense="true">
+            @foreach (var m in _materias)
+            {
+                <MudSelectItem T="string" Value="@m.Materia.Nome">@m.Materia.Rotulo</MudSelectItem>
+            }
+        </MudSelect>
+
+        @if (Lancamento.Tipo == TipoDeLancamento.Questoes)
+        {
+            <div class="d-flex gap-2 mt-3">
+                <MudNumericField @bind-Value="_total" @bind-Value:after="StateHasChanged" Label="Fiz"
+                                 Variant="Variant.Outlined" Min="0" Max="9999" Immediate="true" />
+                <MudNumericField @bind-Value="_acertos" @bind-Value:after="StateHasChanged" Label="Acertei"
+                                 Variant="Variant.Outlined" Min="0" Max="9999" Immediate="true" />
+            </div>
+
+            @if (_total > 0 && _acertos <= _total)
+            {
+                <MudText Typo="Typo.body2" Class="mt-1"><b>@((_acertos * 100.0 / _total).ToString("0.#"))%</b> de acerto</MudText>
+            }
+            else if (_total > 0 && _acertos > _total)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">Acertos não podem passar do total.</MudAlert>
+            }
+
+            <MudTextField @bind-Value="_fonte" Label="De onde" Variant="Variant.Outlined" Class="mt-3" />
+        }
+        else
+        {
+            <MudNumericField @bind-Value="_minutos" Label="Minutos estudados" Variant="Variant.Outlined"
+                             Class="mt-3" Min="1" Max="720" />
+            <MudTextField @bind-Value="_observacao" Label="O que você estudou?" Variant="Variant.Outlined"
+                          Class="mt-3" MaxLength="512" />
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialogo.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="!PodeGravar || _gravando" OnClick="GravarAsync">Corrigir</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    /// <summary>O lançamento como a lista o mostra — já com os valores crus, que é o que permite abrir
+    /// este formulário preenchido em vez de em branco (ver LancamentoRegistrado).</summary>
+    [Parameter] public LancamentoRegistrado Lancamento { get; set; } = default!;
+
+    private IReadOnlyList<MateriaContada> _materias = [];
+    private string _materia = string.Empty;
+    private int _total;
+    private int _acertos;
+    private int _minutos;
+    private string _fonte = string.Empty;
+    private string _observacao = string.Empty;
+    private bool _gravando;
+
+    /// <summary>
+    /// Lote precisa de questões; sessão precisa de tempo. A guarda é a mesma do domínio, aqui só para
+    /// não deixar o botão aceso prometendo algo que o serviço vai recusar.
+    /// </summary>
+    private bool PodeGravar =>
+        _materia.Length > 0 && (Lancamento.Tipo == TipoDeLancamento.Questoes
+            ? _total > 0 && _acertos <= _total
+            : _minutos > 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _materias = (await Conhecimento.MateriasAsync()).Where(m => m.Materia.Existe).ToList();
+        _materia = Lancamento.Materia.Nome;
+        _total = Lancamento.Total;
+        _acertos = Lancamento.Acertos;
+        _minutos = (int)Lancamento.Tempo.TotalMinutes;
+        _fonte = Lancamento.Fonte;
+        _observacao = Lancamento.Observacao;
+
+        // A MATÉRIA DO LANÇAMENTO PODE NÃO EXISTIR MAIS (a pasta foi renomeada depois do registro). Sem
+        // isto o seletor abriria vazio e "corrigir o número" viraria "escolher a matéria de novo" —
+        // então ela entra na lista como opção, marcada, e quem quiser troca.
+        if (_materia.Length > 0 && !_materias.Any(m => m.Materia.Nome == _materia))
+            _materias = [.. _materias, new MateriaContada(Lancamento.Materia, 0)];
+    }
+
+    private async Task GravarAsync()
+    {
+        if (!PodeGravar || _gravando) return;
+        _gravando = true;
+        try
+        {
+            var tempo = Lancamento.Tipo == TipoDeLancamento.Questoes
+                ? Lancamento.Tempo                       // o tempo do lote não é editado aqui: ele é do lote
+                : TimeSpan.FromMinutes(_minutos);
+
+            var r = await Desempenho.EditarLancamentoAsync(
+                Lancamento.Tipo, Lancamento.Id, Materia.De(_materia), _total, _acertos, tempo,
+                string.IsNullOrWhiteSpace(_fonte) ? null : _fonte.Trim(),
+                string.IsNullOrWhiteSpace(_observacao) ? null : _observacao.Trim());
+
+            if (!r.Ok) { Avisos.Add(r.Mensagem ?? "Não consegui corrigir.", Severity.Error); return; }
+
+            Dialogo.Close(DialogResult.Ok(true));
+        }
+        finally { _gravando = false; }
+    }
+}

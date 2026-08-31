@@ -284,7 +284,6 @@ public sealed class RegistroEmMemoria : IRegistroDeEstudo
     public readonly List<LoteDeQuestoes> Lotes = [];
     public readonly List<SessaoDeEstudo> Sessoes = [];
     public readonly List<RevisaoDeCartao> Revisoes = [];
-    private int _proximo = 1;
 
     public Task RegistrarQuestoesAsync(LoteDeQuestoes lote, CancellationToken ct = default)
     {
@@ -317,12 +316,47 @@ public sealed class RegistroEmMemoria : IRegistroDeEstudo
     public Task<IReadOnlyList<SessaoDeEstudo>> SessoesAsync(DateTimeOffset desde, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<SessaoDeEstudo>>([.. Sessoes.Where(s => s.Inicio >= desde)]);
 
+    // O ID É A POSIÇÃO NA LISTA (1-based), e não um contador que anda a cada leitura como antes: com o
+    // contador, ler a lista duas vezes devolvia ids diferentes para o mesmo lançamento — e nenhum teste
+    // de apagar ou editar podia existir, porque o id que a tela viu já não valia. É a menor coisa que
+    // torna o dublê capaz de exercitar a correção.
     public Task<IReadOnlyList<LancamentoRegistrado>> UltimosAsync(int limite, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<LancamentoRegistrado>>(
-            [.. Lotes.Select(l => new LancamentoRegistrado(
-                    TipoDeLancamento.Questoes, _proximo++, l.Em, l.Materia, $"{l.Total} questões"))
+            [.. Lotes.Select((l, i) => new LancamentoRegistrado(
+                    TipoDeLancamento.Questoes, i + 1, l.Em, l.Materia, $"{l.Total} questões",
+                    Total: l.Total, Acertos: l.Acertos, Tempo: l.Tempo, Fonte: l.Fonte))
+                .Concat(Sessoes.Select((s, i) => new LancamentoRegistrado(
+                    TipoDeLancamento.Tempo, i + 1, s.Inicio, s.Materia, $"{(int)s.Duracao.TotalMinutes} min",
+                    Tempo: s.Duracao, Observacao: s.Observacao)))
+                .OrderByDescending(x => x.Em)
                 .Take(limite)]);
 
-    public Task<bool> ApagarAsync(TipoDeLancamento tipo, int id, CancellationToken ct = default) =>
-        Task.FromResult(false);
+    public Task<bool> ApagarAsync(TipoDeLancamento tipo, int id, CancellationToken ct = default)
+    {
+        var alvo = tipo == TipoDeLancamento.Questoes ? (System.Collections.IList)Lotes : Sessoes;
+        if (id < 1 || id > alvo.Count) return Task.FromResult(false);
+        alvo.RemoveAt(id - 1);
+        return Task.FromResult(true);
+    }
+
+    public Task<bool> AtualizarAsync(LancamentoEditado e, CancellationToken ct = default)
+    {
+        if (e.Tipo == TipoDeLancamento.Questoes)
+        {
+            if (e.Id < 1 || e.Id > Lotes.Count) return Task.FromResult(false);
+            // a DATA vem do lançamento antigo: corrigir não move o estudo de dia (ver AtualizarAsync)
+            var antigo = Lotes[e.Id - 1];
+            if (!LoteDeQuestoes.TentarCriar(e.Materia, antigo.Em, e.Total, e.Acertos, e.Tempo, e.Fonte, out var novo, out _)
+                || novo is null) return Task.FromResult(false);
+            Lotes[e.Id - 1] = novo;
+            return Task.FromResult(true);
+        }
+
+        if (e.Id < 1 || e.Id > Sessoes.Count) return Task.FromResult(false);
+        var antiga = Sessoes[e.Id - 1];
+        if (!SessaoDeEstudo.TentarCriar(e.Materia, antiga.Inicio, e.Tempo, e.Observacao, out var nova) || nova is null)
+            return Task.FromResult(false);
+        Sessoes[e.Id - 1] = nova;
+        return Task.FromResult(true);
+    }
 }

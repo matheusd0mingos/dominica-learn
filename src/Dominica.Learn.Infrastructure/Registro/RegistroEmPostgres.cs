@@ -146,9 +146,11 @@ public sealed class RegistroEmPostgres(IDbContextFactory<ContextoDoRegistro> fab
 
         return lotes
             .Select(l => new LancamentoRegistrado(
-                TipoDeLancamento.Questoes, l.Id, l.Em, Materia.De(l.Materia), DescreverLote(l)))
+                TipoDeLancamento.Questoes, l.Id, l.Em, Materia.De(l.Materia), DescreverLote(l),
+                Total: l.Total, Acertos: l.Acertos, Tempo: TimeSpan.FromSeconds(l.Segundos), Fonte: l.Fonte))
             .Concat(sessoes.Select(s => new LancamentoRegistrado(
-                TipoDeLancamento.Tempo, s.Id, s.Inicio, Materia.De(s.Materia), DescreverSessao(s))))
+                TipoDeLancamento.Tempo, s.Id, s.Inicio, Materia.De(s.Materia), DescreverSessao(s),
+                Tempo: TimeSpan.FromSeconds(s.Segundos), Observacao: s.Observacao)))
             .OrderByDescending(x => x.Em)
             .Take(limite)
             .ToList();
@@ -172,6 +174,39 @@ public sealed class RegistroEmPostgres(IDbContextFactory<ContextoDoRegistro> fab
             var s = await db.Sessoes.FirstOrDefaultAsync(x => x.Id == id, ct);
             if (s is null) return false;
             db.Sessoes.Remove(s);
+        }
+
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<bool> AtualizarAsync(LancamentoEditado e, CancellationToken ct = default)
+    {
+        await using var db = await AbrirAsync(ct);
+
+        // MESMA PROTEÇÃO DO APAGAR: o filtro global por usuário é o que faz o `id` de outra pessoa
+        // simplesmente não ser encontrado. Sem ele, um identificador chutado editaria registro alheio —
+        // e editar em silêncio é pior que apagar, porque não deixa buraco para alguém notar.
+        if (e.Tipo == TipoDeLancamento.Questoes)
+        {
+            var l = await db.Lotes.FirstOrDefaultAsync(x => x.Id == e.Id, ct);
+            if (l is null) return false;
+            l.Materia = e.Materia.Nome;
+            l.Total = e.Total;
+            l.Acertos = e.Acertos;
+            l.Segundos = (int)e.Tempo.TotalSeconds;
+            l.Fonte = e.Fonte ?? string.Empty;
+            // `Em` NÃO é tocado de propósito: corrigir a contagem de ontem não move o estudo para hoje.
+            // Mexer na data reescreveria o mapa de calor e a sequência de dias por causa de um typo.
+        }
+        else
+        {
+            var s = await db.Sessoes.FirstOrDefaultAsync(x => x.Id == e.Id, ct);
+            if (s is null) return false;
+            s.Materia = e.Materia.Nome;
+            s.Segundos = (int)e.Tempo.TotalSeconds;
+            s.Observacao = e.Observacao ?? string.Empty;
+            // `Inicio` intocado, mesmo motivo do `Em` acima.
         }
 
         await db.SaveChangesAsync(ct);

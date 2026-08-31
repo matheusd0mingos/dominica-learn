@@ -265,4 +265,74 @@ public class ServicoDeDesempenhoTests
             TimeSpan.FromMinutes(30), null, out var s);
         return s!;
     }
+
+    // —— CORRIGIR UM LANÇAMENTO ————————————————————————————————————————————————————————
+    // A resposta antiga era "apague e registre de novo". Ela funciona e tem uma janela: dependendo da
+    // ordem, sobra duplicata ou não sobra nada — e quem está corrigindo um "300" que era "30" não quer
+    // descobrir nenhum dos dois. Estes testes prendem o UPDATE e, principalmente, prendem que ele NÃO
+    // é a porta dos fundos por onde entra o que registrar recusaria.
+
+    [Fact]
+    public async Task Editar_corrige_o_lancamento_no_lugar()
+    {
+        var c = Montar();
+        await c.Desempenho.RegistrarQuestoesAsync(Materia.De("Direito"), total: 300, acertos: 22, TimeSpan.FromMinutes(40), "QC");
+        var antes = Assert.Single(await c.Desempenho.UltimosAsync());
+
+        var r = await c.Desempenho.EditarLancamentoAsync(
+            antes.Tipo, antes.Id, Materia.De("Direito"), total: 30, acertos: 22, TimeSpan.FromMinutes(40), "QC", null);
+
+        Assert.True(r.Ok, r.Mensagem);
+        var depois = Assert.Single(await c.Desempenho.UltimosAsync());   // continua UM, não virou dois
+        Assert.Equal(antes.Id, depois.Id);                              // e é o MESMO lançamento
+        Assert.Equal(30, depois.Total);
+    }
+
+    [Fact]
+    public async Task Editar_nao_muda_a_data_do_lancamento()
+    {
+        // Corrigir a contagem de ontem não pode mover o estudo para hoje: isso reescreveria o mapa de
+        // calor e a sequência de dias por causa de um erro de digitação.
+        var c = Montar();
+        await c.Registro.RegistrarSessaoAsync(Sessao(c, dias: 3));
+        var antes = Assert.Single(await c.Desempenho.UltimosAsync());
+
+        await c.Desempenho.EditarLancamentoAsync(
+            antes.Tipo, antes.Id, Materia.De("Contabilidade"), 0, 0, TimeSpan.FromMinutes(90), null, "corrigido");
+
+        var depois = Assert.Single(await c.Desempenho.UltimosAsync());
+        Assert.Equal(antes.Em, depois.Em);
+        Assert.Equal(TimeSpan.FromMinutes(90), depois.Tempo);
+    }
+
+    [Fact]
+    public async Task Editar_recusa_o_que_registrar_recusaria()
+    {
+        // O CONTROLE que dá sentido aos dois acima. Se a edição pulasse o domínio, este lote passaria
+        // com mais acertos que questões — e um percentual acima de 100% entraria no "onde você perde"
+        // sem nenhum caminho por onde ter entrado.
+        var c = Montar();
+        await c.Desempenho.RegistrarQuestoesAsync(Materia.De("Direito"), 40, 26, TimeSpan.Zero, null);
+        var l = Assert.Single(await c.Desempenho.UltimosAsync());
+
+        var r = await c.Desempenho.EditarLancamentoAsync(
+            l.Tipo, l.Id, Materia.De("Direito"), total: 10, acertos: 11, TimeSpan.Zero, null, null);
+
+        Assert.False(r.Ok);
+        Assert.Contains("acertos", r.Mensagem, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(40, Assert.Single(await c.Desempenho.UltimosAsync()).Total);   // nada mudou
+    }
+
+    [Fact]
+    public async Task Editar_lancamento_que_sumiu_nao_e_erro()
+    {
+        // Mesma leitura do apagar: a outra aba pode ter apagado. Dizer "falhou" faria a pessoa tentar
+        // de novo o que já não existe.
+        var c = Montar();
+        var r = await c.Desempenho.EditarLancamentoAsync(
+            TipoDeLancamento.Tempo, 999, Materia.De("Direito"), 0, 0, TimeSpan.FromMinutes(30), null, null);
+
+        Assert.False(r.Ok);
+        Assert.Equal(MotivoDaFalha.NaoEncontrada, r.Motivo);
+    }
 }
