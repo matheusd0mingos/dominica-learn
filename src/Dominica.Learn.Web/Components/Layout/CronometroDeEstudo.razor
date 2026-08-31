@@ -10,6 +10,7 @@
 
 @using Dominica.Learn.Application.CasosDeUso
 @using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Web.Components.Pages
 @using Dominica.Learn.Web.Estudo
 @implements IAsyncDisposable
 @inject EstadoDoCronometro Crono
@@ -17,6 +18,7 @@
 @inject ServicoDeDesempenho Desempenho
 @inject IJSRuntime JS
 @inject ISnackbar Avisos
+@inject IDialogService Dialogos
 
 <div class="cronometro @(_aberto || Crono.Ativo ? "cronometro-aberto" : "")">
     @if (!Crono.Ativo && !_aberto)
@@ -66,6 +68,18 @@
                     }
                     <MudIconButton Icon="@Icons.Material.Filled.Stop" Color="Color.Success" Size="Size.Small"
                                    aria-label="Parar e registrar" Disabled="_gravando" OnClick="PararERegistrarAsync" />
+                    @* DETALHAR — o mesmo parar, com uma parada no diálogo completo.
+                       O cronômetro só sabe medir TEMPO, e quem acabou um bloco de questões quer
+                       registrar quantas fez e quantas acertou. Isso vivia noutra tela, no botão
+                       "Registrar" do painel — ou seja, no fim do estudo a pessoa tinha de lembrar de ir
+                       lá e digitar de novo a matéria e o tempo que o cronômetro acabou de contar.
+                       Aqui o parar continua igual (um clique, grava, some): detalhar é o CAMINHO A
+                       MAIS, não o novo caminho. Trocar um pelo outro cobraria uma confirmação de quem
+                       só queria marcar a hora. *@
+                    <MudIconButton Icon="@Icons.Material.Filled.PostAdd" Size="Size.Small"
+                                   aria-label="Parar e detalhar o registro" Disabled="_gravando"
+                                   title="Parar e detalhar (questões, acertos, de onde)"
+                                   OnClick="PararEDetalharAsync" />
                     <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small"
                                    aria-label="Descartar" OnClick="Descartar" />
                 </div>
@@ -193,6 +207,40 @@
             }
         }
         finally { _gravando = false; }
+    }
+
+    /// <summary>
+    /// Para o cronômetro e abre o registro COMPLETO, já com a matéria, o tempo contado e o que foi
+    /// escrito durante a sessão. Quem confirma registra questões e tempo de uma vez.
+    ///
+    /// PAUSA, NÃO ZERA, antes de abrir: se a pessoa desistir no diálogo, o tempo continua lá para ela
+    /// parar normalmente ou seguir estudando. Zerar aqui transformaria "cancelar" em "perdi a sessão",
+    /// que é o desfecho que faz alguém não clicar mais no botão.
+    /// </summary>
+    private async Task PararEDetalharAsync()
+    {
+        if (_gravando || Crono.Materia is null) return;
+
+        var materia = Crono.Materia;
+        var minutos = (int)Crono.Decorrido.TotalMinutes;
+        Crono.Pausar();
+
+        var parametros = new DialogParameters<DialogoDeRegistro>
+        {
+            { d => d.MateriaInicial, materia.Nome },
+            { d => d.MinutosIniciais, minutos },
+            { d => d.ObservacaoInicial, Crono.Observacao },
+        };
+        var dialogo = await Dialogos.ShowAsync<DialogoDeRegistro>("Registrar estudo", parametros);
+        var r = await dialogo.Result;
+
+        // O DIÁLOGO É QUEM GRAVA. Aqui só se decide o que fazer com o cronômetro depois: confirmou,
+        // a sessão virou registro e o contador zera; cancelou, nada foi gravado e o tempo continua.
+        if (r is { Canceled: false })
+        {
+            Descartar();
+            Avisos.Add("Registrado.", Severity.Success);
+        }
     }
 
     public async ValueTask DisposeAsync()

@@ -74,6 +74,13 @@
             <MudText Typo="Typo.caption" Class="mud-text-secondary">
                 Conta a leitura também, não só as questões. Deixe zero se não quiser registrar tempo.
             </MudText>
+
+            @* O QUE FOI ESTUDADO — o mesmo campo do cronômetro, e é por ele que o texto digitado lá
+               chega aqui quando se pede "detalhar". Sem isto, detalhar uma sessão cronometrada perderia
+               a descrição que a pessoa já tinha escrito — e ela teria de digitar de novo para não perder. *@
+            <MudTextField @bind-Value="_observacao" Label="O que você estudou?" Variant="Variant.Outlined"
+                          Class="mt-3" MaxLength="512"
+                          Placeholder="Aula 01, capítulo 3, revisão de erros…" />
         }
     </DialogContent>
     <DialogActions>
@@ -89,12 +96,25 @@
     /// <summary>Matéria sugerida pela tela de onde o registro foi chamado.</summary>
     [Parameter] public string? MateriaInicial { get; set; }
 
+    /// <summary>
+    /// Minutos já contados — vem do cronômetro quando alguém pede "detalhar" em vez de só parar.
+    ///
+    /// O tempo chega PRONTO e a pessoa completa o resto (quantas questões, quantas acertou, de onde).
+    /// Sem isto, detalhar significaria digitar de novo um número que o próprio sistema acabou de medir,
+    /// e o mais provável é que fosse digitado errado — arredondado de cabeça.
+    /// </summary>
+    [Parameter] public int MinutosIniciais { get; set; }
+
+    /// <summary>O que a pessoa escreveu no cronômetro enquanto estudava. Chega editável.</summary>
+    [Parameter] public string? ObservacaoInicial { get; set; }
+
     private IReadOnlyList<MateriaContada> _materias = [];
     private string _materia = string.Empty;
     private int _total;
     private int _acertos;
     private int _minutos;
     private string _fonte = string.Empty;
+    private string _observacao = string.Empty;
     private bool _gravando;
 
     /// <summary>
@@ -108,6 +128,8 @@
     {
         _materias = (await Conhecimento.MateriasAsync()).Where(m => m.Materia.Existe).ToList();
         _materia = MateriaInicial ?? _materias.FirstOrDefault()?.Materia.Nome ?? string.Empty;
+        _minutos = MinutosIniciais;
+        _observacao = ObservacaoInicial ?? string.Empty;
     }
 
     private async Task GravarAsync()
@@ -130,7 +152,8 @@
 
             if (_minutos > 0)
             {
-                var r = await Desempenho.RegistrarSessaoAsync(materia, TimeSpan.FromMinutes(_minutos), null);
+                var observacao = string.IsNullOrWhiteSpace(_observacao) ? null : _observacao.Trim();
+                var r = await Desempenho.RegistrarSessaoAsync(materia, TimeSpan.FromMinutes(_minutos), observacao);
                 if (!r.Ok) { Avisos.Add(r.Mensagem ?? "Não consegui registrar o tempo.", Severity.Error); return; }
             }
 
