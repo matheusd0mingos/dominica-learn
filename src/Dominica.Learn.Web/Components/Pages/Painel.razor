@@ -656,10 +656,16 @@ else
     /// data de corte inventada, e quem estudasse por mais tempo perderia o começo em silêncio.</summary>
     private const int DesdeOInicio = 0;
 
+    // A ESCADA DE PERÍODOS. A semana entra porque é o horizonte em que se corrige a rotina — "esta
+    // semana rendeu?" é a pergunta de domingo à noite, e 4 semanas já diluem um domingo perdido. O
+    // trimestre entra pelo outro lado: é o ciclo em que um edital se mexe, e a distância entre 8
+    // semanas e 6 meses era grande demais para não ter degrau no meio.
     private static readonly (string Rotulo, int Semanas)[] Janelas =
     [
+        ("1 semana", 1),
         ("4 semanas", 4),
         ("8 semanas", MapaDeHoras.SemanasPadrao),
+        ("3 meses", 13),
         ("6 meses", 26),
         ("1 ano", 52),
         ("Desde o início", DesdeOInicio),
@@ -689,14 +695,23 @@ else
 
     /// <summary>"Nas últimas 8 semanas" / "Todo o histórico" — o título acompanha a escolha em vez de
     /// prometer quatro semanas enquanto a grade mostra um ano.</summary>
-    private string TituloDoDesempenho() =>
-        _semanas == DesdeOInicio ? "Todo o histórico" : $"Nas últimas {_semanas} semanas";
+    private string TituloDoDesempenho() => _semanas switch
+    {
+        DesdeOInicio => "Todo o histórico",
+        1 => "Na última semana",          // "nas últimas 1 semanas" é o preço de não olhar o singular
+        13 => "Nos últimos 3 meses",
+        26 => "Nos últimos 6 meses",
+        52 => "No último ano",
+        _ => $"Nas últimas {_semanas} semanas",
+    };
 
     private string PeriodoEmPalavras() => _semanas switch
     {
         DesdeOInicio => $"desde o início ({_semanasCarregadas} semanas)",
         52 => "último ano",
         26 => "últimos 6 meses",
+        13 => "últimos 3 meses",
+        1 => "última semana",
         _ => $"últimas {_semanasCarregadas} semanas",
     };
 

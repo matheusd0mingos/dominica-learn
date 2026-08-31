@@ -27,10 +27,17 @@ public sealed class ServicoDeDesempenho(
     /// </summary>
     public static readonly TimeSpan JanelaPadrao = TimeSpan.FromDays(28);
 
+    /// <param name="em">
+    /// Quando o estudo aconteceu. Normalmente é AGORA e não se informa — registrar é um gesto do
+    /// presente. Existe para o caso em que o lote está sendo anexado a algo que já tem data: a pessoa
+    /// cronometrou a sessão, esqueceu de dizer que fez questões nela, e completa depois. Sem isto, as
+    /// questões de terça entrariam na quinta e o "onde você perde" da semana sairia deslocado.
+    /// </param>
     public async Task<Resultado<int>> RegistrarQuestoesAsync(
-        Materia materia, int total, int acertos, TimeSpan tempo, string? fonte, CancellationToken ct = default)
+        Materia materia, int total, int acertos, TimeSpan tempo, string? fonte,
+        DateTimeOffset? em = null, CancellationToken ct = default)
     {
-        if (!LoteDeQuestoes.TentarCriar(materia, relogio.Agora, total, acertos, tempo, fonte, out var lote, out var problema)
+        if (!LoteDeQuestoes.TentarCriar(materia, em ?? relogio.Agora, total, acertos, tempo, fonte, out var lote, out var problema)
             || lote is null)
             return Resultado<int>.Falha(MotivoDaFalha.Invalida, Explicar(problema));
 

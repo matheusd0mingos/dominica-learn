@@ -335,4 +335,32 @@ public class ServicoDeDesempenhoTests
         Assert.False(r.Ok);
         Assert.Equal(MotivoDaFalha.NaoEncontrada, r.Motivo);
     }
+
+    [Fact]
+    public async Task Questoes_anexadas_a_uma_sessao_herdam_a_data_dela()
+    {
+        // O CASO REAL: cronometrou terça, apertou só "parar", e na quinta lembrou que fez 30 questões
+        // naquele bloco. Registrar sem data poria as questões na QUINTA — e o "onde você perde" da
+        // semana, o mapa e a média por dia sairiam todos deslocados por causa de uma lembrança tardia.
+        var c = Montar();
+        await c.Registro.RegistrarSessaoAsync(Sessao(c, dias: 2));
+        var sessao = Assert.Single(await c.Desempenho.UltimosAsync());
+
+        await c.Desempenho.RegistrarQuestoesAsync(
+            Materia.De("Contabilidade"), 30, 22, TimeSpan.Zero, "QC", em: sessao.Em);
+
+        var lote = Assert.Single(
+            await c.Desempenho.UltimosAsync(), x => x.Tipo == TipoDeLancamento.Questoes);
+        Assert.Equal(sessao.Em, lote.Em);          // no dia da SESSÃO, não hoje
+        Assert.NotEqual(c.Relogio.Agora, lote.Em); // e o relógio de hoje é outro — senão o teste não separa nada
+    }
+
+    [Fact]
+    public async Task Registrar_sem_data_continua_sendo_agora()
+    {
+        // CONTROLE do de cima: o parâmetro é opcional e o caminho normal não pode ter mudado.
+        var c = Montar();
+        await c.Desempenho.RegistrarQuestoesAsync(Materia.De("Direito"), 10, 8, TimeSpan.Zero, null);
+        Assert.Equal(c.Relogio.Agora, Assert.Single(await c.Desempenho.UltimosAsync()).Em);
+    }
 }
