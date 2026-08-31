@@ -485,12 +485,26 @@ else
     @* —— AS MATÉRIAS —— *@
     <MudItem xs="12">
         <MudPaper Class="pa-4" Elevation="0" Outlined="true">
-            <MudText Typo="Typo.h6" GutterBottom="true">As matérias</MudText>
+            @* CADASTRAR A MATÉRIA AQUI, e não só nas Notas.
+               Esta é a tela onde se olha o conjunto — quantas notas, quantos cartões, onde se perde — e
+               era também de onde se saía para criar. O estado vazio literalmente mandava embora ("crie a
+               primeira em Notas"), o que é o pior lugar para mandar alguém embora: no primeiro dia, quem
+               ainda não tem matéria nenhuma é justamente quem está montando as suas. E montar é uma
+               sequência — Português, Direito, Informática —, não uma visita.
+               O DIÁLOGO É O MESMO das Notas, e o caso de uso também: matéria continua nascendo como
+               pasta no vault com a nota-mapa dentro. Aqui só se ganhou a porta. *@
+            <div class="d-flex align-center justify-space-between flex-wrap gap-2 mb-2">
+                <MudText Typo="Typo.h6">As matérias</MudText>
+                <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.CreateNewFolder"
+                           Disabled="_criandoMateria" OnClick="CriarMateriaAsync">Nova matéria</MudButton>
+            </div>
 
             @if (_r.Materias.Count == 0)
             {
                 <MudText Typo="Typo.body2" Class="mud-text-secondary">
-                    Nenhuma matéria ainda. Crie a primeira em <MudLink Href="notas">Notas</MudLink>.
+                    Nenhuma matéria ainda — <b>Nova matéria</b>, aqui em cima, cria a primeira. Ela vira
+                    uma pasta no vault com a nota-mapa dentro, e as notas que você escrever nela passam a
+                    contar nesta tabela.
                 </MudText>
             }
             else
@@ -574,6 +588,46 @@ else
         await CarregarHistoricoAsync();
         _temErros = await Cartoes.TemNotasDeErroAsync();
         _prazos = await Conhecimento.PrazosAsync();
+    }
+
+    private bool _criandoMateria;
+
+    /// <summary>
+    /// Cria uma matéria sem sair do painel.
+    ///
+    /// FICA AQUI depois de criar, ao contrário das Notas — que abrem a nota-mapa nova. São dois gestos
+    /// diferentes: nas Notas se cria a matéria PARA escrever nela agora; aqui se está CADASTRANDO, e
+    /// cadastrar costuma ser em série. Levar embora na primeira faria a segunda começar com um "voltar".
+    /// O caminho para a nota-mapa continua a um clique, no nome da matéria na própria tabela.
+    /// </summary>
+    private async Task CriarMateriaAsync()
+    {
+        if (_criandoMateria) return;
+        var dialogo = await Dialogos.ShowAsync<DialogoDeNovaMateria>("Matéria nova");
+        var fechou = await dialogo.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not string escolhido) return;
+
+        _criandoMateria = true;
+        try
+        {
+            // A VALIDAÇÃO DE VERDADE É DO CASO DE USO: ele é quem sabe o que já existe no vault. O
+            // diálogo só barra o óbvio (vazio, barra) para poupar a ida e volta.
+            var r = await Conhecimento.CriarMateriaAsync(escolhido);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui criar a matéria.", Severity.Error);
+                return;
+            }
+
+            // Recarrega o painel inteiro: matéria nova muda a tabela, o "onde prestar atenção" e o
+            // seletor de matéria do cronômetro na próxima abertura.
+            await CarregarAsync();
+            Avisos.Add($"Matéria \"{escolhido}\" criada.", Severity.Success);
+        }
+        finally
+        {
+            _criandoMateria = false;
+        }
     }
 
     /// <summary>
