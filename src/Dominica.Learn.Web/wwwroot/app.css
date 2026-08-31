@@ -968,10 +968,21 @@ kbd.tecla {
 
 /* O mapa de calor das revisões: colunas = semanas (a mais antiga à esquerda), quadradinhos = dias.
    Degraus de opacidade sobre o dourado da marca — intensidade é quantidade, não categoria. */
+/* A JANELA DEIXOU DE SER FIXA, e um ano são 52 colunas: 52 × 15px passam de 780px e estouravam o
+   cartão. A rolagem fica no invólucro, não no `.calor` — o `overflow` no próprio flex cortaria os
+   quadradinhos da última coluna pela metade. `scrollbar-width: thin` porque a barra é do gráfico,
+   não da página, e uma barra grossa aqui pesa mais que o próprio mapa. */
+.calor-rolagem {
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+}
+
 .calor {
     display: flex;
     gap: 3px;
     margin-top: 6px;
+    width: max-content;
 }
 
 .calor-semana {

@@ -231,8 +231,23 @@ else
     <MudItem xs="12">
         <MudPaper Class="pa-4" Elevation="0" Outlined="true">
             <div class="d-flex align-center justify-space-between flex-wrap gap-2">
-                <MudText Typo="Typo.h6">Nas últimas 4 semanas</MudText>
+                <MudText Typo="Typo.h6">@TituloDoDesempenho()</MudText>
                 <div class="d-flex align-center gap-1">
+                    @* A JANELA DEIXA DE SER FIXA. Ela nasceu em 8 semanas e ficou lá: quem estuda há um
+                       ano via os últimos dois meses como se fossem tudo, e a régua do próprio esforço
+                       parava atrás. O serviço sempre aceitou a janela por parâmetro — só a tela não
+                       perguntava. "Desde o início" é calculado do registro mais antigo, não chutado. *@
+                    @if (_horas is { Vazio: false } || _calorTotal > 0)
+                    {
+                        <MudSelect T="int" Value="_semanas" ValueChanged="MudarJanelaAsync" Dense="true"
+                                   Margin="Margin.Dense" Variant="Variant.Text" Style="max-width:170px"
+                                   Label="Período">
+                            @foreach (var (rotulo, semanas) in Janelas)
+                            {
+                                <MudSelectItem T="int" Value="@semanas">@rotulo</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
                     @* O HISTÓRICO INTEIRO em planilha — não só as 4 semanas da tela. Href relativo, sem
                        barra: com barra o download sairia do sub-caminho e daria 404, como no vault.zip.
                        Só aparece quando há hora registrada: botão de exportar nada é ruído. *@
@@ -271,9 +286,9 @@ else
                         </div>
                     </div>
                     <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">
-                        Horas por dia — últimas @(MapaDeHoras.SemanasPadrao) semanas · <b>@Horas(_horas.Total)</b> no período
+                        Horas por dia — @PeriodoEmPalavras() · <b>@Horas(_horas.Total)</b> no período
                     </MudText>
-                    <div class="calor calor--horas" role="img" aria-label="@RotuloDasHoras()">
+                    <div class="calor-rolagem"><div class="calor calor--horas" role="img" aria-label="@RotuloDasHoras()">
                         @foreach (var semana in _horas.Dias.Chunk(7))
                         {
                             <div class="calor-semana">
@@ -284,7 +299,7 @@ else
                                 }
                             </div>
                         }
-                    </div>
+                    </div></div>
                 </div>
             }
 
@@ -297,10 +312,10 @@ else
             {
                 <div class="mt-2">
                     <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">
-                        Revisões por dia — últimas @(MapaDeCalor.SemanasPadrao) semanas ·
+                        Revisões por dia — @PeriodoEmPalavras() ·
                         <b>@_calorLembrado%</b> lembrado em @_calorTotal revisão(ões)
                     </MudText>
-                    <div class="calor" role="img" aria-label="@RotuloDoCalor()">
+                    <div class="calor-rolagem"><div class="calor" role="img" aria-label="@RotuloDoCalor()">
                         @foreach (var semana in _calor.Chunk(7))
                         {
                             <div class="calor-semana">
@@ -311,7 +326,7 @@ else
                                 }
                             </div>
                         }
-                    </div>
+                    </div></div>
                 </div>
             }
 
@@ -546,11 +561,63 @@ else
         _r = await Cartoes.PainelAsync();
         _d = await Desempenho.ResumoAsync();
         _ultimos = await Desempenho.UltimosAsync();
-        (_calor, _calorLembrado, _calorTotal) = await Desempenho.CalorAsync();
-        _horas = await Desempenho.HorasAsync();
+        await CarregarHistoricoAsync();
         _temErros = await Cartoes.TemNotasDeErroAsync();
         _prazos = await Conhecimento.PrazosAsync();
     }
+
+    // —— A JANELA DO HISTÓRICO ————————————————————————————————————————————————————————
+    // As duas grades (horas e revisões) leem a MESMA janela, de propósito: elas ficam empilhadas e
+    // comparar tempo com revisões em escalas diferentes é ler dois gráficos como se fossem um.
+
+    /// <summary>0 = "desde o início" (a janela real é perguntada ao serviço, que a calcula do registro
+    /// mais antigo). Um sentinela em vez de um número grande: 520 semanas chumbadas aqui seriam uma
+    /// data de corte inventada, e quem estudasse por mais tempo perderia o começo em silêncio.</summary>
+    private const int DesdeOInicio = 0;
+
+    private static readonly (string Rotulo, int Semanas)[] Janelas =
+    [
+        ("4 semanas", 4),
+        ("8 semanas", MapaDeHoras.SemanasPadrao),
+        ("6 meses", 26),
+        ("1 ano", 52),
+        ("Desde o início", DesdeOInicio),
+    ];
+
+    private int _semanas = MapaDeHoras.SemanasPadrao;
+
+    /// <summary>Quantas semanas de fato foram carregadas — igual a `_semanas`, exceto em "desde o
+    /// início", onde vem do serviço. É esta que os rótulos leem: dizer "1 ano" numa grade de 8 semanas
+    /// seria a tela mentindo sobre o próprio conteúdo.</summary>
+    private int _semanasCarregadas = MapaDeHoras.SemanasPadrao;
+
+    private async Task MudarJanelaAsync(int semanas)
+    {
+        _semanas = semanas;
+        await CarregarHistoricoAsync();
+    }
+
+    private async Task CarregarHistoricoAsync()
+    {
+        _semanasCarregadas = _semanas == DesdeOInicio
+            ? await Desempenho.SemanasDesdeOInicioAsync()
+            : _semanas;
+        (_calor, _calorLembrado, _calorTotal) = await Desempenho.CalorAsync(_semanasCarregadas);
+        _horas = await Desempenho.HorasAsync(_semanasCarregadas);
+    }
+
+    /// <summary>"Nas últimas 8 semanas" / "Todo o histórico" — o título acompanha a escolha em vez de
+    /// prometer quatro semanas enquanto a grade mostra um ano.</summary>
+    private string TituloDoDesempenho() =>
+        _semanas == DesdeOInicio ? "Todo o histórico" : $"Nas últimas {_semanas} semanas";
+
+    private string PeriodoEmPalavras() => _semanas switch
+    {
+        DesdeOInicio => $"desde o início ({_semanasCarregadas} semanas)",
+        52 => "último ano",
+        26 => "últimos 6 meses",
+        _ => $"últimas {_semanasCarregadas} semanas",
+    };
 
     /// <summary>As notas com "prazo:" no frontmatter, já na ordem do painel. Ver Prazos.</summary>
     private IReadOnlyList<PrazoDaNota> _prazos = [];
@@ -587,7 +654,7 @@ else
     private string RotuloDasHoras() =>
         _horas is null || _horas.Vazio
             ? "Histórico de horas: nada registrado ainda."
-            : $"Histórico de horas nas últimas {MapaDeHoras.SemanasPadrao} semanas: {Horas(_horas.Total)} no total, " +
+            : $"Histórico de horas — {PeriodoEmPalavras()}: {Horas(_horas.Total)} no total, " +
               $"{Horas(_horas.NestaSemana)} esta semana, sequência de {_horas.Sequencia} dia(s).";
 
     // —— O MAPA DE CALOR ————————————————————————————————————————————————————————————
@@ -607,7 +674,7 @@ else
     };
 
     private string RotuloDoCalor() =>
-        $"Mapa de calor: {_calorTotal} revisão(ões) nas últimas {MapaDeCalor.SemanasPadrao} semanas, " +
+        $"Mapa de calor: {_calorTotal} revisão(ões) — {PeriodoEmPalavras()}, " +
         $"{_calorLembrado}% lembradas.";
 
     // —— A PREVISÃO DE 7 DIAS ————————————————————————————————————————————————————————

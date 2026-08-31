@@ -1,5 +1,7 @@
 using Dominica.Learn.Application.CasosDeUso;
 using Dominica.Learn.Application.Portas;
+using Dominica.Learn.Domain.Cartoes;
+using Dominica.Learn.Domain.Desempenho;
 using Dominica.Learn.Domain.Vault;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -198,5 +200,69 @@ public class ServicoDeDesempenhoTests
 
         Assert.False(r.Ok);
         Assert.Equal(MotivoDaFalha.NaoEncontrada, r.Motivo);
+    }
+
+    // —— A JANELA DO HISTÓRICO ————————————————————————————————————————————————————————
+    // O painel oferecia uma janela fixa de 8 semanas. Quem estuda há um ano via os últimos dois meses
+    // como se fossem tudo — a régua do próprio esforço parava atrás. "Desde o início" precisa sair do
+    // registro mais antigo, e é isso que estes testes prendem: um número chutado grande o bastante
+    // (520 semanas, digamos) pareceria funcionar até alguém estudar por mais tempo que o chute.
+
+    [Fact]
+    public async Task Desde_o_inicio_cobre_a_sessao_mais_antiga()
+    {
+        var c = Montar();   // relógio fixo em 08/08/2026
+        await c.Registro.RegistrarSessaoAsync(Sessao(c, dias: 200));
+
+        var semanas = await c.Desempenho.SemanasDesdeOInicioAsync();
+
+        // 200 dias ≈ 28,6 semanas; com a folga de uma semana, a grade tem de alcançar o dia 200
+        Assert.True(semanas >= 30, $"{semanas} semanas não alcançam uma sessão de 200 dias atrás");
+        var historico = await c.Desempenho.HorasAsync(semanas);
+        Assert.Equal(TimeSpan.FromMinutes(30), historico.Total);   // a sessão antiga ENTROU na grade
+    }
+
+    [Fact]
+    public async Task A_janela_padrao_deixa_de_fora_o_que_desde_o_inicio_alcanca()
+    {
+        // CONTROLE do teste acima: sem ele, "desde o início" poderia estar devolvendo a janela padrão
+        // e o primeiro teste passaria por acaso, porque a grade de 8 semanas também tem um total.
+        var c = Montar();
+        await c.Registro.RegistrarSessaoAsync(Sessao(c, dias: 200));
+
+        var padrao = await c.Desempenho.HorasAsync();
+        Assert.True(padrao.Vazio, "a sessão de 200 dias atrás não devia caber na janela padrão");
+    }
+
+    [Fact]
+    public async Task Sem_registro_nenhum_desde_o_inicio_cai_na_janela_padrao()
+    {
+        // Vault novo: não há começo de onde contar. Devolver 0 ou 1 encolheria a grade a nada — e o
+        // painel mostraria uma tira de dois quadradinhos no primeiro dia de uso.
+        var c = Montar();
+        Assert.Equal(MapaDeHoras.SemanasPadrao,
+            await c.Desempenho.SemanasDesdeOInicioAsync());
+    }
+
+    [Fact]
+    public async Task Desde_o_inicio_tambem_conta_quem_so_revisa_cartao()
+    {
+        // Quem revisa sem cronometrar não tem UMA sessão — e olhar só as sessões cortaria o histórico
+        // dessa pessoa inteiro, em silêncio.
+        var c = Montar();
+        await c.Registro.RegistrarRevisaoAsync(new RevisaoDeCartao(
+            c.Relogio.Agora.AddDays(-120), Materia.De("Contabilidade"),
+            Resposta.Bom));
+
+        var semanas = await c.Desempenho.SemanasDesdeOInicioAsync();
+
+        Assert.True(semanas >= 18, $"{semanas} semanas não alcançam uma revisão de 120 dias atrás");
+    }
+
+    private static SessaoDeEstudo Sessao(Cenario c, int dias)
+    {
+        SessaoDeEstudo.TentarCriar(Materia.De("Contabilidade"), c.Relogio.Agora.AddDays(-dias),
+            TimeSpan.FromMinutes(30), null, out var s);
+        return s!;
     }
 }

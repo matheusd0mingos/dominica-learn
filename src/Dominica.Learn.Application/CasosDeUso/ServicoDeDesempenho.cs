@@ -89,6 +89,39 @@ public sealed class ServicoDeDesempenho(
     }
 
     /// <summary>
+    /// Quantas semanas cobrem o histórico INTEIRO — de quando se começou a estudar até hoje.
+    ///
+    /// É o que a tela precisa para oferecer "desde o início" sem chutar um número. Sem isto, o painel
+    /// só sabia perguntar por uma janela fixa, e quem estuda há um ano via as últimas oito semanas
+    /// como se fossem tudo — a régua do próprio esforço parava dois meses atrás.
+    ///
+    /// Conta a partir do registro mais antigo de QUALQUER natureza (sessão de tempo ou revisão de
+    /// cartão): quem só usou o cronômetro e quem só revisou cartões têm as duas um começo, e usar só
+    /// as sessões cortaria o histórico de quem revisa sem cronometrar.
+    ///
+    /// Devolve no mínimo a janela padrão — um histórico de três dias não deve encolher a grade a
+    /// ponto de não haver o que olhar.
+    /// </summary>
+    public async Task<int> SemanasDesdeOInicioAsync(CancellationToken ct = default)
+    {
+        // MinValue como piso: o filtro é `>= desde` sobre timestamptz, cujo domínio começa muito antes
+        // de qualquer data que este produto possa ter gravado. É "tudo" sem inventar uma data de corte.
+        var sessoes = await registro.SessoesAsync(DateTimeOffset.MinValue, ct);
+        var revisoes = await registro.RevisoesAsync(DateTimeOffset.MinValue, ct);
+
+        DateTimeOffset? primeiro = null;
+        foreach (var s in sessoes) if (primeiro is null || s.Inicio < primeiro) primeiro = s.Inicio;
+        foreach (var r in revisoes) if (primeiro is null || r.Em < primeiro) primeiro = r.Em;
+        if (primeiro is null) return MapaDeHoras.SemanasPadrao;
+
+        var dias = (relogio.Agora - primeiro.Value).TotalDays;
+        // +1 semana de folga: a grade termina HOJE e começa no início da semana mais antiga; sem a
+        // folga, o primeiro dia registrado poderia cair fora por algumas horas.
+        var semanas = (int)Math.Ceiling(dias / 7d) + 1;
+        return Math.Max(MapaDeHoras.SemanasPadrao, semanas);
+    }
+
+    /// <summary>
     /// Horas estudadas POR MATÉRIA nesta semana (da segunda até agora). É o "feito" que o plano da semana
     /// mede contra a meta de cada matéria — e sai do MESMO registro de sessões, siga a pessoa o plano ou não.
     /// </summary>
