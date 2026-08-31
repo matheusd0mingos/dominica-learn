@@ -161,6 +161,26 @@ export async function criar(id, conteudo, ouvinte) {
     temporizador = setTimeout(() => enviar(cm), SILENCIO_MS)
   })
 
+  // COLAR IMAGEM (Ctrl+V) — o print da aula entra na nota sem passar por "salvar como" e "anexar".
+  //
+  // Este arquivo continua sem regra de negócio: ele só reconhece que o que veio da área de
+  // transferência é uma IMAGEM e entrega os bytes ao C#. Quem decide nome, limite, onde grava e o
+  // que escrever na nota é o serviço de anexos — o mesmo caminho do desenho à mão.
+  //
+  // POR QUE `createJSStreamReference` E NÃO base64 num argumento: o Blazor Server é SignalR, e o
+  // hub recusa mensagem acima de 32 KB por padrão. Um print de tela passa disso com folga, então
+  // mandar o conteúdo como argumento funcionaria em teste com imagem pequena e falharia calado no
+  // uso real. O stream é fatiado pelo próprio Blazor e não encosta nesse teto.
+  cm.on('paste', (_, evento) => {
+    const arquivo = imagemColada(evento)
+    if (!arquivo) return   // colagem de texto segue o caminho de sempre, intocada
+    evento.preventDefault()
+    ouvinte
+      .invokeMethodAsync('AoColarImagem', arquivo.name ?? '', arquivo.type ?? '', arquivo.size,
+                         DotNet.createJSStreamReference(arquivo))
+      .catch(() => {})
+  })
+
   // TRÊS COMPLETADORES, UM MECANISMO SÓ. Só um pode estar aberto por vez, e isso não é sorte: os
   // contextos se excluem por construção (dentro de um "[[" aberto, "#" é âncora de seção e não
   // etiqueta — ver contextoDeEtiqueta; e o de palavra se cala quando qualquer um dos outros dois
@@ -628,6 +648,23 @@ function ligarCompletar(cm, opcoes) {
   })
 
   return { limpar: fechar }
+}
+
+// A IMAGEM da área de transferência, se houver uma.
+//
+// `kind === 'file'` é o que separa print de texto: copiar uma imagem de um site coloca NAS DUAS
+// pontas — o arquivo e o `<img>` em HTML —, e um item de tipo "text/html" também tem `type` casando
+// com nada. Sem o `kind`, colar um trecho de página com imagem viraria anexo em vez de texto.
+function imagemColada(evento) {
+  const itens = evento?.clipboardData?.items
+  if (!itens) return null
+  for (const item of itens) {
+    if (item.kind === 'file' && item.type?.startsWith('image/')) {
+      const arquivo = item.getAsFile()
+      if (arquivo) return arquivo
+    }
+  }
+  return null
 }
 
 export function ler(id) {

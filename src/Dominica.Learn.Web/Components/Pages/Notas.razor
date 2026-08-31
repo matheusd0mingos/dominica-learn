@@ -924,6 +924,97 @@
         Conhecimento.ParaCompletarEtiquetaAsync(termo);
 
     /// <summary>
+    /// COLAR IMAGEM NA NOTA (Ctrl+V) — chamado pelo editor quando o que veio da área de transferência
+    /// é uma imagem, e não texto.
+    ///
+    /// O CAMINHO É O MESMO DO DESENHO À MÃO, de propósito: bytes → serviço de anexos → `![[…]]` no
+    /// cursor → grava. Print de aula não é uma categoria nova de coisa; é um anexo que chegou por
+    /// outra porta. Um segundo caminho para guardar imagem teria dois limites de tamanho, dois lugares
+    /// onde o nome é decidido e duas chances de divergir do que o vault entende.
+    ///
+    /// O NOME LEVA DATA E HORA porque colagem quase nunca tem nome de arquivo — a área de transferência
+    /// entrega "image.png" para tudo, quando entrega alguma coisa. Sem isso, a segunda colagem do dia
+    /// vira "image-2.png" e em duas semanas ninguém sabe qual print é qual.
+    ///
+    /// O TAMANHO VEM DO NAVEGADOR e é conferido ANTES de abrir o fluxo: `OpenReadStreamAsync` também
+    /// tem teto, e estourar o dele derruba o circuito com uma exceção em vez de dizer à pessoa que o
+    /// arquivo é grande demais. Aqui a recusa é uma frase na tela, e o mesmo limite do anexo comum.
+    /// </summary>
+    [JSInvokable]
+    public async Task AoColarImagem(string nome, string tipo, long tamanho, IJSStreamReference fluxoDoNavegador)
+    {
+        // MESMA GUARDA DO DESENHO: sem sessão de edição não há cursor onde inserir, e `_anexando`
+        // impede duas colagens simultâneas disputarem o mesmo ponto do texto.
+        if (_aberta is null || _sessao is null || _anexando) return;
+
+        if (tamanho <= 0) return;   // colagem vazia: nada a dizer, nada a fazer
+        if (tamanho > ServicoDeAnexos.TamanhoMaximoPadraoBytes)
+        {
+            Avisos.Add($"A imagem tem {tamanho / 1024 / 1024} MB e o limite é " +
+                       $"{ServicoDeAnexos.TamanhoMaximoPadraoBytes / 1024 / 1024} MB.", Severity.Error);
+            return;
+        }
+
+        _anexando = true;
+        try
+        {
+            // O fluxo do JS não é reposicionável, e o armazém precisa poder ler do começo — copiar para
+            // memória primeiro é o que evita depender disso. O teto acima é o que torna a cópia segura.
+            await using var doNavegador = await fluxoDoNavegador.OpenReadStreamAsync(
+                ServicoDeAnexos.TamanhoMaximoPadraoBytes);
+            using var memoria = new MemoryStream();
+            await doNavegador.CopyToAsync(memoria);
+            memoria.Position = 0;
+
+            var anexo = await Anexos.AnexarAsync(NomeDaColagem(nome, tipo), memoria, memoria.Length);
+            if (!anexo.Ok)
+            {
+                Avisos.Add(anexo.Mensagem ?? "Não consegui guardar a imagem colada.", Severity.Error);
+                return;
+            }
+
+            await _sessao.InserirAsync(anexo.Valor!.Markdown + "\n");
+            // Grava já, pelo mesmo motivo do desenho: o arquivo está no disco e a referência a ele só na
+            // tela. Esperar o autosave deixa uma janela em que fechar a aba perde a ligação.
+            await AoMudarOTexto(await _sessao.LerAsync());
+            Avisos.Add("Imagem colada na nota.", Severity.Success);
+        }
+        catch (Exception e)
+        {
+            Avisos.Add("Não consegui colar a imagem.", Severity.Error);
+            Console.Error.WriteLine(e);
+        }
+        finally
+        {
+            _anexando = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// O nome do arquivo colado. A extensão sai do TIPO informado pelo navegador, não do nome — a área
+    /// de transferência costuma entregar nome vazio, e um anexo sem extensão não é reconhecido como
+    /// imagem pelo vault (deixaria de virar `![[…]]` e viraria link).
+    /// </summary>
+    private static string NomeDaColagem(string nome, string tipo)
+    {
+        var extensao = Path.GetExtension(nome);
+        if (string.IsNullOrWhiteSpace(extensao))
+            extensao = tipo switch
+            {
+                "image/png" => ".png",
+                "image/jpeg" => ".jpg",
+                "image/gif" => ".gif",
+                "image/webp" => ".webp",
+                "image/bmp" => ".bmp",
+                // tipo desconhecido cai em .png: é o que o navegador produz ao copiar da tela, e um
+                // formato errado no nome é melhor que nome sem extensão, que o vault não embute.
+                _ => ".png",
+            };
+        return $"colado-{DateTime.Now:yyyy-MM-dd-HHmmss}{extensao}";
+    }
+
+    /// <summary>
     /// Chamado pelo JavaScript quando o texto ficou parado. É o autosave.
     /// </summary>
     [JSInvokable]
