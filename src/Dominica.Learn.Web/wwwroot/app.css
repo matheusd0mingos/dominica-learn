@@ -1124,6 +1124,42 @@ kbd.tecla {
 .nota-lida blockquote.callout-perigo  { border-color: #c94f42; background: color-mix(in srgb, #c94f42 9%, transparent); }
 .nota-lida blockquote.callout-citacao { border-color: var(--ink-soft); font-style: italic; }
 
+/* ——— CONTEÚDO LARGO NA LEITURA: ROLA DENTRO, NÃO VAZA PARA FORA ——————————————————————
+   Não havia regra NENHUMA de tabela aqui, e o resultado era o defeito relatado: uma tabela de quatro
+   colunas ("conta | classificação | impacto no resultado | …") saía pela borda do cartão e a última
+   coluna simplesmente não existia na tela. Não é rolagem escondida — é conteúdo cortado, sem barra e
+   sem pista de que há mais coisa ali.
+
+   `display: block` + `width: max-content` é o que dá à tabela uma caixa própria para rolar: sem o
+   max-content ela se espreme até caber e some o sentido de rolar; sem o max-width:100% ela empurra a
+   PÁGINA para o lado, e aí quem rola é o documento inteiro (o cartão, o menu, tudo).
+
+   Vale para tabela, bloco de código e Mermaid pelo mesmo motivo — são os três conteúdos de nota de
+   estudo que não se quebram em linha. */
+.nota-lida table {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+}
+
+.nota-lida th,
+.nota-lida td {
+    /* o padrão do navegador é sem borda e colado; numa tabela de estudo isso vira um muro de texto */
+    border: 1px solid var(--linha);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.nota-lida thead th { background: color-mix(in srgb, var(--ink-soft) 8%, transparent); }
+
+.nota-lida pre { overflow-x: auto; max-width: 100%; }
+
+/* A imagem grande tem o problema oposto — não corta, mas estoura a coluna e empurra o resto. */
+.nota-lida img { max-width: 100%; height: auto; }
+
 /* ——— O ROTEIRO DA NOTA (outline) ————————————————————————————————————————————————————— */
 .roteiro { max-height: 240px; overflow-y: auto; }
 .roteiro-item { padding-top: 2px; padding-bottom: 2px; line-height: 1.3; cursor: pointer; }

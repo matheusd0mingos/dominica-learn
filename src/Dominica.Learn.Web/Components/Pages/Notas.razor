@@ -57,7 +57,11 @@
 
 <MudGrid Spacing="2" Class="pa-2">
 
-    @* —— NAVEGAÇÃO: busca, favoritas, matérias, recentes, etiquetas —— *@
+    @* —— NAVEGAÇÃO: busca, favoritas, matérias, recentes, etiquetas ——
+       SOME NO MODO AMPLIADO. Não é `display:none` num CSS: a coluna deixa de ser RENDERIZADA, então o
+       MudGrid devolve os 3/12 dela ao editor de verdade — escondê-la por estilo deixaria o buraco. *@
+    @if (!_ampliada)
+    {
     <MudItem xs="12" md="3" Class="col-navegacao">
         <MudPaper Class="pa-3" Elevation="0" Outlined="true">
             <MudTextField @bind-Value="_termo" Immediate="true" DebounceInterval="250"
@@ -180,9 +184,13 @@
                        OnClick="RecuperarApagadaAsync">Recuperar nota apagada…</MudButton>
         </MudPaper>
     </MudItem>
+    }
 
-    @* —— EDITOR —— *@
-    <MudItem xs="12" md="6" Class="col-editor">
+    @* —— EDITOR ——
+       No modo ampliado ele toma as 12 colunas: é a nota ocupando a tela, que é o que a leitura pede.
+       Uma nota de estudo tem tabela larga e bloco de código; em 6/12 de uma tela de notebook isso não
+       cabe, e o que sobra é rolar de lado dentro de uma faixa estreita. *@
+    <MudItem xs="12" md="@(_ampliada ? 12 : 6)" Class="col-editor">
         <MudPaper Class="pa-3" Elevation="0" Outlined="true" Style="min-height:70vh">
             @if (_aberta is null)
             {
@@ -226,6 +234,16 @@
                         <MudIconButton Size="Size.Small" OnClick="AlternarFavoritoAsync"
                                        Icon="@(_favorita ? Icons.Material.Filled.Star : Icons.Material.Outlined.StarBorder)"
                                        Color="@(_favorita ? Color.Warning : Color.Default)" />
+                    </MudTooltip>
+                    @* AMPLIAR — o botão fica ao lado do Escrever/Ler porque é dali que a pessoa decide
+                       como vai LER. Em 6/12 de tela a tabela de uma nota de contabilidade não cabe, e o
+                       que se via era a última coluna cortada na borda do cartão. *@
+                    <MudTooltip Text="@(_ampliada ? "Voltar às três colunas" : "Ampliar a nota (esconde as colunas laterais)")">
+                        <MudIconButton Size="Size.Small"
+                                       Icon="@(_ampliada ? Icons.Material.Filled.FullscreenExit : Icons.Material.Filled.Fullscreen)"
+                                       aria-label="@(_ampliada ? "Voltar às três colunas" : "Ampliar a nota")"
+                                       Color="@(_ampliada ? Color.Primary : Color.Default)"
+                                       OnClick="AlternarAmpliadaAsync" />
                     </MudTooltip>
                     <MudTooltip Text="Ver esta nota no grafo do vault">
                         <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Hub"
@@ -291,6 +309,13 @@
                                      OnClick="RenomearAsync">Renomear ou mover…</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Filled.History"
                                      OnClick="VerVersoesAsync">Versões…</MudMenuItem>
+                        @* BAIXAR É UM LINK, não um OnClick: quem entrega o arquivo é a rota /nota.md, e
+                           mandar o .md pelo circuito em base64 para o JavaScript remontar num blob seria
+                           mais código para um resultado pior (ver Vault/RotaDaNota.cs). Href com Target
+                           "_self" porque é download — não abre aba, e o navegador cuida do resto. *@
+                        <MudMenuItem Icon="@Icons.Material.Filled.Download"
+                                     Href="@($"nota.md?caminho={Uri.EscapeDataString(_aberta.Nota.Caminho.Valor)}")"
+                                     Target="_self">Baixar como .md</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Filled.ReportProblem"
                                      OnClick="RegistrarErroAsync">Errei uma questão…</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Filled.DeleteOutline" IconColor="Color.Error"
@@ -331,7 +356,7 @@
        condicional — o resultado era um cartão dizendo "Aponta para esta nota / Nada ainda" quando não há
        nota nenhuma. No desktop passava por decoração; no celular, onde as colunas empilham, era uma tela
        inteira de nada entre o editor e a navegação. *@
-    @if (_aberta is not null)
+    @if (_aberta is not null && !_ampliada)
     {
     <MudItem xs="12" md="3" Class="col-contexto">
         <MudPaper Class="pa-3" Elevation="0" Outlined="true">
@@ -686,6 +711,20 @@
     private bool _lendo;
     private bool _favorita;
     private bool _anexando;
+
+    /// <summary>
+    /// A nota ocupando as 12 colunas, sem navegação nem contexto ao lado.
+    ///
+    /// Existe porque em 6/12 de uma tela de notebook uma tabela de nota de estudo NÃO CABE, e o que
+    /// acontecia era a última coluna sair pela borda do cartão — cortada, não rolável. A rolagem do
+    /// conteúdo largo foi resolvida no CSS (ver `.nota-lida table`); isto resolve a outra metade, que é
+    /// simplesmente ter largura.
+    ///
+    /// A preferência é do NAVEGADOR (localStorage, junto do tema): quem lê ampliado vai ler a próxima
+    /// nota ampliado também, e sem lembrar disso o botão teria de ser reclicado a cada nota aberta.
+    /// </summary>
+    private bool _ampliada;
+    private bool _leuPreferenciaDeLargura;
     private MudFileUpload<IReadOnlyList<IBrowserFile>>? _seletorDeArquivos;
 
     // O `accept` do seletor de arquivos vem da MESMA lista que o servidor aplica. Duas listas, uma na
@@ -710,6 +749,21 @@
 
     protected override async Task OnAfterRenderAsync(bool primeiraVez)
     {
+        // A PREFERÊNCIA DE LARGURA VEM ANTES DO `_aberta is null`, e por isso está aqui em cima: ela é da
+        // TELA, não da nota. Lida lá embaixo, quem chegasse em /notas sem nota aberta não a leria — e a
+        // primeira nota aberta ainda viria estreita.
+        if (primeiraVez && !_leuPreferenciaDeLargura)
+        {
+            _leuPreferenciaDeLargura = true;
+            try
+            {
+                var tema = await JS.InvokeAsync<IJSObjectReference>("import", "./js/tema.js");
+                var ampliada = await tema.InvokeAsync<bool>("ampliadaGuardada");
+                if (ampliada) { _ampliada = true; StateHasChanged(); }
+            }
+            catch (JSException) { /* sem localStorage: abre nas três colunas, que é o padrão */ }
+        }
+
         if (_aberta is null) return;
 
         // O editor só pode ser criado DEPOIS que a div existe no DOM — e recriado a cada troca de nota.
@@ -747,6 +801,25 @@
             _precisaCompletarLeitura = false;
             await Leitura.CompletarAsync(IdDaLeitura, _renderizada.TemFormulas, _renderizada.TemDiagramas);
         }
+    }
+
+    /// <summary>
+    /// Liga/desliga a nota em largura total e guarda a escolha no navegador.
+    ///
+    /// NÃO PRECISA MANDAR O EDITOR SE REMEDIR: o CodeMirror é criado com um ResizeObserver que observa a
+    /// LARGURA da div e chama `refresh()` sozinho quando ela muda (ver js/editor.js). Chamar aqui seria
+    /// uma ida e volta de interop a mais para fazer o que já acontece — e, pior, mediria antes de o
+    /// Blazor ter aplicado a nova coluna, que é justamente a medida errada que o observador evita.
+    /// </summary>
+    private async Task AlternarAmpliadaAsync()
+    {
+        _ampliada = !_ampliada;
+        try
+        {
+            var modulo = await JS.InvokeAsync<IJSObjectReference>("import", "./js/tema.js");
+            await modulo.InvokeVoidAsync("guardarAmpliada", _ampliada);
+        }
+        catch (JSException) { /* não lembrar a preferência não pode impedir de ampliar */ }
     }
 
     private async Task AoTrocarModoAsync(bool lendo)

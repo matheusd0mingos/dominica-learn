@@ -17,3 +17,19 @@ export function aplicar(escuro) {
 export function guardado() {
     try { return localStorage.getItem('dominica-learn-tema') } catch { return null }
 }
+
+// —— PREFERÊNCIA DE LEITURA AMPLIADA ——
+//
+// Mora aqui, junto do tema, porque é a mesma natureza: preferência de VISUALIZAÇÃO, do navegador
+// daquela pessoa, que não tem por que virar linha no banco nem frontmatter da nota.
+//
+// E precisa ser lembrada: quem lê uma nota ampliada vai ler a próxima ampliada também. Sem guardar,
+// o modo se desfazia a cada nota aberta e a pessoa reclicava o botão o dia inteiro — que é o mesmo
+// que não ter o botão.
+export function ampliadaGuardada() {
+    try { return localStorage.getItem('dominica-learn-nota-ampliada') === '1' } catch { return false }
+}
+
+export function guardarAmpliada(ampliada) {
+    try { localStorage.setItem('dominica-learn-nota-ampliada', ampliada ? '1' : '0') } catch { /* modo privado: só não lembra */ }
+}

@@ -255,6 +255,7 @@ app.MapearAnexos();               // /anexos/** — autenticado, lista de permis
 app.MapearPrevia();               // /previa/** — o fragmento que o hover de wikilink mostra
 app.MapearPacoteDoVault();        // /vault.zip — o download do vault inteiro, fora do circuito
 app.MapearExportacaoAnki();       // /anki.txt — os cartões no formato de importação do Anki
+app.MapearDownloadDaNota();       // /nota.md?caminho=… — UMA nota, para mandar a alguém ou abrir fora
 app.MapearRegistroEmCsv();        // /sessoes.csv — o histórico do cronômetro em planilha
 app.MapearTrocaDeVault();         // /vault/trocar — o alternador da barra, que é estática
 app.MapStaticAssets();
