@@ -4,6 +4,7 @@
 @using Dominica.Learn.Domain.Desempenho
 @using Dominica.Learn.Domain.Painel
 @using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Domain.Compartilhamento
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
 @rendermode InteractiveServer
@@ -11,6 +12,7 @@
 @inject ServicoDeConhecimento Conhecimento
 @inject ServicoDeCartoes Cartoes
 @inject ServicoDeDesempenho Desempenho
+@inject ServicoDeAcompanhamento Acompanhamento
 @inject IRelogio Relogio
 @inject IDialogService Dialogos
 @inject NavigationManager Navegacao
@@ -566,6 +568,49 @@ else
             }
         </MudPaper>
     </MudItem>
+
+    @* —— QUEM ACOMPANHA MEUS ESTUDOS ——————————————————————————————————————————————————
+       O convite parte SEMPRE do dono, e por isso mora aqui, no painel dele — e não numa tela de
+       administração onde alguém escolheria de quem quer ver os estudos. Ninguém ganha acesso ao
+       painel de outra pessoa sem que ela tenha digitado o apelido dele.
+
+       É POR VAULT: o que se abre é o vault em que a pessoa está agora. Ver Acompanhamento. *@
+    <MudItem xs="12">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.h6" GutterBottom="true">Quem acompanha meus estudos</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+                Estas pessoas veem os seus números deste vault — horas, questões e acerto por matéria.
+                Elas <b>não</b> veem suas notas, e não conseguem registrar nada na sua conta.
+            </MudText>
+
+            <div class="d-flex align-center gap-2 flex-wrap">
+                <MudTextField @bind-Value="_apelidoConvidado" Label="Apelido de quem vai acompanhar"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:320px"
+                              Immediate="true" OnKeyDown="@(async (e) => { if (e.Key == "Enter") await ConvidarAsync(); })" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd"
+                           Disabled="@(_convidando || string.IsNullOrWhiteSpace(_apelidoConvidado))"
+                           OnClick="ConvidarAsync">Dar acesso</MudButton>
+            </div>
+
+            @if (_acompanhantes.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mt-3">
+                    Ninguém ainda. Seus estudos são só seus.
+                </MudText>
+            }
+            else
+            {
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    @foreach (var a in _acompanhantes)
+                    {
+                        <MudChip T="string" Color="Color.Default" Variant="Variant.Outlined"
+                                 OnClose="@(() => RevogarAsync(a.Convidado.Valor))"
+                                 CloseIcon="@Icons.Material.Filled.Close">@a.Convidado.Valor</MudChip>
+                    }
+                </div>
+            }
+        </MudPaper>
+    </MudItem>
 </MudGrid>
 }
 
@@ -588,6 +633,42 @@ else
         await CarregarHistoricoAsync();
         _temErros = await Cartoes.TemNotasDeErroAsync();
         _prazos = await Conhecimento.PrazosAsync();
+        _acompanhantes = await Acompanhamento.QuemMeAcompanhaAsync();
+    }
+
+    // —— QUEM ACOMPANHA MEUS ESTUDOS ——————————————————————————————————————————————————
+    private IReadOnlyList<Acompanhamento> _acompanhantes = [];
+    private string _apelidoConvidado = string.Empty;
+    private bool _convidando;
+
+    private async Task ConvidarAsync()
+    {
+        if (_convidando || string.IsNullOrWhiteSpace(_apelidoConvidado)) return;
+        _convidando = true;
+        try
+        {
+            var r = await Acompanhamento.ConvidarAsync(_apelidoConvidado);
+            if (!r.Ok) { Avisos.Add(r.Mensagem ?? "Não consegui dar o acesso.", Severity.Error); return; }
+
+            // O CAMPO SÓ LIMPA QUANDO DEU CERTO. Limpar sempre apagaria o que a pessoa digitou junto
+            // com a mensagem de erro, e ela teria de redigitar para descobrir o que estava errado.
+            _apelidoConvidado = string.Empty;
+            _acompanhantes = await Acompanhamento.QuemMeAcompanhaAsync();
+            Avisos.Add($"{r.Valor!.Convidado.Valor} passa a acompanhar seus estudos.", Severity.Success);
+        }
+        finally { _convidando = false; }
+    }
+
+    private async Task RevogarAsync(string apelido)
+    {
+        // SEM CONFIRMAÇÃO, de propósito: tirar acesso é a ação SEGURA do par. Uma confirmação aqui
+        // colocaria atrito no lado certo — quem clica em "fechar" quer fechar, e reabrir custa digitar
+        // um apelido. A confirmação existiria se o risco fosse dar acesso, e dar acesso já exige digitar.
+        if (await Acompanhamento.RevogarAsync(apelido))
+        {
+            _acompanhantes = await Acompanhamento.QuemMeAcompanhaAsync();
+            Avisos.Add($"{apelido} não acompanha mais seus estudos.", Severity.Info);
+        }
     }
 
     private bool _criandoMateria;

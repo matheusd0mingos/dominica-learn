@@ -48,5 +48,20 @@ requisição feita por ele mede o redirecionamento para o login e passa por moti
 numa rota autenticada, use `page.evaluate(() => fetch(...))`, que sai de dentro da página. Isto custou
 uma investigação; está anotado no `02-exportar`.
 
+**O pré-render engole o primeiro clique.** A página chega como HTML estático antes de o WebSocket do
+circuito conectar; um clique ou um `fill` nessa janela não dispara handler nenhum. O sintoma é cruel —
+o teste falha esperando o efeito e o screenshot mostra a tela perfeita, com o botão bem ali, ou um
+campo visivelmente preenchido ao lado de um botão que continua desabilitado. `networkidle` não ajuda
+(o WebSocket não conta) e `waitForTimeout` é aposta. Use os helpers `clicarAte` / `digitarQuandoVivo`
+do `03-acompanhar`: eles repetem a ação até o EFEITO aparecer, que é a única prova de que havia alguém
+escutando do outro lado.
+
+**`goto` apaga o circuito — e com ele, o defeito que você queria pegar.** A asserção mais importante do
+`03-acompanhar` é que ler o painel de outra pessoa não contamina a sessão de quem leu. Escrita com
+`page.goto('/painel')`, ela **passava com o defeito de propósito no lugar**: recarregar cria um circuito
+novo, e a contaminação morre junto. Só clicando no menu — navegação dentro do mesmo circuito — o teste
+passou a falhar quando devia. Para provar qualquer coisa sobre estado de circuito, navegue como o
+usuário navega.
+
 **Seja idempotente.** O vault e o banco sobrevivem entre corridas. Os specs criam a nota só se ela
 ainda não existir, e o setup entra antes de tentar cadastrar.

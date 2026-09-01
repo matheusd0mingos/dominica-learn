@@ -42,6 +42,14 @@ builder.Services.AddScoped<ApelidoDeQuemEntrou>();
 builder.Services.AddScoped<IUsuarioAtual, UsuarioAtualDoCircuito>();
 builder.Services.AddScoped<IPreferenciasDoUsuario, PreferenciasNoIdentity>();
 
+// —— ACOMPANHAR OS ESTUDOS DE OUTRA PESSOA ————————————————————————————————————————————
+// A permissão mora no banco da identidade (ver AcompanhamentoNoBanco: a chave não pode ficar do lado
+// de dentro da porta que ela abre). A leitura cruzada abre um escopo PRÓPRIO — nunca o do circuito,
+// que é a aba de quem está olhando. Ver EstudoDeOutraPessoaEmEscopoProprio.
+builder.Services.AddScoped<IAcompanhamentosDeEstudo, AcompanhamentosEmPostgres>();
+builder.Services.AddScoped<IEstudoDeOutraPessoa, EstudoDeOutraPessoaEmEscopoProprio>();
+builder.Services.AddScoped<Dominica.Learn.Application.CasosDeUso.ServicoDeAcompanhamento>();
+
 // —— IDENTIDADE ——————————————————————————————————————————————————————————————————————
 // Banco SEPARADO do índice de propósito: identidade não é conhecimento do usuário e não pode ser
 // arrastada por um "reindexar do zero". Compartilham o servidor Postgres, nunca o esquema.
@@ -81,7 +89,17 @@ var administracao = builder.Configuration.GetSection(OpcoesDeAdministracao.Secao
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(OpcoesDeAdministracao.Politica, p => p.RequireAssertion(ctx => administracao.EhAdminMestre(ctx.User)));
 
-builder.Services.AddDbContext<ApplicationDbContext>(o => o.UseNpgsql(conexaoIdentidade));
+// FÁBRICA + CONTEXTO POR ESCOPO, e não só o contexto — a tensão clássica entre Identity e Blazor Server.
+//
+// O Identity exige um ApplicationDbContext scoped; no Blazor Server "scoped" é o CIRCUITO inteiro, e um
+// contexto que vive a aba toda é onde nascem as "second operation started on this context" — duas telas
+// consultando ao mesmo tempo. O resto do Learn já resolveu isso com fábrica (ver ContextoDoRegistro e
+// IndiceEmPostgres): cada operação abre o seu, curto e descartável.
+//
+// Registrar a fábrica e derivar o scoped DELA dá os dois sem duplicar configuração: o Identity continua
+// recebendo o contexto que espera, e quem lê acompanhamento pede a fábrica, como todo o resto faz.
+builder.Services.AddDbContextFactory<ApplicationDbContext>(o => o.UseNpgsql(conexaoIdentidade));
+builder.Services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<ApplicationDbContext>>().CreateDbContext());
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
 builder.Services.AddIdentityCore<ApplicationUser>(o =>
