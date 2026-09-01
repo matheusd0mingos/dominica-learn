@@ -62,6 +62,36 @@ public sealed class ServicoDeAcompanhamento(
         return tirou;
     }
 
+    /// <summary>
+    /// ABRIR MÃO de um acesso que me deram — eu, o convidado, devolvendo o que recebi.
+    ///
+    /// SEMPRE PERMITIDO, e por isso não pergunta nada: soltar acesso não é escalada de privilégio, é o
+    /// contrário dela. É o que "encerrei a turma" precisa significar para o professor, e o que faz
+    /// "deixei de acompanhar fulano" existir sem depender de o fulano agir.
+    ///
+    /// NÃO É REVOGAR NO LUGAR DO DONO. O que se apaga é a linha em que EU sou o convidado; se ele quiser
+    /// compartilhar de novo, é decisão dele, no painel dele. A diferença importa: revogar por terceiros
+    /// seria poder mexer no que é dos outros.
+    /// </summary>
+    public async Task<bool> RenunciarAsync(ApelidoDoUsuario dono, NomeDoVault vault, CancellationToken ct = default)
+    {
+        var eu = await usuario.ApelidoAsync(ct);
+        var acompanhamento = Acompanhamento.TentarCriar(dono, vault, eu);
+        if (acompanhamento is null) return false;
+
+        var soltou = await acompanhamentos.RevogarAsync(acompanhamento, ct);
+        if (soltou) log.LogInformation("{Quem} abriu mão de acompanhar {Dono}/{Vault}", eu.Valor, dono.Valor, vault.Valor);
+        return soltou;
+    }
+
+    /// <summary>Quantos acessos abriram para mim e eu ainda não vi.</summary>
+    public async Task<int> NovidadesAsync(CancellationToken ct = default) =>
+        await acompanhamentos.NovidadesAsync(await usuario.ApelidoAsync(ct), ct);
+
+    /// <summary>Marca as novidades como vistas — chamado quando eu abro a lista.</summary>
+    public async Task MarcarVistasAsync(CancellationToken ct = default) =>
+        await acompanhamentos.MarcarVistasAsync(await usuario.ApelidoAsync(ct), ct);
+
     /// <summary>Quem eu deixei acompanhar o vault em que estou.</summary>
     public async Task<IReadOnlyList<Acompanhamento>> QuemMeAcompanhaAsync(CancellationToken ct = default) =>
         await acompanhamentos.QuemMeAcompanhaAsync(await usuario.ApelidoAsync(ct), await usuario.VaultAsync(ct), ct);

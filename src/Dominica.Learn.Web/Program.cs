@@ -49,6 +49,9 @@ builder.Services.AddScoped<IPreferenciasDoUsuario, PreferenciasNoIdentity>();
 builder.Services.AddScoped<IAcompanhamentosDeEstudo, AcompanhamentosEmPostgres>();
 builder.Services.AddScoped<IEstudoDeOutraPessoa, EstudoDeOutraPessoaEmEscopoProprio>();
 builder.Services.AddScoped<Dominica.Learn.Application.CasosDeUso.ServicoDeAcompanhamento>();
+// A turma ORGANIZA convites; quem autoriza continua sendo o acompanhamento. Ver Domain/Turma.cs.
+builder.Services.AddScoped<ITurmas, TurmasEmPostgres>();
+builder.Services.AddScoped<Dominica.Learn.Application.CasosDeUso.ServicoDeTurmas>();
 
 // —— IDENTIDADE ——————————————————————————————————————————————————————————————————————
 // Banco SEPARADO do índice de propósito: identidade não é conhecimento do usuário e não pode ser

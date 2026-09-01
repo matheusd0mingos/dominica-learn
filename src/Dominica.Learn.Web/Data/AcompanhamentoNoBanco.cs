@@ -32,4 +32,17 @@ public class AcompanhamentoNoBanco
     /// estudos?" numa tela onde a resposta importa — e é barato guardar agora, caro reconstruir depois.
     /// </summary>
     public DateTimeOffset Em { get; set; }
+
+    /// <summary>
+    /// Quando o CONVIDADO viu que ganhou este acesso. Null = ainda não viu.
+    ///
+    /// É ESTADO DE AVISO, não de autorização — a permissão vale desde <see cref="Em"/>, vista ou não.
+    /// Existe porque sem aviso o convite morre calado: quem foi convidado não tem motivo para abrir a
+    /// tela de acompanhamento, então nunca descobre; o professor conclui que o aluno ignorou, e o aluno
+    /// nunca soube que havia algo para ver.
+    ///
+    /// Mora nesta linha, e não numa tabela de notificações, porque é um bit por concessão e morre com
+    /// ela: revogado o acesso, não sobra aviso órfão para limpar depois.
+    /// </summary>
+    public DateTimeOffset? VistoEm { get; set; }
 }

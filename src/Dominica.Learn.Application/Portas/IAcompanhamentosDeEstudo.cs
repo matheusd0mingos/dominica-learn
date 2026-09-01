@@ -39,4 +39,20 @@ public interface IAcompanhamentosDeEstudo
     /// </summary>
     Task<bool> PodeVerAsync(
         ApelidoDoUsuario convidado, ApelidoDoUsuario dono, NomeDoVault vault, CancellationToken ct = default);
+
+    /// <summary>
+    /// Quantos acessos foram abertos para mim e eu ainda não vi.
+    ///
+    /// AVISAR IMPORTA MAIS DO QUE PARECE: sem isto, quem é convidado só descobre entrando numa tela que
+    /// não tem motivo para abrir — e o convite morre sem nunca ter sido usado. O professor acha que o
+    /// aluno ignorou; o aluno nunca soube.
+    ///
+    /// É ESTADO DE NOTIFICAÇÃO, e por isso NÃO entra no <see cref="Acompanhamento"/>: quem viu o quê não
+    /// faz parte da identidade da permissão, e um record de autorização que carrega "visto em" acaba
+    /// sendo comparado por igualdade com esse campo dentro.
+    /// </summary>
+    Task<int> NovidadesAsync(ApelidoDoUsuario convidado, CancellationToken ct = default);
+
+    /// <summary>Marca como vistos os acessos abertos para mim. Chamado quando eu abro a lista.</summary>
+    Task MarcarVistasAsync(ApelidoDoUsuario convidado, CancellationToken ct = default);
 }

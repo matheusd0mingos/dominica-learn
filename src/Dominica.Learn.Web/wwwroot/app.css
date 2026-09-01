@@ -1204,3 +1204,20 @@ main.conteudo { padding-bottom: 72px; }
 }
 .plano-linha:last-of-type { border-bottom: none; }
 .plano-barra { height: 8px; }
+
+/* O selo de novidade na barra — quantos acessos abriram para você e você ainda não viu.
+   Pequeno e ao lado do rótulo, não um ponto solto: um ponto diz "tem algo"; o número diz o quanto,
+   e é o que faz a pessoa decidir se abre agora ou depois. */
+.nav-selo {
+    display: inline-block;
+    min-width: 18px;
+    margin-left: 6px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--ouro);
+    color: var(--tinta);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+}

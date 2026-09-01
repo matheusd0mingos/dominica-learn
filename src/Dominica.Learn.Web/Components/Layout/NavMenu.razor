@@ -2,6 +2,7 @@
 
 @using Dominica.Learn.Domain.Vault
 @using Dominica.Learn.Infrastructure.Vault
+@using Dominica.Learn.Application.Portas
 @using Dominica.Learn.Web.Seguranca
 @using Microsoft.Extensions.Options
 
@@ -9,6 +10,7 @@
 @inject ApelidoDeQuemEntrou Apelidos
 @inject ILogger<NavMenu> Log
 @inject IOptions<OpcoesDoVault> OpcoesDoVault
+@inject IAcompanhamentosDeEstudo Acompanhamentos
 
 @* A navegação, inline na barra do topo. Sem os ícones bitmap do template: eram SVGs embutidos em
    base64 com `fill='white'` cravado, o que já os deixava invisíveis em qualquer fundo claro. Cinco
@@ -26,8 +28,21 @@
             <NavLink class="nav-item" href="revisar">Revisar</NavLink>
             <NavLink class="nav-item" href="grafo">Grafo</NavLink>
             <NavLink class="nav-item" href="etiquetas">Etiquetas</NavLink>
-            @* Fica depois das telas do próprio estudo porque é sobre o de OUTRA pessoa. *@
-            <NavLink class="nav-item" href="acompanhando">Acompanhando</NavLink>
+            @* Ficam depois das telas do próprio estudo porque são sobre o de OUTRA pessoa. *@
+            @* O CONTADOR É O AVISO. Sem ele, quem ganha acesso ao painel de alguém não tem motivo
+               nenhum para abrir esta tela — e o convite morre sem nunca ter sido usado: o professor
+               acha que o aluno ignorou, e o aluno nunca soube. Ver AcompanhamentoNoBanco.VistoEm. *@
+            @* O @if PRECISA COMEÇAR A LINHA. Colado no texto ("Acompanhando@if (...)") o Razor não o
+               reconhece como código e imprime a condição inteira como TEXTO na barra — apareceu na tela
+               como "Acompanhando@if (_novidades > 0) { 0 }". Foi o e2e que pegou. *@
+            <NavLink class="nav-item" href="acompanhando">
+                <span>Acompanhando</span>
+                @if (_novidades > 0)
+                {
+                    <span class="nav-selo">@_novidades</span>
+                }
+            </NavLink>
+            <NavLink class="nav-item" href="turmas">Turmas</NavLink>
             <NavLink class="nav-item" href="backup">Backup</NavLink>
             <NavLink class="nav-item" href="manual">Manual</NavLink>
         </Authorized>
@@ -92,6 +107,9 @@
     private IReadOnlyList<NomeDoVault> _vaults = [];
     private NomeDoVault _atual = NomeDoVault.Padrao;
 
+    /// <summary>Quantos acessos abriram para mim e eu ainda não vi — o selo ao lado de "Acompanhando".</summary>
+    private int _novidades;
+
     protected override void OnInitialized()
     {
         currentUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
@@ -117,6 +135,9 @@
             var apelido = await Apelidos.DeAsync(estado.User);
             _vaults = RaizDoVaultDoUsuario.VaultsDe(OpcoesDoVault.Value.Raiz, apelido);
             _atual = await Apelidos.VaultDeAsync(estado.User);
+            // NÃO É POR VAULT: o convite é para a PESSOA, e ela precisa ver o aviso esteja em que vault
+            // estiver. Um selo que some ao trocar de vault seria um aviso que depende de sorte.
+            _novidades = await Acompanhamentos.NovidadesAsync(apelido);
         }
         catch (Exception e)
         {

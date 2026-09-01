@@ -200,6 +200,11 @@ public class ServicoDeAcompanhamentoTests
         public Task<bool> PodeVerAsync(
             ApelidoDoUsuario convidado, ApelidoDoUsuario dono, NomeDoVault vault, CancellationToken ct = default) =>
             Task.FromResult(Todos.Any(a => a.Convidado == convidado && a.Dono == dono && a.Vault == vault));
+
+        // Aviso é estado de notificação, e nenhum teste desta classe fala dele — ver ServicoDeTurmasTests
+        // e o e2e, onde o selo é exercitado.
+        public Task<int> NovidadesAsync(ApelidoDoUsuario convidado, CancellationToken ct = default) => Task.FromResult(0);
+        public Task MarcarVistasAsync(ApelidoDoUsuario convidado, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     /// <summary>

@@ -1,0 +1,303 @@
+@page "/turmas"
+@page "/turmas/{Codigo}"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Domain.Compartilhamento
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+@inject ServicoDeTurmas Servico
+@inject NavigationManager Navegacao
+@inject ISnackbar Avisos
+@inject IDialogService Dialogos
+
+@* TURMAS — o jeito de um professor não depender de trinta pessoas lembrarem do apelido dele.
+
+   A TURMA INVERTE O CONVITE E SÓ ISSO. Quem concede acesso continua sendo o ALUNO: entrar na turma
+   grava um acompanhamento normal, do vault dele para o dono da turma, que ele revoga quando quiser no
+   painel. A turma não tem poder próprio — ver Domain/Compartilhamento/Turma.cs.
+
+   POR ISSO A CONFIRMAÇÃO ANTES DE ENTRAR mostra DE QUEM é a turma. Um código é ditado por voz e colado
+   em grupo; entrar direto seria abrir o próprio painel para quem quer que tenha inventado aquele
+   código. Ver o nome do dono é o que transforma isso numa decisão. *@
+
+@* SEM ISTO, DIÁLOGO E AVISO FALHAM CALADOS. O MudDialogProvider e o MudSnackbarProvider
+   moram aqui; a página que os esquece continua funcionando em tudo o mais, e só o diálogo
+   simplesmente não abre — sem erro, sem console, sem pista. Foi o e2e que pegou. *@
+<ProvedoresDoMud />
+
+<PageTitle>Turmas · Dominica Learn</PageTitle>
+
+@if (Codigo is null)
+{
+    <MudText Typo="Typo.h5" GutterBottom="true">Turmas</MudText>
+
+    <MudGrid Spacing="2">
+        @* —— ENTRAR NUMA TURMA (o lado do aluno) —— *@
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4" Outlined="true" Elevation="0" Style="height:100%">
+                <MudText Typo="Typo.h6" GutterBottom="true">Entrar numa turma</MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+                    Digite o código que o professor passou. Você verá de quem é a turma antes de confirmar —
+                    entrar significa deixar essa pessoa ver os seus números deste vault.
+                </MudText>
+                <div class="d-flex align-center gap-2 flex-wrap">
+                    <MudTextField @bind-Value="_codigo" Label="Código da turma" Variant="Variant.Outlined"
+                                  Margin="Margin.Dense" Style="max-width:260px" Immediate="true"
+                                  Placeholder="ABCD2345"
+                                  OnKeyDown="@(async (e) => { if (e.Key == "Enter") await ConferirAsync(); })" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Login"
+                               Disabled="@(_entrando || string.IsNullOrWhiteSpace(_codigo))"
+                               OnClick="ConferirAsync">Entrar</MudButton>
+                </div>
+
+                @if (_minhasMatriculas.Count > 0)
+                {
+                    <MudText Typo="Typo.overline" Class="mt-4 d-block">Você está em</MudText>
+                    <MudList T="string" Dense="true">
+                        @foreach (var t in _minhasMatriculas)
+                        {
+                            <MudListItem T="string">
+                                <div class="d-flex align-center justify-space-between gap-2">
+                                    <div>
+                                        <MudText Typo="Typo.body2"><b>@t.Nome</b></MudText>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">de @t.Dono.Valor</MudText>
+                                    </div>
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Default"
+                                               OnClick="@(() => SairAsync(t))">Sair</MudButton>
+                                </div>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            </MudPaper>
+        </MudItem>
+
+        @* —— MINHAS TURMAS (o lado de quem acompanha) —— *@
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4" Outlined="true" Elevation="0" Style="height:100%">
+                <MudText Typo="Typo.h6" GutterBottom="true">Turmas que eu acompanho</MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+                    Crie uma turma e passe o código. Cada aluno que entrar deixa você ver os números dele.
+                </MudText>
+                <div class="d-flex align-center gap-2 flex-wrap">
+                    <MudTextField @bind-Value="_nomeNovo" Label="Nome da turma" Variant="Variant.Outlined"
+                                  Margin="Margin.Dense" Style="max-width:260px" Immediate="true"
+                                  Placeholder="Turma de contabilidade 2026" />
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.GroupAdd"
+                               Disabled="@(_criando || string.IsNullOrWhiteSpace(_nomeNovo))"
+                               OnClick="CriarAsync">Criar</MudButton>
+                </div>
+
+                @if (_minhas.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary mt-3">Nenhuma turma sua ainda.</MudText>
+                }
+                else
+                {
+                    <MudList T="string" Dense="true" Class="mt-2">
+                        @foreach (var t in _minhas)
+                        {
+                            <MudListItem T="string" OnClick="@(() => Navegacao.NavigateTo($"turmas/{t.Codigo.Valor}"))">
+                                <MudText Typo="Typo.body2"><b>@t.Nome</b></MudText>
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">código @t.Codigo.Valor</MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+else
+{
+    <div class="d-flex align-center gap-2 mb-1">
+        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small"
+                       aria-label="Voltar para as turmas" Href="turmas" />
+        <MudText Typo="Typo.h5">@(_turma?.Nome ?? "Turma")</MudText>
+    </div>
+
+    @if (_alunos is null)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mt-3">
+            Essa turma não existe, ou não é sua.
+        </MudAlert>
+    }
+    else
+    {
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-4">
+            Código <b>@Codigo</b> — passe este código para os alunos entrarem.
+        </MudText>
+
+        @if (_alunos.Count == 0)
+        {
+            <MudPaper Class="pa-4" Outlined="true" Elevation="0">
+                <MudText Typo="Typo.body2">
+                    Ninguém entrou ainda. Passe o código <b>@Codigo</b> — em <b>Turmas</b>, cada aluno digita
+                    e confirma.
+                </MudText>
+            </MudPaper>
+        }
+        else
+        {
+            <MudSimpleTable Dense="true" Hover="true" Style="overflow-x:auto">
+                <thead>
+                    <tr><th>Aluno</th><th>Vault</th><th>Entrou</th><th>Acesso</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in _alunos)
+                    {
+                        <tr>
+                            <td>@a.Aluno.Valor</td>
+                            <td>@a.Vault.Valor</td>
+                            <td>@a.EntrouEm.ToLocalTime().ToString("dd/MM/yyyy")</td>
+                            <td>
+                                @* A LISTA DIZ A VERDADE sobre o acesso. Um aluno que revogou continua
+                                   matriculado, e mostrar o nome como se estivesse tudo bem faria o
+                                   professor clicar e tomar "sem acesso" sem entender. *@
+                                @if (a.Acesso)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text">ativo</MudChip>
+                                }
+                                else
+                                {
+                                    <MudTooltip Text="O aluno retirou o acesso no painel dele. Só ele pode devolver.">
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Text">retirado</MudChip>
+                                    </MudTooltip>
+                                }
+                            </td>
+                            <td>
+                                @if (a.Acesso)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                                               Href="@($"acompanhando/{Uri.EscapeDataString(a.Aluno.Valor)}/{Uri.EscapeDataString(a.Vault.Valor)}")">
+                                        ver estudos
+                                    </MudButton>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+
+        <MudButton Class="mt-6" Size="Size.Small" Variant="Variant.Text" Color="Color.Error"
+                   StartIcon="@Icons.Material.Filled.DeleteOutline" OnClick="ApagarAsync">
+            Encerrar turma
+        </MudButton>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">
+            Encerrar apaga a turma e faz você deixar de ver os painéis dos alunos dela.
+        </MudText>
+    }
+}
+
+@code {
+    [Parameter] public string? Codigo { get; set; }
+
+    private IReadOnlyList<Turma> _minhas = [];
+    private IReadOnlyList<Turma> _minhasMatriculas = [];
+    private IReadOnlyList<AlunoDaTurma>? _alunos;
+    private Turma? _turma;
+    private string _codigo = string.Empty;
+    private string _nomeNovo = string.Empty;
+    private bool _criando;
+    private bool _entrando;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Codigo is null)
+        {
+            _minhas = await Servico.MinhasAsync();
+            _minhasMatriculas = await Servico.EmQueEstouAsync();
+            return;
+        }
+
+        _turma = await Servico.ConferirAsync(Codigo);
+        // null aqui é "não existe OU não é sua" — a tela não distingue, e é de propósito: a lista de
+        // alunos já diz quem estuda com quem, e confirmar que uma turma existe é contar algo sobre ela.
+        _alunos = await Servico.AlunosAsync(Codigo);
+    }
+
+    private async Task CriarAsync()
+    {
+        if (_criando) return;
+        _criando = true;
+        try
+        {
+            var r = await Servico.CriarAsync(_nomeNovo);
+            if (!r.Ok) { Avisos.Add(r.Mensagem ?? "Não consegui criar a turma.", Severity.Error); return; }
+
+            _nomeNovo = string.Empty;
+            _minhas = await Servico.MinhasAsync();
+            Avisos.Add($"Turma criada. O código é {r.Valor!.Codigo.Valor}.", Severity.Success);
+        }
+        finally { _criando = false; }
+    }
+
+    /// <summary>
+    /// CONFERE ANTES DE ENTRAR, e mostra de quem é a turma. Ver o comentário no topo do arquivo: o
+    /// código circula por voz e por grupo de mensagem, e entrar é abrir o próprio painel.
+    /// </summary>
+    private async Task ConferirAsync()
+    {
+        if (_entrando || string.IsNullOrWhiteSpace(_codigo)) return;
+        _entrando = true;
+        try
+        {
+            var turma = await Servico.ConferirAsync(_codigo);
+            if (turma is null) { Avisos.Add("Não achei essa turma — confira o código.", Severity.Warning); return; }
+
+            if (!await ConfirmarAsync(
+                    "Entrar na turma?",
+                    $"<b>{turma.Nome}</b>, de <b>{turma.Dono.Valor}</b>.<br/><br/>" +
+                    "Entrando, essa pessoa passa a ver os seus números deste vault — horas, questões e " +
+                    "acerto por matéria. Ela <b>não</b> vê suas notas. Você pode sair quando quiser.",
+                    "Entrar")) return;
+
+            var r = await Servico.EntrarAsync(_codigo);
+            if (!r.Ok) { Avisos.Add(r.Mensagem ?? "Não consegui entrar.", Severity.Error); return; }
+
+            _codigo = string.Empty;
+            _minhasMatriculas = await Servico.EmQueEstouAsync();
+            Avisos.Add($"Você entrou em {r.Valor!.Nome}.", Severity.Success);
+        }
+        finally { _entrando = false; }
+    }
+
+    /// <summary>O diálogo da casa: diz a CONSEQUÊNCIA, não pergunta "tem certeza?".</summary>
+    private async Task<bool> ConfirmarAsync(string titulo, string corpoHtml, string confirmar, Color cor = Color.Primary)
+    {
+        var parametros = new DialogParameters<DialogoDeConfirmar>
+        {
+            { x => x.Titulo, titulo },
+            { x => x.Corpo, (MarkupString)corpoHtml },
+            { x => x.Confirmar, confirmar },
+            { x => x.Cor, cor },
+        };
+        var dialogo = await Dialogos.ShowAsync<DialogoDeConfirmar>(titulo, parametros);
+        var fechou = await dialogo.Result;
+        return fechou is { Canceled: false, Data: true };
+    }
+
+    private async Task SairAsync(Turma t)
+    {
+        if (await Servico.SairAsync(t.Codigo.Valor))
+        {
+            _minhasMatriculas = await Servico.EmQueEstouAsync();
+            Avisos.Add($"Você saiu de {t.Nome} — {t.Dono.Valor} não vê mais seus estudos.", Severity.Info);
+        }
+    }
+
+    private async Task ApagarAsync()
+    {
+        if (!await ConfirmarAsync(
+                "Encerrar a turma?",
+                "A turma some e você deixa de ver os painéis dos alunos dela. Eles não perdem nada — cada " +
+                "um continua dono dos próprios estudos.",
+                "Encerrar", Color.Error)) return;
+
+        if (await Servico.ApagarAsync(Codigo)) Navegacao.NavigateTo("turmas");
+        else Avisos.Add("Não consegui encerrar a turma.", Severity.Error);
+    }
+}

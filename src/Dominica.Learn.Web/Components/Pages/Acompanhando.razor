@@ -21,6 +21,11 @@
    E O QUE SE MOSTRA É MENOS DE PROPÓSITO. Acompanhar não é auditar: quem olha quer saber se a pessoa
    está estudando, quanto, e onde está perdendo. O detalhe de cada lançamento é dela. *@
 
+@* SEM ISTO, DIÁLOGO E AVISO FALHAM CALADOS. O MudDialogProvider e o MudSnackbarProvider
+   moram aqui; a página que os esquece continua funcionando em tudo o mais, e só o diálogo
+   simplesmente não abre — sem erro, sem console, sem pista. Foi o e2e que pegou. *@
+<ProvedoresDoMud />
+
 <PageTitle>Acompanhando · Dominica Learn</PageTitle>
 
 @if (Dono is null)
@@ -179,7 +184,15 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
-        if (Dono is null) { _lista = await Acompanhamento.QueEuAcompanhoAsync(); return; }
+        if (Dono is null)
+        {
+            _lista = await Acompanhamento.QueEuAcompanhoAsync();
+            // VISTO É AQUI, ao abrir a LISTA — e não ao abrir um painel. O aviso responde "abriram algo
+            // para você"; quem chegou até a lista já sabe. Marcar só no painel deixaria o selo aceso para
+            // quem viu e decidiu não entrar agora, e um selo que não some é um selo que se ignora.
+            await Acompanhamento.MarcarVistasAsync();
+            return;
+        }
 
         _carregando = true;
         _negado = false;

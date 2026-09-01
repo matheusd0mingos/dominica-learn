@@ -78,6 +78,24 @@ public sealed class AcompanhamentosEmPostgres(IDbContextFactory<ApplicationDbCon
             x => x.Convidado == convidado.Valor && x.Dono == dono.Valor && x.Vault == vault.Valor, ct);
     }
 
+    public async Task<int> NovidadesAsync(ApelidoDoUsuario convidado, CancellationToken ct = default)
+    {
+        await using var db = await fabrica.CreateDbContextAsync(ct);
+        return await db.Acompanhamentos.AsNoTracking()
+            .CountAsync(x => x.Convidado == convidado.Valor && x.VistoEm == null, ct);
+    }
+
+    public async Task MarcarVistasAsync(ApelidoDoUsuario convidado, CancellationToken ct = default)
+    {
+        await using var db = await fabrica.CreateDbContextAsync(ct);
+        // SÓ AS NÃO VISTAS no WHERE: sem isso, cada abertura da tela reescreveria todas as linhas do
+        // convidado — uma escrita por leitura, para não mudar nada.
+        var agora = relogio.Agora;
+        await db.Acompanhamentos
+            .Where(x => x.Convidado == convidado.Valor && x.VistoEm == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.VistoEm, agora), ct);
+    }
+
     // Uma linha do banco pode não virar um Acompanhamento válido (um apelido que deixou de ser válido
     // depois de uma mudança de regra, por exemplo). Descartar em silêncio é o certo: a linha inválida
     // não autoriza nada, e é o `PodeVerAsync` — que consulta o banco direto — quem decide o acesso.
