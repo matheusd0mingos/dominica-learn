@@ -20,6 +20,7 @@
 @inject ServicoDeConhecimento Conhecimento
 @inject ServicoDeAnexos Anexos
 @inject ServicoDeCartoes Cartoes
+@inject ServicoDeLinksDeNota Publicacao
 @inject NavigationManager Navegacao
 @inject ISnackbar Avisos
 @inject IDialogService Dialogos
@@ -316,6 +317,19 @@
                         <MudMenuItem Icon="@Icons.Material.Filled.Download"
                                      Href="@($"nota.md?caminho={Uri.EscapeDataString(_aberta.Nota.Caminho.Valor)}")"
                                      Target="_self">Baixar como .md</MudMenuItem>
+                        @* O ITEM MUDA DE NOME CONFORME O ESTADO, e o estado é o que a pessoa precisa
+                           saber antes de abrir o menu. "Compartilhar por link…" numa nota já publicada
+                           esconderia justamente o fato que importa — que ela JÁ está no ar. *@
+                        @if (_link is null)
+                        {
+                            <MudMenuItem Icon="@Icons.Material.Filled.Link"
+                                         OnClick="PublicarAsync">Publicar num link…</MudMenuItem>
+                        }
+                        else
+                        {
+                            <MudMenuItem Icon="@Icons.Material.Filled.Public" IconColor="Color.Primary"
+                                         OnClick="VerLinkAsync">Link público (no ar)…</MudMenuItem>
+                        }
                         <MudMenuItem Icon="@Icons.Material.Filled.ReportProblem"
                                      OnClick="RegistrarErroAsync">Errei uma questão…</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Filled.DeleteOutline" IconColor="Color.Error"
@@ -725,6 +739,9 @@
     /// </summary>
     private bool _ampliada;
     private bool _leuPreferenciaDeLargura;
+
+    /// <summary>O link público desta nota, se ela estiver publicada. Null = privada (ou ainda carregando).</summary>
+    private Dominica.Learn.Domain.Compartilhamento.LinkDeNota? _link;
     private MudFileUpload<IReadOnlyList<IBrowserFile>>? _seletorDeArquivos;
 
     // O `accept` do seletor de arquivos vem da MESMA lista que o servidor aplica. Duas listas, uma na
@@ -1200,6 +1217,109 @@
         _ = CarregarParecidasAsync(caminho);
         _ = CarregarTrechosDosBacklinksAsync(caminho);
         _ = CarregarSugestoesDeEtiquetaAsync(caminho);
+
+        // O ESTADO DE PUBLICAÇÃO É LIMPO E RECARREGADO A CADA NOTA. Deixá-lo de uma nota para a outra
+        // mostraria "Link público (no ar)" numa nota privada — e a pessoa concluiria que publicou o que
+        // não publicou, ou pior, que não publicou o que publicou.
+        _link = null;
+        _ = CarregarLinkPublicoAsync(caminho);
+    }
+
+    /// <summary>
+    /// Em segundo plano, como as menções: é uma consulta ao banco da identidade, e a abertura da nota
+    /// não pode esperar por um item de menu. Enquanto não chega, o menu oferece "publicar" — o que é
+    /// verdade para a esmagadora maioria das notas, e o clique confirma antes de fazer qualquer coisa.
+    /// </summary>
+    private async Task CarregarLinkPublicoAsync(CaminhoNota caminho)
+    {
+        try
+        {
+            var link = await Publicacao.DaNotaAsync(caminho);
+            // A GUARDA CONTRA A TROCA DE NOTA: a consulta pode voltar depois de a pessoa já ter aberto
+            // outra. Sem comparar o caminho, o link de uma nota apareceria no menu da seguinte.
+            if (_aberta?.Nota.Caminho == caminho) { _link = link; StateHasChanged(); }
+        }
+        catch (Exception e)
+        {
+            // Não é erro de tela: o menu simplesmente oferece "publicar", e publicar é idempotente —
+            // se já houver link, o serviço devolve o mesmo. Falhar aqui não pode estragar a abertura.
+            Log.LogWarning(e, "não consegui saber se {Caminho} está publicada", caminho.Valor);
+        }
+    }
+
+    /// <summary>
+    /// Publica a nota num link — PERGUNTANDO ANTES, e dizendo a consequência por extenso.
+    ///
+    /// A CONFIRMAÇÃO NÃO É CERIMÔNIA. Este é o único gesto do Learn que põe conteúdo do vault ao alcance
+    /// de quem não tem conta, e ele fica a um clique de distância de "Baixar como .md" no mesmo menu.
+    /// "Tem certeza?" não bastaria: o que a pessoa precisa ler é que qualquer um com o endereço lê a
+    /// nota sem entrar.
+    /// </summary>
+    private async Task PublicarAsync()
+    {
+        if (_aberta is null) return;
+
+        // O TEXTO É MONTADO ANTES, e o cast vem depois, sobre a variável. Escrito como
+        // `(MarkupString)$"…" + "…" + "…"`, o cast liga só ao PRIMEIRO pedaço — precedência — e a
+        // concatenação devolve uma string comum.
+        var corpo =
+            $"Vou criar um endereço secreto para <strong>{System.Net.WebUtility.HtmlEncode(_aberta.Nota.Titulo)}</strong>. " +
+            "Qualquer pessoa com esse endereço vai poder <strong>ler a nota sem ter conta</strong> no Learn — " +
+            "só esta nota, e sem poder editar. Você pode revogar o link a qualquer momento.";
+
+        // DialogParameters TIPADO, como no Turmas.razor, e não o dicionário por string. A versão por
+        // string aceita `object` em tudo: com a precedência errada acima, uma string chegava no lugar
+        // do MarkupString, o Blazor explodia ao RENDERIZAR ("Unable to cast System.String to
+        // MarkupString") e o circuito caía inteiro — na tela, o item do menu apenas não fazia nada.
+        // Foi o e2e que pegou. Tipado, isso é erro de compilação.
+        var parametros = new DialogParameters<DialogoDeConfirmar>
+        {
+            { x => x.Titulo, "Publicar esta nota num link?" },
+            { x => x.Corpo, (MarkupString)corpo },
+            { x => x.Confirmar, "Publicar" },
+        };
+
+        var dialogo = await Dialogos.ShowAsync<DialogoDeConfirmar>("Publicar", parametros);
+        if (await dialogo.Result is not { Canceled: false, Data: true }) return;
+
+        var r = await Publicacao.PublicarAsync(_aberta.Nota.Caminho.Valor);
+        if (!r.Ok || r.Valor is null)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui publicar a nota.", Severity.Error);
+            return;
+        }
+
+        _link = r.Valor;
+        // ABRE O DIÁLOGO DO LINK EM SEGUIDA, sem a pessoa pedir: publicar sem ver o endereço não serve
+        // para nada — ela publicou justamente para mandar a URL a alguém.
+        await VerLinkAsync();
+    }
+
+    /// <summary>O endereço, para copiar — ou para revogar.</summary>
+    private async Task VerLinkAsync()
+    {
+        if (_link is null) return;
+
+        // ABSOLUTO, porque é o que vai ser colado num WhatsApp. `ToAbsoluteUri` resolve contra o
+        // <base href>, então o endereço sai certo mesmo com o Learn servido num sub-caminho.
+        var url = Navegacao.ToAbsoluteUri(_link.CaminhoNaUrl).ToString();
+
+        var dialogo = await Dialogos.ShowAsync<DialogoDeLinkPublico>(
+            "Link público", new DialogParameters<DialogoDeLinkPublico> { { x => x.Url, url } });
+
+        if (await dialogo.Result is not { Canceled: false, Data: true }) return;
+
+        // REVOGOU. O token vai no pedido, e não o caminho: é ele que identifica a publicação, e é ele
+        // que o serviço confere contra o dono logado.
+        if (await Publicacao.RevogarAsync(_link.Token.Valor))
+        {
+            _link = null;
+            Avisos.Add("Link revogado — o endereço parou de funcionar.", Severity.Success);
+        }
+        else
+        {
+            Avisos.Add("Não consegui revogar o link.", Severity.Error);
+        }
     }
 
     /// <summary>

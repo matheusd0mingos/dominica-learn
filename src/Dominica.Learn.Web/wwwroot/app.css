@@ -1221,3 +1221,42 @@ main.conteudo { padding-bottom: 72px; }
     line-height: 18px;
     text-align: center;
 }
+
+/* ——— A NOTA PUBLICADA POR LINK ————————————————————————————————————————————————————————
+   A única tela que se abre sem conta. Ela é uma PÁGINA DE LEITURA, e não um recorte do aplicativo:
+   quem chega aqui veio de um link que alguém mandou, não de dentro do Learn.
+
+   COLUNA ESTREITA de propósito. O resto do produto usa a largura toda porque tem editor e prévia lado
+   a lado; aqui só há texto corrido, e texto corrido em 1400 px de largura é o jeito mais fácil de
+   tornar uma nota ilegível — o olho perde a linha na volta. */
+.nota-publica {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 24px 20px 64px;
+}
+
+.nota-publica > h1 {
+    margin: 0 0 4px;
+    line-height: 1.25;
+}
+
+.nota-publica-credito {
+    margin: 0 0 24px;
+    color: var(--ink-soft);
+    font-size: 14px;
+}
+
+.nota-publica-recado {
+    color: var(--ink-soft);
+    max-width: 52ch;
+}
+
+/* O aviso de que isto é um RECORTE — ver o comentário em NotaPublica.razor. Discreto, mas presente:
+   sem ele, o wikilink que virou texto sem link parece defeito da página. */
+.nota-publica-rodape {
+    margin-top: 48px;
+    padding-top: 12px;
+    border-top: 1px solid var(--linha);
+    color: var(--ink-soft);
+    font-size: 13px;
+}

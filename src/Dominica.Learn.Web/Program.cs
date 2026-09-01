@@ -45,13 +45,17 @@ builder.Services.AddScoped<IPreferenciasDoUsuario, PreferenciasNoIdentity>();
 // —— ACOMPANHAR OS ESTUDOS DE OUTRA PESSOA ————————————————————————————————————————————
 // A permissão mora no banco da identidade (ver AcompanhamentoNoBanco: a chave não pode ficar do lado
 // de dentro da porta que ela abre). A leitura cruzada abre um escopo PRÓPRIO — nunca o do circuito,
-// que é a aba de quem está olhando. Ver EstudoDeOutraPessoaEmEscopoProprio.
+// que é a aba de quem está olhando. Ver LeituraEmEscopoProprio.
 builder.Services.AddScoped<IAcompanhamentosDeEstudo, AcompanhamentosEmPostgres>();
-builder.Services.AddScoped<IEstudoDeOutraPessoa, EstudoDeOutraPessoaEmEscopoProprio>();
+builder.Services.AddScoped<ILeituraComoOutraPessoa, LeituraEmEscopoProprio>();
 builder.Services.AddScoped<Dominica.Learn.Application.CasosDeUso.ServicoDeAcompanhamento>();
 // A turma ORGANIZA convites; quem autoriza continua sendo o acompanhamento. Ver Domain/Turma.cs.
 builder.Services.AddScoped<ITurmas, TurmasEmPostgres>();
 builder.Services.AddScoped<Dominica.Learn.Application.CasosDeUso.ServicoDeTurmas>();
+// O link público de nota usa o MESMO mecanismo de leitura cruzada — do outro lado não há usuário
+// nenhum, e quem diz de qual vault ler é a linha do token. Ver ServicoDeLinksDeNota.
+builder.Services.AddScoped<ILinksDeNota, LinksDeNotaEmPostgres>();
+builder.Services.AddScoped<Dominica.Learn.Application.CasosDeUso.ServicoDeLinksDeNota>();
 
 // —— IDENTIDADE ——————————————————————————————————————————————————————————————————————
 // Banco SEPARADO do índice de propósito: identidade não é conhecimento do usuário e não pode ser

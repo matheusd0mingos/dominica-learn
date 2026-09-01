@@ -1,10 +1,9 @@
-using Dominica.Learn.Application.CasosDeUso;
 using Dominica.Learn.Domain.Vault;
 
 namespace Dominica.Learn.Application.Portas;
 
 /// <summary>
-/// LER O REGISTRO DE OUTRA PESSOA — o único caminho sancionado para atravessar a fronteira.
+/// LER O QUE É DE OUTRA PESSOA — o único caminho sancionado para atravessar a fronteira.
 ///
 /// A FRONTEIRA NÃO É FURADA, ELA É REDECLARADA. O registro filtra por <c>(Usuario, Vault)</c> num filtro
 /// global do EF, alimentado pelo <see cref="IUsuarioAtual"/>. A tentação, ao precisar do painel de
@@ -25,20 +24,24 @@ namespace Dominica.Learn.Application.Portas;
 /// <see cref="ServicoDeAcompanhamento"/>. Separados de propósito: um mecanismo que também autoriza
 /// tende a ganhar um parâmetro "confia em mim" no primeiro caso especial.
 /// </summary>
-public interface IEstudoDeOutraPessoa
+public interface ILeituraComoOutraPessoa
 {
     /// <summary>
-    /// Roda <paramref name="leitura"/> com o serviço de desempenho apontado para <paramref name="dono"/>
-    /// no vault <paramref name="vault"/>.
+    /// Roda <paramref name="leitura"/> com <typeparamref name="TServico"/> apontado para
+    /// <paramref name="dono"/> no vault <paramref name="vault"/>.
+    ///
+    /// GENÉRICO NO SERVIÇO, e não um método por caso, porque o mecanismo é o mesmo para o painel de
+    /// estudo e para uma nota: declarar outro dono num escopo próprio. Duplicá-lo por tipo de leitura
+    /// duplicaria o raciocínio de segurança acima — e a segunda cópia é sempre a que envelhece.
     ///
     /// A ASSINATURA SÓ DEIXA LER porque o que ela entrega é o serviço, e é o chamador que escolhe o que
-    /// perguntar. Devolver "um ServicoDeDesempenho do fulano" para o chamador guardar seria pior: ele
-    /// sobreviveria ao escopo, e um serviço vivo depois do escopo morto é um objeto que lê de um
-    /// contexto descartado — ou, pior, de um contexto reaproveitado por outra pessoa.
+    /// perguntar. Devolver "um serviço do fulano" para o chamador guardar seria pior: ele sobreviveria
+    /// ao escopo, e um serviço vivo depois do escopo morto é um objeto que lê de um contexto descartado
+    /// — ou, pior, de um contexto reaproveitado por outra pessoa.
     /// </summary>
-    Task<T> LendoComoAsync<T>(
+    Task<T> LendoComoAsync<TServico, T>(
         ApelidoDoUsuario dono,
         NomeDoVault vault,
-        Func<ServicoDeDesempenho, Task<T>> leitura,
-        CancellationToken ct = default);
+        Func<TServico, Task<T>> leitura,
+        CancellationToken ct = default) where TServico : notnull;
 }

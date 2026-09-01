@@ -8,14 +8,15 @@ namespace Dominica.Learn.Application.CasosDeUso;
 /// <summary>
 /// Quem pode acompanhar os estudos de quem — e a leitura do painel alheio, quando pode.
 ///
-/// TODA LEITURA CRUZADA PASSA POR AQUI. É a única classe que chama o <see cref="IEstudoDeOutraPessoa"/>,
+/// TODA LEITURA CRUZADA DE ESTUDO PASSA POR AQUI. É a única classe que chama o
+/// <see cref="ILeituraComoOutraPessoa"/> com o serviço de desempenho,
 /// e ela nunca o chama sem antes perguntar ao <see cref="IAcompanhamentosDeEstudo"/>. Espalhar a
 /// checagem pelas telas seria o desenho em que a próxima tela esquece — e a tela que esquece não dá
 /// erro: ela mostra o painel de alguém para quem não devia.
 /// </summary>
 public sealed class ServicoDeAcompanhamento(
     IAcompanhamentosDeEstudo acompanhamentos,
-    IEstudoDeOutraPessoa estudoAlheio,
+    ILeituraComoOutraPessoa leituraAlheia,
     IUsuarioAtual usuario,
     ILogger<ServicoDeAcompanhamento> log)
 {
@@ -123,6 +124,6 @@ public sealed class ServicoDeAcompanhamento(
             return null;
         }
 
-        return await estudoAlheio.LendoComoAsync(dono, vault, leitura, ct);
+        return await leituraAlheia.LendoComoAsync<ServicoDeDesempenho, T>(dono, vault, leitura, ct);
     }
 }

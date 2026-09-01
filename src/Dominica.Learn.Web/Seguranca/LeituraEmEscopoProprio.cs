@@ -1,12 +1,11 @@
-using Dominica.Learn.Application.CasosDeUso;
 using Dominica.Learn.Application.Portas;
 using Dominica.Learn.Domain.Vault;
 
 namespace Dominica.Learn.Web.Seguranca;
 
 /// <summary>
-/// Adaptador de <see cref="IEstudoDeOutraPessoa"/>: abre um escopo de injeção NOVO, declara nele que o
-/// dono é outra pessoa, e deixa a pilha de sempre trabalhar.
+/// Adaptador de <see cref="ILeituraComoOutraPessoa"/>: abre um escopo de injeção NOVO, declara nele
+/// que o dono é outra pessoa, e deixa a pilha de sempre trabalhar.
 ///
 /// O ESCOPO NOVO É O PONTO INTEIRO DESTA CLASSE. No Blazor Server o escopo de injeção é o CIRCUITO — a
 /// aba aberta. O <see cref="EscopoDoUsuario"/> é registrado como scoped, então declarar o dono no escopo
@@ -22,13 +21,13 @@ namespace Dominica.Learn.Web.Seguranca;
 /// propósito: um mecanismo que também autoriza ganha um parâmetro "confia em mim" no primeiro caso
 /// especial, e a partir daí a autorização passa a depender de quem chama.
 /// </summary>
-public sealed class EstudoDeOutraPessoaEmEscopoProprio(IServiceScopeFactory escopos) : IEstudoDeOutraPessoa
+public sealed class LeituraEmEscopoProprio(IServiceScopeFactory escopos) : ILeituraComoOutraPessoa
 {
-    public async Task<T> LendoComoAsync<T>(
+    public async Task<T> LendoComoAsync<TServico, T>(
         ApelidoDoUsuario dono,
         NomeDoVault vault,
-        Func<ServicoDeDesempenho, Task<T>> leitura,
-        CancellationToken ct = default)
+        Func<TServico, Task<T>> leitura,
+        CancellationToken ct = default) where TServico : notnull
     {
         using var escopo = escopos.CreateScope();
 
@@ -37,7 +36,7 @@ public sealed class EstudoDeOutraPessoaEmEscopoProprio(IServiceScopeFactory esco
         // nada", que é uma mentira convincente. É a mesma armadilha anotada no RegistroEmPostgres.
         escopo.ServiceProvider.GetRequiredService<EscopoDoUsuario>().Definir(dono, vault);
 
-        var desempenho = escopo.ServiceProvider.GetRequiredService<ServicoDeDesempenho>();
-        return await leitura(desempenho);
+        var servico = escopo.ServiceProvider.GetRequiredService<TServico>();
+        return await leitura(servico);
     }
 }

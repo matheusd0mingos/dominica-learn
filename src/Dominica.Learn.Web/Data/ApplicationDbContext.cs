@@ -13,6 +13,9 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<TurmaNoBanco> Turmas => Set<TurmaNoBanco>();
     public DbSet<MatriculaNoBanco> Matriculas => Set<MatriculaNoBanco>();
 
+    /// <summary>As notas publicadas em link. Ver <see cref="LinkDeNotaNoBanco"/>.</summary>
+    public DbSet<LinkDeNotaNoBanco> LinksDeNota => Set<LinkDeNotaNoBanco>();
+
     /// <summary>Todo DateTimeOffset atravessa a borda em UTC — ver <see cref="InstanteParaUtc"/>.</summary>
     protected override void ConfigureConventions(ModelConfigurationBuilder b)
     {
@@ -51,6 +54,25 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             e.Property(x => x.Aluno).HasMaxLength(64);
             e.Property(x => x.Vault).HasMaxLength(64);
             e.HasIndex(x => x.Aluno);   // "em que turmas eu estou" é a consulta do aluno
+        });
+
+        b.Entity<LinkDeNotaNoBanco>(e =>
+        {
+            e.ToTable("link_de_nota");
+            e.Property(x => x.Token).HasMaxLength(Dominica.Learn.Domain.Compartilhamento.TokenDeLink.Tamanho);
+            e.Property(x => x.Dono).HasMaxLength(64);
+            e.Property(x => x.Vault).HasMaxLength(64);
+            e.Property(x => x.Caminho).HasMaxLength(1024);
+
+            // ÚNICO POR (dono, vault, caminho), e a garantia é do BANCO e não só do adaptador. O
+            // adaptador confere antes de inserir, mas duas abas publicando a mesma nota no mesmo instante
+            // passam as duas pela conferência — e o resultado seriam dois tokens vivos para uma nota só.
+            // Aí "revogar" mataria um, deixaria o outro no ar, e quem clicou sairia certo de ter fechado.
+            e.HasIndex(x => new { x.Dono, x.Vault, x.Caminho }).IsUnique();
+
+            // "o que eu publiquei" é a consulta da tela de gestão; sem ela não há como revogar o que se
+            // esqueceu de ter aberto.
+            e.HasIndex(x => x.Dono);
         });
     }
 }

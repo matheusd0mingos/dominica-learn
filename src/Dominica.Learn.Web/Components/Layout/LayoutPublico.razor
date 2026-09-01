@@ -1,0 +1,24 @@
+@inherits LayoutComponentBase
+
+@* O layout de quem NÃO entrou — hoje, só a nota publicada por link.
+
+   NÃO REAPROVEITA O MainLayout de propósito, e a razão é a navegação: aquele layout traz o <NavMenu>,
+   que mostra Painel/Plano/Ciclo/Notas para quem está autenticado e nada para quem não está. Para um
+   visitante o resultado seria uma barra vazia com a marca — a casca de um aplicativo em que ele não tem
+   conta, em volta de uma nota que alguém lhe mandou. Pior: o primeiro item que aparecesse ali levaria a
+   uma tela de login, e a conclusão de quem clicasse seria "o link pediu senha".
+
+   O QUE FICA É A MARCA, e ela é um LINK PARA FORA (a raiz do app), não um item de menu. Quem recebeu a
+   nota tem o direito de saber de onde ela veio; quem quiser entrar, entra por ali. *@
+
+<div class="app app-publico">
+    <header class="barra">
+        <a class="barra-marca" href="">
+            <Marca Tamanho="26" Invertida="true" />
+        </a>
+    </header>
+
+    <main class="conteudo">
+        @Body
+    </main>
+</div>

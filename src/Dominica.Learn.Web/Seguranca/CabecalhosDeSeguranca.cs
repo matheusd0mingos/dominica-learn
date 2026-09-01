@@ -40,6 +40,22 @@ public static class CabecalhosDeSeguranca
             // um trecho colado peça acesso a câmera ou localização em nome do usuário.
             h["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), interest-cohort=()";
 
+            // A NOTA PUBLICADA NÃO ENTRA EM BUSCADOR.
+            //
+            // /n/{token} é a única rota do Learn que abre sem conta, e o que a protege é o token ser
+            // secreto. "Não listado" não é "publicado no Google": basta um buscador seguir o link de um
+            // e-mail encaminhado, de uma mensagem em grupo público ou do Referer de um site, e o segredo
+            // acabou — para sempre, e sem que quem publicou tenha feito nada além de mandar a URL.
+            //
+            // O CABEÇALHO E NÃO UMA <meta>: robots.txt e meta tag dependem de o buscador buscar e ler a
+            // página; o X-Robots-Tag viaja na própria resposta que ele acabou de receber. `nofollow`
+            // junto porque a nota é conteúdo de outra pessoa, e nada nela deve virar rastro de rastreio.
+            //
+            // AQUI, e não na página, porque a página é um componente Razor: quando ela renderiza, o
+            // cabeçalho já pode ter saído.
+            if (ctx.Request.Path.StartsWithSegments("/n"))
+                h["X-Robots-Tag"] = "noindex, nofollow, noarchive";
+
             await proximo();
         });
 }

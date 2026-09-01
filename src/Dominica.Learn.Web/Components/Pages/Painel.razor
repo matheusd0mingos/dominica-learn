@@ -13,6 +13,7 @@
 @inject ServicoDeCartoes Cartoes
 @inject ServicoDeDesempenho Desempenho
 @inject ServicoDeAcompanhamento Acompanhamento
+@inject ServicoDeLinksDeNota Publicacao
 @inject IRelogio Relogio
 @inject IDialogService Dialogos
 @inject NavigationManager Navegacao
@@ -611,6 +612,54 @@ else
             }
         </MudPaper>
     </MudItem>
+
+    @* —— O QUE EU PUBLIQUEI NUM LINK ——————————————————————————————————————————————————
+       ESTA LISTA É O QUE TORNA PUBLICAR REVERSÍVEL. Publicar acontece dentro do menu de UMA nota, e
+       quem publicou dez ao longo de um semestre não lembra quais foram — sem um lugar que mostre tudo,
+       revogar depende de a pessoa reabrir nota por nota procurando o item aceso no menu. Na prática,
+       isso é o mesmo que não poder revogar.
+
+       NO PAINEL, junto de "quem acompanha meus estudos", porque é a mesma pergunta: o que eu abri para
+       fora. Uma tela separada de "compartilhamentos" seria a tela que ninguém visita. *@
+    <MudItem xs="12">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.h6" GutterBottom="true">Notas publicadas em link</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+                Estas notas abrem para <b>qualquer pessoa com o endereço</b>, sem conta e sem login —
+                só a leitura, nada de editar. Elas não aparecem em buscador.
+            </MudText>
+
+            @if (_publicadas.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Nenhuma. Você publica uma nota pelo menu dela, em Notas.
+                </MudText>
+            }
+            else
+            {
+                <MudList T="string" Dense="true">
+                    @foreach (var l in _publicadas)
+                    {
+                        <MudListItem T="string" Icon="@Icons.Material.Filled.Public">
+                            <div class="d-flex align-center justify-space-between gap-2 flex-wrap">
+                                <div>
+                                    @* O CAMINHO INTEIRO, e não só o nome do arquivo: em vaults reais há
+                                       "Aula01" em quatro matérias, e escolher qual revogar por um nome
+                                       repetido é escolher no escuro. *@
+                                    <MudText Typo="Typo.body2">@l.Caminho.Valor</MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                        @l.Vault.Valor · no ar desde @l.CriadoEm.ToLocalTime().ToString("dd/MM/yyyy")
+                                    </MudText>
+                                </div>
+                                <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Text"
+                                           OnClick="@(() => DespublicarAsync(l))">Revogar</MudButton>
+                            </div>
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+        </MudPaper>
+    </MudItem>
 </MudGrid>
 }
 
@@ -634,6 +683,7 @@ else
         _temErros = await Cartoes.TemNotasDeErroAsync();
         _prazos = await Conhecimento.PrazosAsync();
         _acompanhantes = await Acompanhamento.QuemMeAcompanhaAsync();
+        _publicadas = await Publicacao.MeusAsync();
     }
 
     // —— QUEM ACOMPANHA MEUS ESTUDOS ——————————————————————————————————————————————————
@@ -668,6 +718,28 @@ else
         {
             _acompanhantes = await Acompanhamento.QuemMeAcompanhaAsync();
             Avisos.Add($"{apelido} não acompanha mais seus estudos.", Severity.Info);
+        }
+    }
+
+    // —— O QUE EU PUBLIQUEI ————————————————————————————————————————————————————————————
+    private IReadOnlyList<LinkDeNota> _publicadas = [];
+
+    /// <summary>
+    /// Tira a nota do ar. SEM CONFIRMAÇÃO, pela mesma razão do revogar acima: fechar acesso é a metade
+    /// segura do par. Quem se arrepender republica pelo menu da nota — e ganha um endereço NOVO, que é o
+    /// comportamento certo: o link antigo já circulou, e ressuscitá-lo devolveria acesso a quem quer que
+    /// o tivesse guardado.
+    /// </summary>
+    private async Task DespublicarAsync(LinkDeNota link)
+    {
+        if (await Publicacao.RevogarAsync(link.Token.Valor))
+        {
+            _publicadas = await Publicacao.MeusAsync();
+            Avisos.Add($"\"{link.Caminho.Nome}\" saiu do ar.", Severity.Info);
+        }
+        else
+        {
+            Avisos.Add("Não consegui revogar esse link.", Severity.Error);
         }
     }
 

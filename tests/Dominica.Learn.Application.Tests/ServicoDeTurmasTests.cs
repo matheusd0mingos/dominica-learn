@@ -356,11 +356,11 @@ public class ServicoDeTurmasTests
     }
 
     /// <summary>Turmas não leem painel nenhum — este dublê existe só para o serviço poder ser construído.</summary>
-    private sealed class EstudoAlheioQueNaoLe : IEstudoDeOutraPessoa
+    private sealed class EstudoAlheioQueNaoLe : ILeituraComoOutraPessoa
     {
-        public Task<T> LendoComoAsync<T>(
+        public Task<T> LendoComoAsync<TServico, T>(
             ApelidoDoUsuario dono, NomeDoVault vault,
-            Func<ServicoDeDesempenho, Task<T>> leitura, CancellationToken ct = default) =>
+            Func<TServico, Task<T>> leitura, CancellationToken ct = default) where TServico : notnull =>
             throw new InvalidOperationException("turma não lê painel — se chegou aqui, o desenho mudou");
     }
 }

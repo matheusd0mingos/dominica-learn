@@ -211,13 +211,13 @@ public class ServicoDeAcompanhamentoTests
     /// CONTA AS LEITURAS, e é essa contagem que dá sentido aos testes de recusa: "devolveu null" também
     /// seria verdade numa implementação que lê o registro alheio e descarta o resultado depois.
     /// </summary>
-    private sealed class EstudoAlheioEspiao : IEstudoDeOutraPessoa
+    private sealed class EstudoAlheioEspiao : ILeituraComoOutraPessoa
     {
         public int Leituras { get; private set; }
 
-        public Task<T> LendoComoAsync<T>(
+        public Task<T> LendoComoAsync<TServico, T>(
             ApelidoDoUsuario dono, NomeDoVault vault,
-            Func<ServicoDeDesempenho, Task<T>> leitura, CancellationToken ct = default)
+            Func<TServico, Task<T>> leitura, CancellationToken ct = default) where TServico : notnull
         {
             Leituras++;
             // Não roda a leitura de verdade: o que este dublê representa é "o mecanismo foi acionado".
