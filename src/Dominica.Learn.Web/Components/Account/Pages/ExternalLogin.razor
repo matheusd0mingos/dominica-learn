@@ -151,6 +151,23 @@
         await UserStore.SetUserNameAsync(user, Input.Email, CancellationToken.None);
         await emailStore.SetEmailAsync(user, Input.Email, CancellationToken.None);
 
+        // PROVEDOR EXTERNO NÃO SABE ESCOLHER APELIDO — e apelido vazio é vault compartilhado.
+        //
+        // Esta página é do template e hoje é código morto: nenhum provedor externo está registrado no
+        // Program.cs. Mas ela cria usuário SEM apelido, e o apelido é o nome da pasta do vault: no dia em
+        // que alguém acrescentar um `.AddGoogle(...)`, todo cadastro por aqui nasceria com apelido vazio
+        // e TODOS dividiriam o mesmo vault, vendo as notas uns dos outros. Isso não pode falhar em
+        // silêncio meses depois; falha agora, na cara de quem ligar o provedor.
+        //
+        // O índice único do banco não pega este caso de propósito (ele filtra o vazio, senão nenhuma
+        // instalação com uma conta antiga sem apelido conseguiria migrar) — então a guarda é aqui.
+        if (string.IsNullOrEmpty(user.Apelido))
+        {
+            Logger.LogError("Cadastro por provedor externo bloqueado: o fluxo não define apelido, e apelido vazio significa vault compartilhado.");
+            message = "Cadastro por provedor externo ainda não está disponível: falta escolher um apelido, que é o que separa o seu material do dos outros. Cadastre-se com e-mail e senha.";
+            return;
+        }
+
         var result = await UserManager.CreateAsync(user);
         if (result.Succeeded)
         {

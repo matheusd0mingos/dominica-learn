@@ -26,6 +26,24 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     protected override void OnModelCreating(ModelBuilder b)
     {
         base.OnModelCreating(b);
+
+        // O APELIDO É ÚNICO, E QUEM GARANTE ISSO É O BANCO.
+        //
+        // Era garantido só por um "consulta e depois insere" no cadastro (Register.razor): pergunta se o
+        // apelido existe, e se não existir, cria. Entre a pergunta e a criação cabe outro cadastro — e
+        // aqui a consequência de perder essa corrida é a pior possível no produto inteiro: o apelido é o
+        // NOME DA PASTA do vault em disco e o valor da coluna `Usuario` que filtra o registro. Dois
+        // usuários com o mesmo apelido não ficam "parecidos": eles compartilham as mesmas notas e os
+        // mesmos estudos, cada um vendo os do outro. Nenhuma verificação em C# fecha isso; índice fecha.
+        //
+        // FILTRO `<> ''` porque o apelido vazio existe como estado possível (a tela de Administração já
+        // o trata: "(sem apelido)"), e uma instalação que tenha dois deles não conseguiria nem aplicar a
+        // migração. O vazio é fechado na ORIGEM — ver a guarda no ExternalLogin —, não aqui.
+        b.Entity<ApplicationUser>(e =>
+        {
+            e.Property(u => u.Apelido).HasMaxLength(Dominica.Learn.Domain.Vault.ApelidoDoUsuario.TamanhoMaximo);
+            e.HasIndex(u => u.Apelido).IsUnique().HasFilter("\"Apelido\" <> ''");
+        });
         b.Entity<AcompanhamentoNoBanco>(e =>
         {
             e.ToTable("acompanhamento_de_estudo");

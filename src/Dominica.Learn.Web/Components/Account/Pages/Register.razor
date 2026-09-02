@@ -10,6 +10,7 @@
 @using Dominica.Learn.Web.Seguranca
 @using Microsoft.Extensions.Options
 @using Microsoft.EntityFrameworkCore
+@using Npgsql
 
 @inject UserManager<ApplicationUser> UserManager
 @inject IUserStore<ApplicationUser> UserStore
@@ -124,6 +125,11 @@
 
         // Unicidade: o apelido é uma PASTA. Dois usuários com o mesmo apelido dividiriam o mesmo vault —
         // exatamente o defeito que este cadastro existe para não ter.
+        //
+        // ESTA CONSULTA É PELA MENSAGEM, NÃO PELA GARANTIA. Entre perguntar e criar cabe outro cadastro,
+        // e quem garante de verdade é o índice único no banco (ver ApplicationDbContext). Ela fica porque
+        // "esse apelido já está em uso" dito ANTES de a pessoa preencher senha e confirmação é outra
+        // experiência — a garantia do banco é a rede embaixo, e a rede aparece no catch lá adiante.
         if (await UserManager.Users.AnyAsync(u => u.Apelido == apelido.Valor))
         {
             identityErrors = [new IdentityError { Code = "Apelido", Description = $"O apelido \"{apelido.Valor}\" já está em uso." }];
@@ -136,7 +142,20 @@
         await UserStore.SetUserNameAsync(user, Input.Email, CancellationToken.None);
         var emailStore = GetEmailStore();
         await emailStore.SetEmailAsync(user, Input.Email, CancellationToken.None);
-        var result = await UserManager.CreateAsync(user, Input.Password);
+        // A REDE EMBAIXO DA CONSULTA ACIMA: se outro cadastro tomou o apelido no meio do caminho, quem
+        // recusa é o índice único, e ele recusa com uma exceção do Npgsql — que sem isto viraria uma
+        // página de erro genérica no fim de um formulário preenchido. O texto é o MESMO da checagem
+        // antecipada, porque para quem está cadastrando é o mesmo fato.
+        IdentityResult result;
+        try
+        {
+            result = await UserManager.CreateAsync(user, Input.Password);
+        }
+        catch (DbUpdateException e) when (e.InnerException is PostgresException { SqlState: "23505" })
+        {
+            identityErrors = [new IdentityError { Code = "Apelido", Description = $"O apelido \"{apelido.Valor}\" acabou de ser registrado por outra pessoa. Escolha outro." }];
+            return;
+        }
 
         if (!result.Succeeded)
         {
