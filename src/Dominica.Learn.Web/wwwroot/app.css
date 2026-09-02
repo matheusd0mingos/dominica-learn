@@ -1260,3 +1260,12 @@ main.conteudo { padding-bottom: 72px; }
     color: var(--ink-soft);
     font-size: 13px;
 }
+
+/* O apelido da pessoa, no card que pede o apelido dos outros. MONOESPAÇADO e destacado porque ele é
+   para ser DITADO ou copiado: numa fonte proporcional, "l" e "I" viram o mesmo desenho, e o apelido é
+   a única chave que o convite aceita — errar uma letra é convidar ninguém. */
+.apelido-meu {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: color-mix(in srgb, var(--acento-2) 12%, transparent);
+  padding: 1px 6px; border-radius: 5px; user-select: all;
+}

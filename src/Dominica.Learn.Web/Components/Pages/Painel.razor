@@ -18,6 +18,8 @@
 @inject IDialogService Dialogos
 @inject NavigationManager Navegacao
 @inject ISnackbar Avisos
+@inject IUsuarioAtual Usuario
+@inject IJSRuntime JS
 
 <PageTitle>Painel · Dominica Learn</PageTitle>
 
@@ -579,9 +581,26 @@ else
     <MudItem xs="12">
         <MudPaper Class="pa-4" Elevation="0" Outlined="true">
             <MudText Typo="Typo.h6" GutterBottom="true">Quem acompanha meus estudos</MudText>
-            <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mb-1">
                 Estas pessoas veem os seus números deste vault — horas, questões e acerto por matéria.
                 Elas <b>não</b> veem suas notas, e não conseguem registrar nada na sua conta.
+            </MudText>
+
+            @* O SEU APELIDO, AQUI, PORQUE É AQUI QUE ELE FAZ FALTA.
+               O campo abaixo pede o apelido DA OUTRA PESSOA — e o apelido não aparecia em tela nenhuma
+               fora da Administração: a barra do topo mostra o e-mail. Quem quisesse ser acompanhado não
+               tinha onde ler o próprio para ditar, e quem quisesse convidar não tinha como descobrir o
+               do outro. O convite dependia de as duas pessoas lembrarem do que digitaram no cadastro —
+               exatamente a dependência que o domínio da Turma critica por escrito, e que tinha ficado
+               de pé aqui. *@
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+                Peça o apelido de quem vai acompanhar. O seu é
+                <b class="apelido-meu">@_meuApelido</b>
+                <MudTooltip Text="copiar o seu apelido">
+                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.ContentCopy"
+                                   aria-label="Copiar o meu apelido" OnClick="CopiarApelidoAsync" />
+                </MudTooltip>
+                — é assim que te encontram.
             </MudText>
 
             <div class="d-flex align-center gap-2 flex-wrap">
@@ -684,10 +703,28 @@ else
         _prazos = await Conhecimento.PrazosAsync();
         _acompanhantes = await Acompanhamento.QuemMeAcompanhaAsync();
         _publicadas = await Publicacao.MeusAsync();
+        _meuApelido = (await Usuario.ApelidoAsync()).Valor;
     }
 
     // —— QUEM ACOMPANHA MEUS ESTUDOS ——————————————————————————————————————————————————
     private IReadOnlyList<Acompanhamento> _acompanhantes = [];
+    private string _meuApelido = string.Empty;
+
+    /// <summary>
+    /// Copia o apelido. O botão é ATALHO, não a única saída: copiar falha por motivos que não são
+    /// defeito nosso (contexto não seguro, permissão negada), e por isso o apelido fica à mostra no
+    /// texto. Ver js/copiar.js.
+    /// </summary>
+    private async Task CopiarApelidoAsync()
+    {
+        try
+        {
+            var js = await JS.InvokeAsync<IJSObjectReference>("import", "./js/copiar.js");
+            if (await js.InvokeAsync<bool>("copiar", _meuApelido)) Avisos.Add("Apelido copiado.", Severity.Success);
+            else Avisos.Add("Não consegui copiar — selecione o apelido acima.", Severity.Info);
+        }
+        catch (JSException) { Avisos.Add("Não consegui copiar — selecione o apelido acima.", Severity.Info); }
+    }
     private string _apelidoConvidado = string.Empty;
     private bool _convidando;
 

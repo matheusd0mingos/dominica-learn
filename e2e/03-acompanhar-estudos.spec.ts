@@ -106,6 +106,28 @@ test('revogar fecha a porta para quem já estava dentro', async ({ browser }) =>
   }
 })
 
+// O APELIDO PRECISA ESTAR NA TELA — senão o campo ao lado pede um dado que ninguém consegue obter.
+//
+// O card pergunta o apelido DA OUTRA PESSOA. O apelido não aparecia em tela nenhuma fora da
+// Administração (a barra do topo mostra o e-mail), então convidar dependia de as duas pessoas
+// lembrarem do que digitaram no cadastro — a mesma dependência que o domínio da Turma critica por
+// escrito. Um campo cuja chave é invisível não é um campo difícil: é um campo inútil.
+test('o painel mostra o MEU apelido, que é o que se dita para ser convidado', async ({ browser }) => {
+  const dono = await entrar(browser, ALUNO)
+  try {
+    await dono.goto('/painel')
+    const meu = dono.locator('.apelido-meu')
+    await expect(meu, 'o painel não mostra o próprio apelido em lugar nenhum').toBeVisible({ timeout: 20_000 })
+    await expect(meu).toHaveText(ALUNO.apelido)
+
+    // e ele fica ONDE a pergunta nasce: no mesmo card que pede o apelido do outro
+    const card = dono.locator('.mud-paper', { has: dono.getByText('Quem acompanha meus estudos') })
+    await expect(card.locator('.apelido-meu')).toHaveCount(1)
+  } finally {
+    await dono.context().close()
+  }
+})
+
 // ——— apoio ———
 
 /// Entra com a conta, cadastrando na primeira vez. Mesma razão de idempotência do auth.setup.
