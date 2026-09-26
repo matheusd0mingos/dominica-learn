@@ -1,0 +1,47 @@
+@* Confirmação de exclusão que DIZ A CONSEQUÊNCIA em vez de perguntar "tem certeza?".
+
+   "Tem certeza?" não informa nada: quem clicou já achava que tinha. O que a pessoa não sabe, e só o
+   sistema sabe, é quantas outras notas apontam para esta — ou seja, quantos caminhos do próprio
+   conhecimento dela vão ficar pendurados. É esse número que muda uma decisão. *@
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Excluir nota</MudText>
+    </TitleContent>
+
+    <DialogContent>
+        <MudText>
+            Excluir <b>@Caminho</b>?
+        </MudText>
+
+        @if (LigacoesQueApontam > 0)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-3">
+                @LigacoesQueApontam @(LigacoesQueApontam == 1 ? "ligação aponta" : "ligações apontam")
+                para esta nota. @(LigacoesQueApontam == 1 ? "Ela vai continuar" : "Elas vão continuar")
+                no texto das outras notas, como ligação para algo que ainda não existe — que é como o
+                Obsidian marca o que falta escrever.
+            </MudAlert>
+        }
+
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-3">
+            O arquivo sai do disco, e a última versão fica guardada: dá para trazê-la de volta em
+            "Recuperar nota apagada…", no rodapé da lista de notas.
+        </MudText>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialogo.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Error" Variant="Variant.Filled"
+                   OnClick="@(() => Dialogo.Close(DialogResult.Ok(true)))">Excluir</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    [Parameter] public string Caminho { get; set; } = string.Empty;
+
+    /// <summary>Quantas ligações de outras notas apontam para esta. Ver o comentário do topo.</summary>
+    [Parameter] public int LigacoesQueApontam { get; set; }
+}

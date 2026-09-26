@@ -1,0 +1,59 @@
+@implements IDisposable
+@inject NavigationManager Navegacao
+@inject ILogger<LimiteDeErro> Log
+
+@* O QUE ACONTECE QUANDO UMA TELA LANÇA.
+
+   No Blazor Server, uma exceção não tratada num componente NÃO derruba só aquele componente: ela
+   encerra o CIRCUITO. E o circuito é a aba inteira — o que a pessoa vê é a tela continuar desenhada,
+   bonita, e simplesmente parar de responder a clique. Nenhuma mensagem, nenhum indício. Só o F5
+   ressuscita, e quem não sabe disso conclui que o app "às vezes trava".
+
+   Foi exatamente essa a descrição que chegou: "nem sempre carrega a tela certa, principalmente pelo
+   botão; quando recarrega a página até vai". Navegar por botão precisa do circuito vivo; o F5 abre
+   um circuito novo.
+
+   ESTE COMPONENTE NÃO CONSERTA A CAUSA — ele conserta a CONSEQUÊNCIA, e é por isso que vale mesmo
+   sem se saber qual é a causa: em vez de o app morrer inteiro e em silêncio, a tela que quebrou diz
+   que quebrou, o resto continua vivo, e o erro aparece no log do servidor com o nome da página.
+   Sem isto, um defeito de uma tela é indistinguível de um defeito de rede.
+
+   ELE SE RECUPERA AO NAVEGAR. Um ErrorBoundary que não se recupera fica preso na mensagem de erro
+   para sempre, e aí ele deixa de ser uma rede de proteção e passa a ser o próprio defeito. *@
+
+<ErrorBoundary @ref="_limite">
+    <ChildContent>@ChildContent</ChildContent>
+    <ErrorContent Context="erro">
+        <div class="erro-de-tela">
+            <h2>Esta tela quebrou.</h2>
+            <p>
+                O resto do aplicativo continua funcionando — dá para navegar pelo menu ali em cima.
+                O que você estava escrevendo <b>não se perdeu</b>: o editor grava sozinho depois de
+                1,2 segundo parado.
+            </p>
+            <p class="erro-de-tela-detalhe">@erro.GetType().Name: @erro.Message</p>
+            @* RECARREGAR É A SAÍDA HONESTA, e não um "tentar de novo" que reexecuta o mesmo caminho
+               que acabou de falhar. Recarregar abre um circuito novo, do zero. *@
+            <button class="erro-de-tela-botao" @onclick="Recarregar">Recarregar a página</button>
+        </div>
+    </ErrorContent>
+</ErrorBoundary>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private ErrorBoundary? _limite;
+
+    protected override void OnInitialized() => Navegacao.LocationChanged += AoNavegar;
+
+    private void AoNavegar(object? _, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        // Recover() é seguro mesmo sem erro nenhum pendente — e chamá-lo aqui é o que impede a
+        // mensagem de erro de sobreviver à navegação para uma tela que está inteira.
+        _limite?.Recover();
+    }
+
+    private void Recarregar() => Navegacao.NavigateTo(Navegacao.Uri, forceLoad: true);
+
+    public void Dispose() => Navegacao.LocationChanged -= AoNavegar;
+}

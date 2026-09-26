@@ -1,0 +1,40 @@
+@page "/"
+@using Microsoft.AspNetCore.Components.Authorization
+
+@* A porta de entrada. Era o "Hello, world! Welcome to your new app." do template — a primeira tela
+   de quem abre o endereço, dizendo que ninguém terminou de fazer o produto.
+
+   Ela é ESTÁTICA (sem @rendermode): quem chega aqui deslogado é a maioria, e uma página de boas-vindas
+   não precisa de circuito. Cobrar um WebSocket para mostrar dois parágrafos é gastar a conexão antes
+   de o usuário ter pedido qualquer coisa. *@
+
+<PageTitle>Dominica Learn</PageTitle>
+
+<div class="entrada">
+    <Marca Tamanho="56" ComNome="false" />
+
+    <h1>Dominica <span class="entrada-modulo">Learn</span></h1>
+
+    <AuthorizeView>
+        <Authorized>
+            <p class="entrada-texto">
+                Bom estudo, @context.User.Identity?.Name.
+            </p>
+            <div class="entrada-acoes">
+                <a class="entrada-botao" href="notas">Abrir as notas</a>
+                <a class="entrada-link" href="revisar">Revisar hoje</a>
+                <a class="entrada-link" href="grafo">Ver o grafo</a>
+            </div>
+        </Authorized>
+        <NotAuthorized>
+            <p class="entrada-texto">
+                Seu vault de estudo: notas em Markdown, ligadas entre si, com revisão espaçada.
+                Os arquivos são <b>.md</b> no disco — o mesmo vault abre no Obsidian, e continua seu
+                mesmo que este site suma.
+            </p>
+            <div class="entrada-acoes">
+                <a class="entrada-botao" href="Account/Login">Entrar</a>
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
+</div>

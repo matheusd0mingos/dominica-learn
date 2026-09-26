@@ -1,0 +1,720 @@
+@page "/revisar"
+@page "/revisar/{*nome}"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Analise
+@using Dominica.Learn.Domain.Cartoes
+@using Dominica.Learn.Domain.Vault
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
+@attribute [Authorize]
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@using Dominica.Learn.Application.Portas
+@inject ServicoDeCartoes Cartoes
+@inject IRelogio Relogio
+@inject IPreferenciasDoUsuario Preferencias
+@inject NavigationManager Navegacao
+@inject ISnackbar Avisos
+@inject IDialogService Dialogos
+@inject IJSRuntime JS
+
+<PageTitle>Revisar · Dominica Learn</PageTitle>
+
+<ProvedoresDoMud />
+
+<MudPaper Class="pa-4" Elevation="0" Outlined="true">
+    <div class="d-flex align-center flex-wrap gap-3 mb-4">
+        <MudText Typo="Typo.h6">
+            @Titulo
+        </MudText>
+        @if (_materia is not null || _etiqueta is not null || _etiqueta2 is not null || _nota is not null)
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Text" Href="revisar">Revisar tudo</MudButton>
+        }
+
+        @* REVISAR MEUS ERROS — o atalho para o outro lado do loop de fraqueza. O produto marca #errei-na-prova
+           sozinho a cada erro; isto é o que torna "hoje só reviso o que errei" um clique, e não uma URL que a
+           pessoa teria de saber montar. Só aparece quando há cartões de erro, e some quando já é este o recorte:
+           um atalho que leva a uma fila vazia — ou que repete o filtro atual — é ruído. *@
+        @if (_temErros && !EhFiltroDeErros)
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error"
+                       StartIcon="@Icons.Material.Filled.ReportProblem"
+                       Href="@($"revisar?etiqueta={ServicoDeCartoes.EtiquetaDeErro}")">Revisar meus erros</MudButton>
+        }
+
+        @* ESCOLHER A MATÉRIA TEM DE SER POSSÍVEL COM A FILA CHEIA. A lista lá embaixo só aparece quando
+           a fila acaba — ou seja, quando não há mais nada a decidir. Quem abre a tela com 37 cartões
+           vencidos e quer estudar só Contabilidade hoje precisa disto AQUI, antes do primeiro cartão.
+           Continua sem clique a mais para quem só quer começar: a fila arranca sozinha. *@
+        @if (_porMateria.Count(m => m.Vencidos > 0) > 1)
+        {
+            <MudMenu Label="Escolher matéria" Size="Size.Small" Variant="Variant.Text"
+                     EndIcon="@Icons.Material.Filled.ArrowDropDown" Dense="true">
+                @foreach (var m in _porMateria.Where(m => m.Vencidos > 0))
+                {
+                    <MudMenuItem Href="@($"revisar/{Uri.EscapeDataString(m.Materia.Nome)}")">
+                        @m.Materia.Rotulo — @m.Vencidos vencido(s)
+                    </MudMenuItem>
+                }
+            </MudMenu>
+        }
+
+        @* O TETO DIÁRIO fica aqui, ao lado da fila, e não escondido numa tela de configurações: é o
+           parâmetro que decide se a rotina sobrevive, e ele precisa ser ajustável no dia em que a
+           sessão ficou pesada demais — que é justamente quando a pessoa está nesta tela. *@
+        <MudMenu Label="@($"Novos por dia: {(_teto == 0 ? "sem teto" : _teto.ToString())}")"
+                 Size="Size.Small" Variant="Variant.Text"
+                 EndIcon="@Icons.Material.Filled.ArrowDropDown" Dense="true">
+            @foreach (var opcao in new[] { 5, 10, 20, 30, 50, 0 })
+            {
+                <MudMenuItem OnClick="@(() => DefinirTetoAsync(opcao))">
+                    @(opcao == 0 ? "Sem teto" : $"{opcao} por dia")
+                </MudMenuItem>
+            }
+        </MudMenu>
+
+        @* SUSPENDER, ao lado das notas e não escondido: a hora de tirar um cartão mal formulado da
+           frente é exatamente quando ele aparece. Sem esta saída, a pessoa responde "bom" num cartão que
+           não presta só para ele sumir — e aí a fila vira um lugar onde se mente para o algoritmo. *@
+        @if (_atual is not null)
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.PauseCircleOutline"
+                       OnClick="SuspenderAtualAsync">Suspender</MudButton>
+        }
+
+        @* CARTÃO NOVO, AQUI DENTRO.
+
+           Criar cartão só existia dentro do editor, atrás de um ícone — e é revisando que se percebe o
+           que falta ("isto aqui devia ter um cartão"). Obrigar a sair, achar a nota certa e procurar o
+           botão é obrigar a abandonar a sessão, e o cartão que se abandona é o cartão que não existe.
+
+           "Errei uma questão", ao lado, parece a mesma coisa e NÃO É: aquele carrega uma intenção — o
+           cartão nasceu de uma questão errada, vai para a nota de erros da matéria e leva a etiqueta que
+           responde "onde eu mais erro". Este não tem intenção nenhuma. Fundir os dois faria todo cartão
+           criado às pressas virar registro de erro. *@
+        <MudButton Size="Size.Small" Variant="Variant.Text"
+                   StartIcon="@Icons.Material.Filled.AddCard"
+                   OnClick="NovoCartaoAsync">Cartão novo</MudButton>
+
+        @* "Errei uma questão" fica AQUI porque é aqui que se está quando o erro dói. Também está no menu
+           da tela de notas — o gesto precisa ser alcançável de onde a pessoa estiver, e não exigir que
+           ela ache a nota certa antes. *@
+        <MudButton Size="Size.Small" Variant="Variant.Text"
+                   StartIcon="@Icons.Material.Filled.ReportProblem"
+                   OnClick="RegistrarErroAsync">Errei uma questão</MudButton>
+
+        @* DESFAZER — responder era a única ação irreversível deste ciclo, e é feita com o polegar, em
+           sequência. Aparece SÓ depois de responder, e diz QUAL cartão vai voltar: "desfazer" sozinho,
+           depois de trinta cartões, é um botão que ninguém tem coragem de apertar. *@
+        @if (_desfazivel is { } desfazer)
+        {
+            <MudTooltip Text="@($"Volta \"{CartaoProblema.Resumir(desfazer.Frente)}\" ao agendamento que tinha")">
+                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Secondary"
+                           StartIcon="@Icons.Material.Filled.Undo"
+                           Disabled="_gravando" OnClick="DesfazerAsync">Desfazer</MudButton>
+            </MudTooltip>
+        }
+
+        <MudSpacer />
+        @if (_fila.Count > 0)
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">@_fila.Count por revisar</MudText>
+        }
+    </div>
+
+    @if (_carregando)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (_atual is null)
+    {
+        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-4">
+            @(_revisados > 0
+                ? $"Acabou por hoje — {_revisados} cartão(ões) revisado(s)."
+                : "Nenhum cartão vencido agora.")
+
+            @* Dizer que sobraram inéditos é o que impede o teto de parecer um defeito. Sem esta linha,
+               alguém que escreveu 37 cartões veria 20 e acharia que os outros se perderam. *@
+            @if (_teto > 0 && _ineditosSegurados > 0)
+            {
+                <div class="mt-2">
+                    <b>@_ineditosSegurados cartão(ões) inédito(s)</b> ficaram para os próximos dias — é o
+                    teto de @_teto por dia segurando a dívida de revisão. Dá para mudá-lo ali em cima.
+                </div>
+            }
+        </MudAlert>
+
+        @* A lista por matéria é o "por onde começo hoje". Fica aqui, e não numa tela à parte, porque é
+           exatamente o que se quer ver quando a fila termina ou quando ela nem começou. *@
+        @if (_porMateria.Count > 0)
+        {
+            <MudText Typo="Typo.overline" Class="d-block">Cartões por matéria</MudText>
+            <MudList T="string" Dense="true">
+                @foreach (var m in _porMateria)
+                {
+                    <MudListItem T="string" Href="@($"revisar/{Uri.EscapeDataString(m.Materia.Nome)}")"
+                                 Icon="@(m.Vencidos > 0 ? Icons.Material.Filled.Schedule : Icons.Material.Filled.Done)"
+                                 IconColor="@(m.Vencidos > 0 ? Color.Warning : Color.Success)">
+                        <MudText Typo="Typo.body2">
+                            @m.Materia.Rotulo — <b>@m.Vencidos</b> vencido(s) de @m.Total
+                        </MudText>
+                    </MudListItem>
+                }
+            </MudList>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                Nenhum cartão no vault ainda. Escreva <code>Pergunta::Resposta</code> numa nota — ou
+                a pergunta, uma linha com <code>?</code>, e a resposta — e ela vira cartão.
+                O formato é o do plugin de repetição espaçada do Obsidian, então os mesmos cartões
+                funcionam lá.
+            </MudText>
+        }
+    }
+    else
+    {
+        @* POR QUE ESTA ORDEM. A fila passou a ouvir o registro de estudo — a matéria em que se perde
+           desempenho vem primeiro, DENTRO de cada dia de vencimento. Uma fila que se reordena em
+           silêncio é pior que uma que não se reordena: a pessoa vê uma matéria que não escolheu e conclui
+           que o sistema está confuso, não que ele está ajudando. Ver OndeVocePerde. *@
+        @if (_motivoDaOrdem is { Length: > 0 } motivo)
+        {
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.TrendingDown" Size="Size.Small" Class="mr-1" />@motivo
+            </MudText>
+        }
+
+        <MudPaper Class="pa-6 mb-4" Outlined="true" Style="min-height:36vh">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                @_atual.Nota.Nome · @Materia.De(_atual.Nota).Rotulo
+            </MudText>
+
+            <MudText Typo="Typo.h5" Class="mt-3">@_atual.Frente</MudText>
+
+            @if (_revelado)
+            {
+                @* O AVISO SÓ DEPOIS DE REVELAR, e a razão é a mecânica da revisão: mostrá-lo junto com a
+                   pergunta contaria que este é "o cartão difícil" antes de a pessoa tentar lembrar — e o
+                   esforço de recuperar da memória é o mecanismo inteiro da repetição espaçada.
+
+                   E ele aparece AQUI, no cartão, e não numa lista noutra tela: a hora de decidir
+                   reescrever um cartão ruim é a hora em que ele está na sua frente pela sétima vez. Ver
+                   CartaoProblema. *@
+                @if (CartaoProblema.Diagnostico(_atual) is { Length: > 0 } diagnostico)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mt-4">
+                        @diagnostico
+                        <div class="mt-2">
+                            <MudButton Size="Size.Small" Variant="Variant.Text"
+                                       StartIcon="@Icons.Material.Filled.EditNote"
+                                       Href="@Rotas.Nota(_atual.Nota)">Abrir a nota e reescrever</MudButton>
+                        </div>
+                    </MudAlert>
+                }
+
+                <MudDivider Class="my-4" />
+                @* white-space:pre-wrap preserva as quebras do verso de bloco: uma resposta de três linhas
+                   escrita em três linhas tem de aparecer em três linhas. *@
+                <MudText Typo="Typo.body1" Style="white-space:pre-wrap">@_atual.Verso</MudText>
+            }
+        </MudPaper>
+
+        @* AS TECLAS SÃO ESCRITAS NOS BOTÕES, e não só documentadas: atalho que ninguém vê é atalho que
+           ninguém usa — a mesma regra do "[[" e do botão de ligar. O <kbd> é discreto de propósito;
+           quem revisa de mouse não é atrapalhado por ele. Ver js/revisao.js. *@
+        @if (!_revelado)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large"
+                       OnClick="@(() => _revelado = true)">Mostrar resposta&nbsp;<kbd class="tecla">espaço</kbd></MudButton>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">
+                Tente lembrar antes de virar — é o esforço de lembrar que fixa, não a leitura.
+            </MudText>
+        }
+        else
+        {
+            <div class="d-flex flex-wrap gap-2">
+                <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="_gravando"
+                           OnClick="@(() => ResponderAsync(Resposta.Errei))">Errei&nbsp;<kbd class="tecla">1</kbd></MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Warning" Disabled="_gravando"
+                           OnClick="@(() => ResponderAsync(Resposta.Dificil))">Difícil&nbsp;<kbd class="tecla">2</kbd></MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_gravando"
+                           OnClick="@(() => ResponderAsync(Resposta.Bom))">Bom&nbsp;<kbd class="tecla">3</kbd></MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Success" Disabled="_gravando"
+                           OnClick="@(() => ResponderAsync(Resposta.Facil))">Fácil&nbsp;<kbd class="tecla">4</kbd></MudButton>
+            </div>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">
+                @_previsao
+            </MudText>
+        }
+
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-4">
+            <MudLink Href="@($"notas/{_atual.Nota.Valor}")">Abrir a nota deste cartão</MudLink>
+            — o agendamento é gravado no próprio arquivo, e o Obsidian lê o mesmo.
+        </MudText>
+    }
+</MudPaper>
+
+@* —— OS GUARDADOS ——
+   A volta do suspender. Sem esta seção, suspender era porta sem volta: o botão existia e nenhuma tela
+   listava os suspensos nem os devolvia — cartão que some com um clique não está "guardado", está
+   apagado com outro nome. A lista carrega SÓ quando aberta: é uma varredura do vault, e quem nunca
+   suspendeu nada não paga por ela. *@
+<MudPaper Class="pa-4 mt-3" Elevation="0" Outlined="true">
+    <div class="d-flex align-center gap-2">
+        <MudButton Variant="Variant.Text" Size="Size.Small"
+                   StartIcon="@(_mostrandoSuspensos ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
+                   OnClick="AlternarSuspensosAsync">
+            Cartões suspensos@(_suspensos is null ? "" : $" ({_suspensos.Count})")
+        </MudButton>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+            guardados fora da fila, com o agendamento intacto
+        </MudText>
+    </div>
+
+    @if (_mostrandoSuspensos)
+    {
+        @if (_carregandoSuspensos)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+        else if (_suspensos is { Count: 0 })
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mt-2">
+                Nenhum. O botão "Suspender" de um cartão aberto o traz para cá.
+            </MudText>
+        }
+        else if (_suspensos is not null)
+        {
+            <MudList T="string" Dense="true" Class="mt-1">
+                @foreach (var s in _suspensos)
+                {
+                    <MudListItem T="string">
+                        <div class="d-flex align-center gap-2 flex-wrap">
+                            <div style="min-width:0">
+                                <MudText Typo="Typo.body2"><b>@CartaoProblema.Resumir(s.Frente)</b></MudText>
+                                <MudLink Typo="Typo.caption" Href="@($"notas/{s.Nota.Valor}")">@s.Nota.Valor</MudLink>
+                            </div>
+                            <MudSpacer />
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Replay" Disabled="_gravando"
+                                       OnClick="@(() => DevolverAFilaAsync(s))">Devolver à fila</MudButton>
+                        </div>
+                    </MudListItem>
+                }
+            </MudList>
+        }
+    }
+</MudPaper>
+
+@code {
+    /// <summary>Nome da matéria vindo da rota. Chamado "Nome", e não "Materia", porque um parâmetro
+    /// com o nome do tipo o sombreia dentro do componente e "Materia.De(...)" deixa de compilar.</summary>
+    [Parameter] public string? Nome { get; set; }
+
+    /// <summary>
+    /// Etiqueta na QUERY — "revisar?etiqueta=errei-na-prova". Na query e não na rota porque compõe com
+    /// a matéria do caminho, e porque o recorte precisa ser ENDEREÇO: "revisar meus erros de prova" tem
+    /// de caber num favorito. Inválida na URL degrada para a fila inteira, sem erro — mesma regra das
+    /// outras telas.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "etiqueta")] public string? EtiquetaPedida { get; set; }
+
+    /// <summary>
+    /// A SEGUNDA etiqueta — "revisar?etiqueta=pegadinha&amp;e2=errei-na-prova" é a INTERSEÇÃO: só os
+    /// cartões de notas com as duas. É o recorte que a linha do mapa de etiquetas oferece, e ele diz
+    /// mais que qualquer etiqueta sozinha. Sem a primeira, vale sozinha — URL montada à mão não pode
+    /// depender da ordem dos parâmetros.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "e2")] public string? Etiqueta2Pedida { get; set; }
+
+    /// <summary>
+    /// O recorte mais fino: a fila de UMA nota — "revisar?nota=Direito/Prescrição.md". É o caminho que a
+    /// tela de leitura e o grafo usam para pular do conhecimento escrito direto ao treino dele. Caminho
+    /// inválido na URL degrada para a fila inteira, sem erro — mesma regra dos outros recortes.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "nota")] public string? NotaPedida { get; set; }
+
+    private CaminhoNota? _nota;
+
+    private Materia? _materia;
+    private Etiqueta? _etiqueta;
+    private Etiqueta? _etiqueta2;
+
+    /// <summary>Há cartões de erro no vault — decide se o atalho "Revisar meus erros" aparece.</summary>
+    private bool _temErros;
+
+    /// <summary>Já estamos filtrando por #errei-na-prova? Então o atalho para ele seria repetir o filtro.</summary>
+    private bool EhFiltroDeErros =>
+        string.Equals(_etiqueta?.Valor, ServicoDeCartoes.EtiquetaDeErro, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(_etiqueta2?.Valor, ServicoDeCartoes.EtiquetaDeErro, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>As etiquetas do recorte, como o título mostra. "+" porque é E, não OU.</summary>
+    private string? RotuloDasEtiquetas => (_etiqueta, _etiqueta2) switch
+    {
+        ({ } a, { } b) => $"{a} + {b}",
+        ({ } a, null) => a.ToString(),
+        (null, { } b) => b.ToString(),
+        _ => null,
+    };
+
+    private string Titulo => _nota is not null ? $"Revisar — {_nota.Nome}" : (_materia, RotuloDasEtiquetas) switch
+    {
+        (not null, not null) => $"Revisar — {_materia.Rotulo} · {RotuloDasEtiquetas}",
+        (not null, null) => $"Revisar — {_materia.Rotulo}",
+        (null, not null) => $"Revisar — {RotuloDasEtiquetas}",
+        _ => "Revisar",
+    };
+    private IReadOnlyList<Cartao> _fila = [];
+    private int _teto = TetoDeCartoesNovos.Padrao;
+    private int _ineditosSegurados;
+
+    /// <summary>Por que esta ordem, quando o registro teve algo a dizer. Ver OndeVocePerde.</summary>
+    private string? _motivoDaOrdem;
+    private IReadOnlyList<CartoesDaMateria> _porMateria = [];
+    private Cartao? _atual;
+    private bool _revelado;
+    private bool _carregando = true;
+    private bool _gravando;
+    private int _revisados;
+
+    /// <summary>
+    /// A última resposta, e só ela.
+    ///
+    /// UMA SÓ, E NÃO UMA PILHA, de propósito. O erro que este recurso conserta é o clique errado que se
+    /// percebe NO INSTANTE seguinte — "toquei Fácil e era Errei". Desfazer cinco respostas atrás não é
+    /// esse erro: é reescrever um histórico que já foi usado para agendar outros cartões, e o resultado
+    /// seria uma fila que ninguém consegue explicar. Uma só cobre o caso real e não abre essa porta.
+    ///
+    /// <c>Agendamento</c> nulo aqui é informação, não ausência dela: quer dizer que o cartão era inédito.
+    /// </summary>
+    private sealed record Desfazivel(CaminhoNota Nota, int Linha, Agendamento? Agendamento, string Frente);
+
+    private Desfazivel? _desfazivel;
+
+    /// <summary>O que cada botão faria, calculado com o MESMO agendador que vai gravar.</summary>
+    private string _previsao = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _materia = string.IsNullOrWhiteSpace(Nome) ? null : Materia.De(Uri.UnescapeDataString(Nome));
+        _etiqueta = Etiqueta.TentarCriar(EtiquetaPedida);
+        _etiqueta2 = Etiqueta.TentarCriar(Etiqueta2Pedida);
+        _nota = !string.IsNullOrWhiteSpace(NotaPedida)
+                && CaminhoNota.TentarCriar(NotaPedida, out var caminhoPedido, out _)
+            ? caminhoPedido : null;
+        _revisados = 0;
+        await CarregarAsync();
+    }
+
+    // —— OS SUSPENSOS ————————————————————————————————————————————————————————————————
+    private bool _mostrandoSuspensos;
+    private bool _carregandoSuspensos;
+    private IReadOnlyList<Cartao>? _suspensos;
+
+    private async Task AlternarSuspensosAsync()
+    {
+        _mostrandoSuspensos = !_mostrandoSuspensos;
+        if (_mostrandoSuspensos && _suspensos is null) await RecarregarSuspensosAsync();
+    }
+
+    private async Task RecarregarSuspensosAsync()
+    {
+        _carregandoSuspensos = true;
+        try { _suspensos = await Cartoes.SuspensosAsync(); }
+        finally { _carregandoSuspensos = false; }
+    }
+
+    /// <summary>
+    /// Devolve o cartão à fila E RECARREGA A FILA: o devolvido pode estar vencido, e uma tela onde ele
+    /// saiu dos guardados mas não apareceu na fila diria que o cartão evaporou.
+    /// </summary>
+    private async Task DevolverAFilaAsync(Cartao cartao)
+    {
+        if (_gravando) return;
+        _gravando = true;
+        try
+        {
+            var r = await Cartoes.SuspenderAsync(cartao.Nota, cartao.Linha, suspenso: false);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui devolver.", Severity.Warning);
+                return;
+            }
+            Avisos.Add($"\"{CartaoProblema.Resumir(cartao.Frente)}\" voltou à fila.", Severity.Success);
+            await RecarregarSuspensosAsync();
+            await CarregarAsync();
+        }
+        finally { _gravando = false; }
+    }
+
+    // —— O TECLADO ————————————————————————————————————————————————————————————————————
+    // Espaço vira, 1/2/3/4 respondem. O módulo JS só reporta a tecla; QUEM DECIDE é aqui, com o estado
+    // de verdade — cartão virado, gravação em andamento, fila vazia. Ver js/revisao.js.
+    private IJSObjectReference? _teclado;
+    private DotNetObjectReference<Revisar>? _referencia;
+
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (!primeiraVez) return;
+        _referencia = DotNetObjectReference.Create(this);
+        _teclado = await JS.InvokeAsync<IJSObjectReference>("import", "./js/revisao.js");
+        await _teclado.InvokeVoidAsync("ligar", _referencia);
+    }
+
+    [JSInvokable]
+    public async Task AoTeclarNaRevisaoAsync(string tecla)
+    {
+        if (_carregando || _gravando || _atual is null) return;
+
+        if (!_revelado)
+        {
+            // Antes de virar, SÓ o espaço faz algo. Um dígito aqui seria responder sem ter lembrado —
+            // exatamente o gesto que a repetição espaçada existe para impedir.
+            if (tecla == "espaco") { _revelado = true; StateHasChanged(); }
+            return;
+        }
+
+        var resposta = tecla switch
+        {
+            "1" => Resposta.Errei,
+            "2" => Resposta.Dificil,
+            "3" => Resposta.Bom,
+            "4" => Resposta.Facil,
+            _ => (Resposta?)null,
+        };
+        if (resposta is null) return;
+
+        await ResponderAsync(resposta.Value);
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // O circuito pode já ter caído: descartar módulo JS em conexão morta lança, e a exceção subiria
+        // como erro do circuito sem nada de útil ter acontecido. Mesmo padrão do Grafo.
+        try
+        {
+            if (_teclado is not null)
+            {
+                await _teclado.InvokeVoidAsync("desligar");
+                await _teclado.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (OperationCanceledException) { }
+        _referencia?.Dispose();
+    }
+
+    private async Task CarregarAsync()
+    {
+        _carregando = true;
+        var hoje = await Cartoes.FilaAsync(_materia, _etiqueta, _etiqueta2, nota: _nota);
+        _fila = hoje.Cartoes;
+        _teto = hoje.Teto;
+        _ineditosSegurados = hoje.IneditosSegurados;
+        _motivoDaOrdem = hoje.MotivoDaOrdem;
+        _porMateria = await Cartoes.PorMateriaAsync();
+        _temErros = await Cartoes.TemNotasDeErroAsync();
+        Avancar();
+        _carregando = false;
+    }
+
+    /// <summary>
+    /// Muda o teto e recarrega. Recarregar é obrigatório: o teto define QUANTOS inéditos entram, então o
+    /// valor novo só significa alguma coisa depois de a fila ser remontada com ele.
+    /// </summary>
+    private async Task DefinirTetoAsync(int quantos)
+    {
+        await Preferencias.DefinirCartoesNovosPorDiaAsync(quantos);
+        await CarregarAsync();
+    }
+
+    /// <summary>
+    /// Tira o cartão da fila sem apagá-lo. O agendamento fica no arquivo — devolvê-lo depois devolve o
+    /// histórico junto.
+    /// </summary>
+    private async Task SuspenderAtualAsync()
+    {
+        if (_atual is null) return;
+
+        var alvo = _atual;
+        var r = await Cartoes.SuspenderAsync(alvo.Nota, alvo.Linha, suspenso: true);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui suspender.", Severity.Warning);
+            return;
+        }
+
+        // Dizer ONDE ele foi parar: um cartão que some sem explicação é indistinguível de um cartão
+        // apagado, e a diferença entre as duas coisas é o ponto inteiro da suspensão.
+        Avisos.Add($"Suspenso. Ele continua em \"{alvo.Nota.Nome}\", com o histórico guardado.", Severity.Info);
+        await CarregarAsync();
+    }
+
+    /// <summary>
+    /// Cartão novo, sem sair da revisão.
+    ///
+    /// O DESTINO JÁ VEM PREENCHIDO com a nota do cartão que está na tela: quem está revisando e pensa
+    /// "falta um cartão sobre isto" quase sempre quer que ele viva junto do que explica o assunto. Vem
+    /// preenchido, não imposto — o seletor continua ali para quando não for.
+    /// </summary>
+    private async Task NovoCartaoAsync()
+    {
+        var parametros = new DialogParameters<DialogoDeNovoCartao>
+        {
+            { d => d.EscolherDestino, true },
+            { d => d.DestinoSugerido, _atual?.Nota },
+        };
+
+        var d = await Dialogos.ShowAsync<DialogoDeNovoCartao>("Cartão novo", parametros);
+        var r = await d.Result;
+        if (r is null || r.Canceled || r.Data is not CaminhoNota onde) return;
+
+        // DIZ ONDE FOI PARAR, com link. Guardar algo e não dizer onde é a forma mais rápida de a pessoa
+        // parar de confiar — mesma regra do registro de erro.
+        Avisos.Add($"Cartão criado em {onde.Nome}.", Severity.Success);
+
+        // Recarrega: o cartão novo é inédito e vence hoje, então ele ENTRA na fila desta sessão (se o
+        // teto permitir). Não recarregar deixaria a tela dizendo um número e a fila entregando outro.
+        await CarregarAsync();
+    }
+
+    /// <summary>
+    /// Abre o registro de erro já com a matéria do cartão que está na tela — que é quase sempre a certa
+    /// quando o erro nasce no meio de uma revisão.
+    /// </summary>
+    private async Task RegistrarErroAsync()
+    {
+        var sugerida = _materia?.Nome ?? (_atual is null ? null : Materia.De(_atual.Nota).Nome);
+        var parametros = new DialogParameters<DialogoDeErro> { { d => d.MateriaInicial, sugerida } };
+
+        var d = await Dialogos.ShowAsync<DialogoDeErro>("Errei uma questão", parametros);
+        var r = await d.Result;
+        if (r is null || r.Canceled || r.Data is not CaminhoNota onde) return;
+
+        // Diz ONDE foi parar, com link. Guardar algo e não dizer onde é a forma mais rápida de a pessoa
+        // parar de confiar no registro.
+        Avisos.Add($"Guardado em {onde.Nome}.", Severity.Success);
+        await CarregarAsync();
+    }
+
+    /// <summary>
+    /// Devolve o último cartão respondido ao agendamento que ele tinha, e o põe de volta na frente.
+    ///
+    /// AS DUAS COISAS, e não só a primeira: consertar o arquivo e deixar o cartão fora da fila seria
+    /// desfazer pela metade — a pessoa desfez porque quer responder de novo, agora certo. Por isso a fila
+    /// é RECARREGADA do zero em vez de reinserir o cartão na lista que está na memória: só assim ele volta
+    /// com o agendamento restaurado, e não com a cópia velha que a tela tinha.
+    /// </summary>
+    private async Task DesfazerAsync()
+    {
+        if (_desfazivel is not { } d || _gravando) return;
+
+        _gravando = true;
+        try
+        {
+            var r = await Cartoes.DesfazerRespostaAsync(d.Nota, d.Linha, d.Agendamento);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui desfazer.", Severity.Warning);
+                return;
+            }
+
+            _desfazivel = null;
+            if (_revisados > 0) _revisados--;
+
+            await CarregarAsync();
+
+            // Põe o cartão desfeito na frente. Ele já está na fila — a resposta foi desfeita, então ele
+            // voltou a vencer —, e é dele que a pessoa quer tratar agora.
+            _fila = [.. _fila.Where(c => c.Nota.Equals(d.Nota) && c.Linha == d.Linha),
+                     .. _fila.Where(c => !(c.Nota.Equals(d.Nota) && c.Linha == d.Linha))];
+            Avancar();
+
+            Avisos.Add("Desfeito. O cartão voltou como estava.", Severity.Success);
+        }
+        finally
+        {
+            _gravando = false;
+        }
+    }
+
+    private void Avancar()
+    {
+        _atual = _fila.FirstOrDefault();
+        _revelado = false;
+        _previsao = _atual is null ? string.Empty : Prever(_atual);
+    }
+
+    /// <summary>
+    /// Mostra o que cada resposta faz ANTES de clicar, calculado pelo mesmo <see cref="AgendadorSM2"/>
+    /// que vai gravar. Não é enfeite: sem isso a pessoa aperta os botões no escuro e nunca entende por
+    /// que um cartão voltou no dia seguinte — e deixa de confiar no agendamento.
+    /// </summary>
+    private string Prever(Cartao cartao)
+    {
+        // O relógio do PRODUTO, não o do servidor: às 21h de Brasília ainda é hoje. Ver IRelogio.
+        var hoje = DateOnly.FromDateTime(Relogio.Agora.DateTime);
+        var atual = cartao.AgendamentoOu(hoje);
+
+        string Dias(Resposta r)
+        {
+            var d = AgendadorSM2.Proximo(atual, r, hoje).IntervaloEmDias;
+            return d == 0 ? "hoje" : d == 1 ? "1 dia" : $"{d} dias";
+        }
+
+        return $"Errei: {Dias(Resposta.Errei)} · Difícil: {Dias(Resposta.Dificil)} · " +
+               $"Bom: {Dias(Resposta.Bom)} · Fácil: {Dias(Resposta.Facil)}";
+    }
+
+    private async Task ResponderAsync(Resposta resposta)
+    {
+        if (_atual is null || _gravando) return;
+
+        _gravando = true;
+        try
+        {
+            // GUARDA O ESTADO ANTERIOR ANTES DE GRAVAR. Depois de gravar, ele não existe em lugar nenhum
+            // — a marca no .md foi por cima. `Agendamento` nulo é a informação de que o cartão era
+            // inédito, e desfazer precisa dela para APAGAR a marca em vez de escrever outra.
+            var desfazivel = new Desfazivel(_atual.Nota, _atual.Linha, _atual.Agendamento, _atual.Frente);
+
+            var r = await Cartoes.ResponderAsync(_atual.Nota, _atual.Linha, resposta);
+            if (!r.Ok)
+            {
+                // Conflito aqui é a nota tendo mudado por fora no meio da revisão. Recarregar a fila é a
+                // resposta certa: o cartão pode ter mudado de linha, ou nem existir mais.
+                Avisos.Add(r.Mensagem ?? "Não consegui gravar a revisão.", Severity.Warning);
+                await CarregarAsync();
+                return;
+            }
+
+            _desfazivel = desfazivel;
+            _revisados++;
+
+            // "Errei" devolve o cartão para a fila de hoje, e ele tem de voltar a aparecer NESTA sessão —
+            // é o ponto de errar. Por isso a fila é recarregada em vez de só avançar o índice.
+            if (resposta == Resposta.Errei)
+            {
+                _fila = (await Cartoes.FilaAsync(_materia, nota: _nota)).Cartoes;
+                // ...mas não imediatamente: reencontrar o mesmo cartão no clique seguinte é decorar a
+                // resposta de dois segundos atrás, não lembrar. Ele vai para o fim da fila.
+                _fila = [.. _fila.Where(c => !(c.Nota.Equals(_atual.Nota) && c.Linha == _atual.Linha)),
+                         .. _fila.Where(c => c.Nota.Equals(_atual.Nota) && c.Linha == _atual.Linha)];
+            }
+            else
+            {
+                _fila = _fila.Skip(1).ToList();
+            }
+
+            Avancar();
+        }
+        finally
+        {
+            _gravando = false;
+        }
+    }
+}

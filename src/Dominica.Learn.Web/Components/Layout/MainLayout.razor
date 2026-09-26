@@ -1,0 +1,44 @@
+@inherits LayoutComponentBase
+
+@* Este layout é ESTÁTICO de propósito: ele envolve também as páginas do Identity, que são formulários
+   HTML comuns, e um layout com render mode não recebe @Body (RenderFragment não é serializável).
+
+   Por isso os provedores do MudBlazor NÃO ficam aqui — ver ProvedoresDoMud, incluído por página
+   interativa.
+
+   O ESQUELETO É UMA BARRA NO TOPO, e não o painel lateral do template Blazor. Três razões, nesta
+   ordem: a marca da Dominica é uma barra marinho com fio dourado, e é assim que a plataforma se
+   apresenta; um vault de notas precisa da largura toda para editor e prévia lado a lado, e 250 px de
+   coluna fixa é justo o que falta; e a navegação daqui tem cinco itens, que cabem numa linha. *@
+
+<div class="app">
+    <header class="barra">
+        <a class="barra-marca" href="">
+            <Marca Tamanho="26" Invertida="true" />
+        </a>
+
+        <NavMenu />
+
+        @* Vaga reservada para o alternador de tema, que é `position: fixed` porque vive no
+           ProvedoresDoMud — um componente INTERATIVO, e esta barra é estática. Sem a vaga ele
+           cobriria o último item da navegação. Ver app.css → .tema-alternador. *@
+        <div class="barra-vaga-tema" aria-hidden="true"></div>
+    </header>
+
+    <main class="conteudo">
+        @* O LIMITE FICA AQUI, DENTRO DO LAYOUT, e a posição é o recurso inteiro.
+           Em volta do AuthorizeRouteView — que foi onde eu o pus primeiro — o erro leva o LAYOUT
+           junto, e a tela fica sem a barra do topo: sem menu, o "dá para navegar por ali em cima" da
+           mensagem vira mentira, e a única saída volta a ser o F5. Descoberto vendo o print do teste,
+           não lendo o código. Ver LimiteDeErro. *@
+        <LimiteDeErro>
+            @Body
+        </LimiteDeErro>
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Algo deu errado por aqui.
+    <a href="." class="reload">Recarregar</a>
+    <span class="dismiss">🗙</span>
+</div>

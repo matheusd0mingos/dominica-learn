@@ -1,0 +1,101 @@
+/* O esqueleto: barra marinho no topo, conteúdo em creme embaixo. Ver MainLayout.razor. */
+
+.app {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--ground);
+}
+
+.barra {
+    background: var(--barra-fundo);
+    color: var(--barra-tinta);
+    /* O fio dourado. É ele que faz a barra ser da Dominica e não uma barra escura qualquer. */
+    border-bottom: 2px solid color-mix(in srgb, #C9A24A 55%, transparent);
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 10px 20px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    flex-wrap: wrap;
+}
+
+.barra-marca {
+    text-decoration: none;
+    color: var(--barra-tinta);
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+}
+
+/* Reserva o canto onde o alternador de tema pousa (ele é fixed — ver MainLayout.razor). */
+.barra-vaga-tema {
+    margin-left: auto;
+    width: 40px;
+    flex: none;
+}
+
+.conteudo {
+    flex: 1;
+    padding: 20px;
+    max-width: 1600px;
+    width: 100%;
+    margin: 0 auto;
+}
+
+/* A marca: arco + wordmark. ::deep porque o SVG vem do componente Marca. */
+.barra ::deep .marca {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.barra ::deep .marca-nome {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 7px;
+    white-space: nowrap;
+}
+
+.barra ::deep .marca-nome .wordmark { font-size: 16px; }
+
+/* "Learn" NÃO é serifado nem versalete: o serifado é o nome da casa, e o módulo é uma
+   legenda dele. Igualar os dois faria parecer que "Dominica Learn" é uma outra marca. */
+.barra ::deep .marca-modulo {
+    font-size: 12.5px;
+    letter-spacing: .04em;
+    color: #C9A24A;
+    font-weight: 600;
+}
+
+@media (max-width: 700px) {
+    .barra { padding: 8px 12px; gap: 10px; }
+    .conteudo { padding: 12px; }
+    .barra ::deep .marca-nome .wordmark { font-size: 14px; }
+}
+
+/* A faixa de erro do Blazor: a única coisa na tela quando o circuito morre de vez. */
+#blazor-error-ui {
+    background: var(--perigo);
+    color: #fff;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, .2);
+    box-sizing: border-box;
+    display: none;
+    left: 0;
+    padding: .7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+#blazor-error-ui .reload { color: #fff; text-decoration: underline; margin-left: .5rem; }
+
+#blazor-error-ui .dismiss {
+    cursor: pointer;
+    position: absolute;
+    right: .75rem;
+    top: .5rem;
+}

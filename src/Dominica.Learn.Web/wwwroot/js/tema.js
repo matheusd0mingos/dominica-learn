@@ -1,0 +1,35 @@
+// Carimba a escolha de tema no <html>, para que o CSS da barra e do Identity a enxerguem.
+//
+// POR QUE PRECISA DISTO: o MudBlazor troca as variáveis DELE quando o tema muda e não deixa marca
+// nenhuma no documento — nem classe, nem atributo. Tudo que é estilizado pelo MudBlazor acompanha; a
+// barra do app, que é CSS nosso, ficaria na cor do tema anterior. O sintoma é feio e específico:
+// conteúdo escuro sob uma barra que continua clara.
+//
+// O valor é gravado no localStorage e reaplicado antes da primeira pintura (ver o inline em
+// App.razor) para não haver piscada de tela branca em quem escolheu escuro.
+export function aplicar(escuro) {
+    const tema = escuro ? 'escuro' : 'claro'
+    document.documentElement.setAttribute('data-tema', tema)
+    try { localStorage.setItem('dominica-learn-tema', tema) } catch { /* modo privado: só não lembra */ }
+}
+
+// A preferência guardada, ou null quando nunca houve escolha — aí vale a do sistema operacional.
+export function guardado() {
+    try { return localStorage.getItem('dominica-learn-tema') } catch { return null }
+}
+
+// —— PREFERÊNCIA DE LEITURA AMPLIADA ——
+//
+// Mora aqui, junto do tema, porque é a mesma natureza: preferência de VISUALIZAÇÃO, do navegador
+// daquela pessoa, que não tem por que virar linha no banco nem frontmatter da nota.
+//
+// E precisa ser lembrada: quem lê uma nota ampliada vai ler a próxima ampliada também. Sem guardar,
+// o modo se desfazia a cada nota aberta e a pessoa reclicava o botão o dia inteiro — que é o mesmo
+// que não ter o botão.
+export function ampliadaGuardada() {
+    try { return localStorage.getItem('dominica-learn-nota-ampliada') === '1' } catch { return false }
+}
+
+export function guardarAmpliada(ampliada) {
+    try { localStorage.setItem('dominica-learn-nota-ampliada', ampliada ? '1' : '0') } catch { /* modo privado: só não lembra */ }
+}

@@ -1,0 +1,18 @@
+<Project>
+
+  <!-- Ajustes que valem para TODOS os projetos do Dominica Learn. Ficam aqui, e não repetidos em cada
+       .csproj, porque a única coisa pior que uma configuração errada é a mesma configuração errada em
+       sete arquivos. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Aviso vira erro: nulo mal tratado e API obsoleta não passam do build. Custa dez minutos hoje e
+         economiza a tarde de depuração de um NullReferenceException em produção daqui a três anos. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>

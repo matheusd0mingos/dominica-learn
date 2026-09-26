@@ -1,0 +1,91 @@
+@page "/Account/RegisterConfirmation"
+
+@using System.Text
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Web.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IEnviadorDeEmail Enviador
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>Conta criada — Dominica Learn</PageTitle>
+
+@* ESTA TELA TEM DOIS ROSTOS, e qual deles aparece depende de existir servidor de e-mail.
+
+   COM ENVIO: diz para conferir a caixa de entrada, que é a verdade.
+
+   SEM ENVIO: mostra o link de confirmação NA PRÓPRIA TELA. Parece estranho e é o certo — sem
+   servidor de e-mail a mensagem não sai, e mandar a pessoa esperar por ela é trancá-la do lado de
+   fora de uma conta que ela acabou de criar. O link aparece só para quem acabou de se cadastrar,
+   nesta navegação; não é uma porta aberta para ninguém.
+
+   Isto veio do template do Blazor, onde a explicação era um link para a documentação da Microsoft.
+   Trocado por português e pela razão de ser. *@
+
+<div class="identidade-cartao">
+    <h1>Conta criada</h1>
+
+    <StatusMessage Message="@statusMessage" />
+
+    @if (linkDeConfirmacao is not null)
+    {
+        <p role="alert">
+            Este servidor não envia e-mails, então a mensagem de confirmação não vai chegar.
+            Confirme por aqui mesmo:
+        </p>
+        <p><a href="@linkDeConfirmacao">Confirmar meu e-mail</a></p>
+    }
+    else
+    {
+        <p role="alert">Confira sua caixa de entrada — mandamos um link para confirmar o e-mail.</p>
+        <p class="text-secondary small">
+            Não chegou em alguns minutos? Veja no spam; o remetente é novo para o seu provedor.
+        </p>
+    }
+
+    <p class="text-secondary small mb-0">
+        <a href="Account/Login">Ir para a entrada</a>
+    </p>
+</div>
+
+@code {
+    private string? linkDeConfirmacao;
+    private string? statusMessage;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? Email { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Email is null)
+        {
+            RedirectManager.RedirectTo("");
+            return;
+        }
+
+        var user = await UserManager.FindByEmailAsync(Email);
+        if (user is null)
+        {
+            HttpContext.Response.StatusCode = StatusCodes.Status404NotFound;
+            statusMessage = "Não encontramos uma conta com esse e-mail.";
+        }
+        else if (!Enviador.Ligado)
+        {
+            var userId = await UserManager.GetUserIdAsync(user);
+            var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
+            code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+            linkDeConfirmacao = NavigationManager.GetUriWithQueryParameters(
+                NavigationManager.ToAbsoluteUri("Account/ConfirmEmail").AbsoluteUri,
+                new Dictionary<string, object?> { ["userId"] = userId, ["code"] = code, ["returnUrl"] = ReturnUrl });
+        }
+    }
+}

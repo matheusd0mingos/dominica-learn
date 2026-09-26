@@ -1,0 +1,1271 @@
+/* ═══════════════════════════════════════════════════════════════════════════════
+   Dominica Learn — a folha de identidade.
+
+   Os tokens abaixo são PORTADOS de novo/plataforma/web/src/styles.css, não inventados
+   aqui. É a mesma marca: marinho, dourado e creme. Se um valor mudar lá, muda aqui —
+   e a única forma de isso não divergir é alguém saber que os dois arquivos existem.
+   Por isso este cabeçalho.
+
+   POR QUE OS TOKENS SEGUEM TRÊS SINAIS DIFERENTES DE TEMA:
+
+   O Learn tem dois mundos de tela. As páginas do vault são interativas e o tema delas
+   é escolhido pelo usuário no alternador (MudBlazor). As páginas do Identity — login,
+   cadastro, conta — são HTML estático e não têm MudBlazor nenhum: ali o único sinal
+   disponível é a preferência do sistema operacional.
+
+   Daí a ordem:
+     1. :root                              → claro, o padrão
+     2. @media (prefers-color-scheme: dark) → escuro do SISTEMA (governa o Identity)
+     3. :root[data-tema=...]                → a escolha DO USUÁRIO, que vence as duas
+
+   O passo 3 depende de alguém carimbar o atributo no <html>; quem faz isso é o
+   ProvedoresDoMud, ao alternar. Sem ele, o alternador mudaria os componentes do
+   MudBlazor e deixaria a barra do app na cor do tema anterior.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+    --tinta: #0E1E33;        /* marinho — a cor da marca */
+    --ouro: #C9A24A;         /* dourado — o acento */
+    --ouro-luz: #E7C877;
+    --perigo: #A32D2D;
+    --ok: #0F6E56;
+    --ground: #F7F4EE;       /* creme — o fundo da página */
+    --panel: #FFFFFF;        /* a superfície onde o conteúdo mora */
+    --panel-2: #F1EDE4;
+    --linha: #E6E4DC;
+    --ink: #1B2436;
+    --ink-soft: #6B6A64;
+    --ink-faint: #78766C;
+    --raio: 10px;
+    --sombra: 0 1px 2px rgba(14, 30, 51, .06), 0 18px 40px rgba(14, 30, 51, .07);
+    /* A barra é marinho nos DOIS temas: é a âncora da marca na tela, e uma barra que
+       muda de cor com o tema deixa de ser reconhecível como "a Dominica". */
+    --barra-fundo: #0E1E33;
+    --barra-tinta: #FFFFFF;
+    color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --tinta: #0A1626;
+        --ouro: #D8B56B;
+        --ground: #0f1720;
+        --panel: #16202b;
+        --panel-2: #1e2a37;
+        --linha: #2a3542;
+        --ink: #ECE7DB;
+        --ink-soft: #b3ab98;
+        --ink-faint: #949dab;
+        --perigo: #e0655a;
+        --ok: #3fae8c;
+        --sombra: 0 1px 2px rgba(0, 0, 0, .35), 0 10px 30px rgba(0, 0, 0, .28);
+        color-scheme: dark;
+    }
+}
+
+/* A escolha do usuário vence a do sistema — NOS DOIS SENTIDOS. Só o bloco escuro não
+   basta: quem está no escuro do sistema e pede claro precisa que o claro seja
+   reafirmado, senão o @media acima continua valendo. */
+:root[data-tema="claro"] {
+    --tinta: #0E1E33; --ouro: #C9A24A; --ground: #F7F4EE; --panel: #FFFFFF;
+    --panel-2: #F1EDE4; --linha: #E6E4DC; --ink: #1B2436; --ink-soft: #6B6A64;
+    --ink-faint: #78766C; --perigo: #A32D2D; --ok: #0F6E56;
+    --sombra: 0 1px 2px rgba(14, 30, 51, .06), 0 18px 40px rgba(14, 30, 51, .07);
+    color-scheme: light;
+}
+
+:root[data-tema="escuro"] {
+    --tinta: #0A1626; --ouro: #D8B56B; --ground: #0f1720; --panel: #16202b;
+    --panel-2: #1e2a37; --linha: #2a3542; --ink: #ECE7DB; --ink-soft: #b3ab98;
+    --ink-faint: #949dab; --perigo: #e0655a; --ok: #3fae8c;
+    --sombra: 0 1px 2px rgba(0, 0, 0, .35), 0 10px 30px rgba(0, 0, 0, .28);
+    color-scheme: dark;
+}
+
+/* ── o Bootstrap fala Dominica ────────────────────────────────────────────────
+   As páginas do Identity são Bootstrap cru, e há dezoito delas. Reescrever a marcação
+   de todas seria o caminho longo para o mesmo lugar; o Bootstrap 5 lê variáveis, então
+   apontá-las para os tokens da marca reveste as dezoito de uma vez.
+
+   Isto não é "tema do Bootstrap por preguiça": é a fronteira única entre uma biblioteca
+   de terceiros e a identidade. Quando o Identity for reescrito em MudBlazor, este bloco
+   sai inteiro e nada mais precisa mudar. */
+:root {
+    --bs-body-bg: var(--ground);
+    --bs-body-color: var(--ink);
+    --bs-border-color: var(--linha);
+    --bs-primary: var(--tinta);
+    --bs-link-color: var(--tinta);
+    --bs-link-hover-color: var(--ouro);
+    --bs-border-radius: var(--raio);
+}
+
+html, body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--ground);
+    color: var(--ink);
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+
+    /* O SAFARI DO iPHONE INFLA TEXTO SOZINHO, e foi isso que embaralhou o grafo no celular.
+       O "text autosizing" aumenta o texto que ele julga pequeno demais para ler — SEM aumentar o resto
+       do desenho. Num parágrafo isso é ajuda; num SVG é destruição: as bolinhas ficam do tamanho que
+       estavam e os nomes triplicam, então rótulo entra por cima de rótulo e o mapa vira uma mancha.
+       Medido: os mesmos 36 nós vão de 9 para 27 pares de rótulos sobrepostos só com o texto inflado.
+
+       100% e não "none": "none" também desliga o ajuste quando a pessoa gira o telefone, e aí o texto
+       de leitura fica pequeno de verdade na horizontal. Aqui só se pede para o navegador não inventar
+       um tamanho — o nosso já é escolhido, e o desenho depende dele.
+
+       Os três prefixos são três navegadores, não redundância: -webkit- pega o Safari do iPhone, -moz-
+       pega o Firefox do Android (que infla texto igual e quebraria o grafo do mesmo jeito) e a forma sem
+       prefixo é a padrão. O Firefox de desktop não implementa a padrão e reclama dela no console — mas
+       lá não existe inflação nenhuma, então não se perde nada, e é o aviso que se prefere a tirar a
+       propriedade certa do arquivo. */
+    -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+}
+
+/* O serifado é da marca — títulos e wordmark, nunca corpo de texto. */
+.wordmark {
+    font-family: Georgia, "Times New Roman", serif;
+    letter-spacing: .18em;
+    font-weight: 600;
+}
+
+h1, h2, h3 {
+    font-family: Georgia, "Times New Roman", serif;
+    letter-spacing: .01em;
+    color: var(--ink);
+}
+
+a { color: var(--tinta); }
+a:hover { color: var(--ouro); }
+:root[data-tema="escuro"] a, :root[data-tema="escuro"] a:hover { color: var(--ouro); }
+@media (prefers-color-scheme: dark) { a { color: var(--ouro); } }
+
+.btn-primary {
+    color: #fff;
+    background-color: var(--tinta);
+    border-color: var(--tinta);
+}
+.btn-primary:hover, .btn-primary:focus {
+    background-color: #16304f;
+    border-color: #16304f;
+}
+.btn:focus, .btn:active:focus, .btn-link.nav-link:focus,
+.form-control:focus, .form-check-input:focus {
+    box-shadow: 0 0 0 .2rem color-mix(in srgb, var(--ouro) 45%, transparent);
+    border-color: var(--ouro);
+}
+
+/* O <h1> de cada página nasce com tabindex="-1" e o Blazor o FOCA ao navegar (FocusOnNavigate),
+   para que o leitor de tela anuncie a tela nova. O efeito colateral é o anel de foco padrão do
+   navegador desenhado em volta do título — que na tela de login parecia um campo de formulário
+   vazio escrito "Entrar".
+
+   `:focus-visible` NÃO resolve isto, e eu tentei: o Chrome trata o foco programático de um <h1>
+   como "visível" e desenha o anel do mesmo jeito. O que resolve é mirar o `tabindex="-1"`, e o
+   raciocínio fecha: tabindex negativo quer dizer que o elemento NÃO é alcançável pelo Tab, então
+   não há navegação por teclado para sinalizar ali. Nenhum anel se perde. */
+h1[tabindex="-1"]:focus, h2[tabindex="-1"]:focus { outline: none; }
+
+/* E o anel de foco de quem navega por teclado, no dourado da marca — o padrão do navegador é
+   um contorno fino que some sobre o creme. */
+:focus-visible {
+    outline: 2px solid var(--ouro);
+    outline-offset: 2px;
+}
+
+.valid.modified:not([type=checkbox]) { outline: 1px solid var(--ok); }
+.invalid { outline: 1px solid var(--perigo); }
+.validation-message { color: var(--perigo); }
+
+/* ── as duas telas de falha ───────────────────────────────────────────────────
+   Elas aparecem no pior momento possível e vinham do template, em inglês. Um app que
+   fala português a não ser quando quebra é onde o usuário menos consegue se virar. */
+.blazor-error-boundary {
+    background: var(--perigo);
+    color: #fff;
+    border-radius: var(--raio);
+    padding: 1rem 1.25rem;
+}
+.blazor-error-boundary::after { content: "Alguma coisa deu errado nesta parte da tela."; }
+
+/* ── o alternador de tema ─────────────────────────────────────────────────────
+   Ele é `position: fixed` porque vive no ProvedoresDoMud, que é interativo, enquanto a barra
+   é estática — um botão com clique não pode nascer dentro dela. O MainLayout reserva a vaga
+   (.barra-vaga-tema) e estas coordenadas o assentam lá dentro. Se a altura da barra mudar,
+   este `top` muda junto; é o preço do arranjo, e ele está escrito aqui para não virar mistério. */
+.tema-alternador {
+    position: fixed;
+    top: 6px;
+    right: 12px;
+    z-index: 200;
+    line-height: 0;
+}
+
+/* O <span> é só a âncora; quem se pinta é o botão do MudBlazor dentro dele. */
+.tema-alternador .mud-icon-button { color: #fff; }
+.tema-alternador .mud-icon-button:hover { background: rgba(201, 162, 74, .22); }
+
+@media (max-width: 700px) {
+    .tema-alternador { top: 5px; right: 8px; }
+}
+
+/* ── o Identity dentro da moldura ─────────────────────────────────────────────
+   As páginas de login/cadastro são <h1> + formulário Bootstrap solto na página. Envelopá-las
+   num cartão centrado é o que as faz parecer parte do mesmo produto que a barra acima. */
+.conteudo > h1:first-child,
+.conteudo > h2:first-child { margin-top: 0; }
+
+.identidade-cartao {
+    max-width: 460px;
+    margin: 6vh auto;
+    background: var(--panel);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    box-shadow: var(--sombra);
+    padding: 30px 32px;
+}
+
+.identidade-cartao h1, .identidade-cartao h2 { margin-top: 0; font-size: 1.45rem; }
+.identidade-cartao hr { border-color: var(--linha); }
+
+/* ── o editor no tema escuro ──────────────────────────────────────────────────
+   O CodeMirror traz o tema CLARO embutido no codemirror.css e não olha para o resto da página:
+   no tema escuro o app inteiro escurecia e o editor continuava um retângulo branco no meio da
+   tela. Num app cujo tema escuro existe para estudar de madrugada, o retângulo branco é
+   exatamente a superfície onde os olhos ficam.
+
+   Isto é uma repintura por TOKENS, e não mais um arquivo de tema do CodeMirror: assim o editor
+   segue o mesmo `data-tema` que o resto e não há um segundo lugar para manter em sincronia.
+   Sem escopo `.CodeMirror` fora daqui — estes seletores existem só neste bloco. */
+:root[data-tema="escuro"] .CodeMirror,
+:root[data-tema="escuro"] .CodeMirror-gutters {
+    background: var(--panel);
+    color: var(--ink);
+    border-color: var(--linha);
+}
+
+:root[data-tema="escuro"] .CodeMirror-gutters { border-right-color: var(--linha); }
+:root[data-tema="escuro"] .CodeMirror-linenumber { color: var(--ink-faint); }
+
+/* ── ONDE ESTÁ O CURSOR ───────────────────────────────────────────────────────
+   O padrão do CodeMirror é `border-left: 1px solid black`. Um fio de 1px preto, piscando, no meio de
+   uma nota de trinta linhas: em monitor grande a pessoa perde o cursor toda vez que olha para o teclado,
+   e editar vira caçar. Foi exatamente essa a reclamação.
+
+   Duas mudanças, e as duas juntas é que resolvem:
+
+     1. O CURSOR ENGROSSA e ganha a cor da tinta do tema — dobro da largura, contraste máximo contra o
+        fundo. Vale para os dois temas numa regra só: --ink já é escuro no claro e claro no escuro.
+     2. A LINHA ATUAL GANHA FUNDO. Isto é o que de fato conserta, porque o cursor PISCA — metade do
+        tempo ele não está lá para ser achado. A faixa não pisca: ela diz onde você está mesmo no
+        intervalo em que o traço sumiu. Quem liga a classe é o editor.js, num punhado de linhas; o
+        addon do CodeMirror faria o mesmo e traria um arquivo a mais para versionar. */
+/* `.CodeMirror .CodeMirror-cursor` e não `.CodeMirror-cursor`: o codemirror.css é injetado pelo
+   editor.js SOB DEMANDA, ou seja, DEPOIS deste arquivo — com a mesma especificidade, quem chega por
+   último vence, e o `border-left: 1px solid black` dele apagaria a regra abaixo. Foi o que aconteceu na
+   primeira tentativa deste conserto, e é também por isso que a regra do tema escuro funcionava havia
+   meses: ela já tinha um seletor a mais (`:root[data-tema=...]`) e ganhava por acidente. */
+.CodeMirror .CodeMirror-cursor {
+    border-left-width: 2px;
+    border-left-color: var(--ink);
+}
+
+.CodeMirror-activeline-background {
+    background: color-mix(in srgb, var(--ouro) 10%, transparent);
+}
+
+/* A seleção do CodeMirror é uma <div> pintada atrás do texto, não a seleção nativa: o azul-claro
+   padrão sobre fundo escuro apaga o que está selecionado. */
+:root[data-tema="escuro"] .CodeMirror-selected { background: #33415280; }
+:root[data-tema="escuro"] .CodeMirror-focused .CodeMirror-selected { background: #3a4a5f; }
+:root[data-tema="escuro"] .CodeMirror-line::selection,
+:root[data-tema="escuro"] .CodeMirror-line > span::selection { background: #3a4a5f; }
+
+/* O realce de sintaxe do Markdown, no dourado e nos tons da marca. */
+:root[data-tema="escuro"] .cm-header { color: var(--ouro); }
+:root[data-tema="escuro"] .cm-quote { color: #8fb99a; }
+:root[data-tema="escuro"] .cm-link { color: #7fb3e8; }
+:root[data-tema="escuro"] .cm-url { color: var(--ink-faint); }
+:root[data-tema="escuro"] .cm-comment { color: var(--ink-faint); }
+:root[data-tema="escuro"] .cm-string { color: #d8a0a0; }
+:root[data-tema="escuro"] .cm-variable-2 { color: #c8b48a; }
+:root[data-tema="escuro"] .cm-tag { color: #d18f6a; }
+:root[data-tema="escuro"] .CodeMirror-activeline-background { background: #1e2a37; }
+/* Sem a linha ativa, o único sinal seria o traço piscando — ver o bloco do cursor, acima. */
+
+/* O realce de código da PRÉVIA vem do github.min.css, que também só conhece o claro. Aqui basta
+   consertar o fundo: as cores das palavras do tema GitHub claro seguem legíveis sobre este tom. */
+:root[data-tema="escuro"] .hljs,
+:root[data-tema="escuro"] pre code {
+    background: #0f1720;
+    color: var(--ink);
+}
+
+/* ── a porta de entrada ───────────────────────────────────────────────────────
+   Centrada e curta de propósito: quem chega aqui ou já sabe o que quer (e clica), ou não sabe
+   o que é isto (e precisa de três linhas, não de uma página de vendas). */
+.entrada {
+    max-width: 620px;
+    margin: 8vh auto;
+    text-align: center;
+    padding: 0 20px;
+}
+
+.entrada > span.marca { display: inline-flex; justify-content: center; }
+
+.entrada h1 {
+    font-family: Georgia, "Times New Roman", serif;
+    letter-spacing: .12em;
+    font-size: 2rem;
+    margin: 18px 0 6px;
+    text-transform: uppercase;
+}
+
+.entrada-modulo {
+    color: var(--ouro);
+    letter-spacing: .04em;
+    text-transform: none;
+    font-size: 1.5rem;
+}
+
+.entrada-texto {
+    color: var(--ink-soft);
+    font-size: 1.02rem;
+    line-height: 1.6;
+    margin: 0 auto 28px;
+    max-width: 520px;
+}
+
+.entrada-acoes {
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.entrada-botao {
+    background: var(--tinta);
+    color: #fff !important;
+    text-decoration: none;
+    padding: 11px 26px;
+    border-radius: var(--raio);
+    font-weight: 600;
+    box-shadow: var(--sombra);
+}
+
+.entrada-botao:hover { background: #16304f; color: #fff !important; }
+
+/* No tema escuro a primária é o dourado (ver TemaDominica): marinho sobre #0f1720 sumiria. */
+:root[data-tema="escuro"] .entrada-botao { background: var(--ouro); color: #0E1E33 !important; }
+:root[data-tema="escuro"] .entrada-botao:hover { background: #E7C877; }
+@media (prefers-color-scheme: dark) {
+    :root:not([data-tema="claro"]) .entrada-botao { background: var(--ouro); color: #0E1E33 !important; }
+}
+
+.entrada-link { color: var(--tinta); text-decoration: none; font-size: .95rem; }
+.entrada-link:hover { text-decoration: underline; }
+
+/* Os controles de zoom do grafo, sobre o desenho. Ficam no canto oposto ao da legenda para não
+   disputar espaço com ela, e são translúcidos porque o grafo é o conteúdo — eles são ferramenta. */
+.grafo-controles {
+    position: absolute;
+    top: 52px;
+    right: 14px;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    padding: 2px;
+}
+
+/* ── O FOCO NOS PONTOS DOS MAPAS ──────────────────────────────────────────────
+   Os pontos do grafo e do mapa de etiquetas entram no Tab (tabindex + role="link"). Sem marca
+   visível, isso é pior que nada: a pessoa teclaria Tab dezenas de vezes sem saber onde está, e
+   apertaria Enter às cegas — abrindo uma nota qualquer.
+
+   O contorno vai no CÍRCULO, e não no <g>: o outline padrão do navegador desenha a caixa que envolve
+   o ponto E o rótulo de texto abaixo dele, um retângulo torto que não parece marcar nada. Um anel no
+   próprio círculo é o que diz "este ponto". Cor de destaque, e grosso o bastante para vencer o anel
+   tracejado da nota órfã, que ocupa o mesmo lugar.
+
+   :focus-visible e não :focus — quem clicou com o mouse não precisa do anel, e ele apareceria a cada
+   clique no grafo. */
+.no-do-grafo:focus { outline: none; }
+
+.no-do-grafo:focus-visible { outline: none; }
+
+/* O ANEL É UM CÍRCULO PRÓPRIO, FORA DO PONTO, e não um contorno mais grosso nele.
+
+   A primeira tentativa engrossou a borda do próprio ponto em dourado, com uma sombra por trás. No
+   navegador virou um borrão: o dourado é quase o laranja da matéria Contabilidade, e a sombra
+   desfocada leu como mancha, não como marca. Foco que se confunde com o desenho é foco que não
+   existe — e o pior lugar para ele sumir é o aglomerado mais denso, que é onde mais se navega.
+
+   Separado e maior, ele não disputa nada: não usa a cor do ponto (que é a matéria), não usa a borda
+   (que é a nota órfã) e fica na cor do texto — preta no claro, branca no escuro —, o único par que
+   contrasta com todos os tons da paleta E com o fundo dos dois temas. */
+.anel-de-foco { stroke: none; fill: none; }
+
+.no-do-grafo:focus-visible .anel-de-foco {
+    stroke: var(--mud-palette-text-primary);
+    stroke-width: 2;
+}
+
+/* Pular o desenho. Num vault de anos são centenas de pontos, e cada um é uma parada do Tab: sem esta
+   saída, chegar à legenda ou ao "só as órfãs" logo abaixo custaria centenas de teclas. Some da tela
+   até receber foco — é para quem está no teclado, e só aparece quando essa pessoa chega nele. */
+.pular-grafo {
+    position: absolute;
+    left: -9999px;
+    z-index: 3;
+}
+
+.pular-grafo:focus {
+    left: 12px;
+    top: 12px;
+    padding: 6px 10px;
+    background: var(--panel);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    color: var(--tinta);
+}
+
+/* O rótulo do ponto em foco fica legível mesmo quando ele não era um dos nomeados: sem isto, focar um
+   ponto sem rótulo mostra o anel e nenhum nome — e o nome está só no aria-label, que quem enxerga não
+   lê. */
+.no-do-grafo:focus-visible > g > text { font-weight: 700; }
+
+/* APONTAR TEM DE FAZER ALGUMA COISA. Sem isto o mapa parecia morto: passar o mouse não dava retorno
+   nenhum, só o clique reagia. Agora o ponto cresce um pouco sob o cursor e o rótulo encorpa — o
+   feedback que diz "este alvo é vivo, dá para tocar".
+
+   O `transform-box: fill-box` com origem no centro é a fórmula que faz o SVG escalar o círculo em
+   torno DELE MESMO, e não do canto do desenho — sem ela, o ponto "escorregaria" ao crescer. Escala só
+   o CÍRCULO (cada um em torno do próprio centro), não o grupo inteiro, para o rótulo não deslizar
+   junto com o texto que fica abaixo dele. */
+.no-do-grafo > circle {
+    transition: transform .1s ease;
+    transform-box: fill-box;
+    transform-origin: center;
+}
+
+.no-do-grafo:hover > circle { transform: scale(1.18); }
+.no-do-grafo:hover text { font-weight: 700; }
+
+/* A tecla escrita no botão (revisão: espaço, 1–4). Atalho que ninguém vê é atalho que ninguém usa —
+   e um <kbd> discreto dentro do botão ensina sem aula. Herda a cor do botão com transparência para
+   funcionar sobre qualquer uma das quatro cores de resposta. */
+kbd.tecla {
+    font-family: inherit;
+    font-size: .72em;
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
+    opacity: .75;
+}
+
+/* O item sob as setas no abridor rápido. Sem marca visível, navegar de teclado é digitar às cegas. */
+.busca-rapida-atual {
+    background: color-mix(in srgb, var(--ouro) 18%, transparent) !important;
+    border-left: 3px solid var(--ouro);
+}
+
+/* ── O TAMANHO DO EDITOR ──────────────────────────────────────────────────────
+   O codemirror.css traz `.CodeMirror { height: 300px }` — uma altura FIXA, escolhida por ele para
+   servir de exemplo na documentação. Enquanto ninguém a sobrescrevesse, toda nota era editada por
+   uma fresta de 300px dentro de um cartão de 530: a partir da vigésima linha o texto passava a rolar
+   DENTRO da caixa, e aparecia a barra de rolagem nativa do navegador colada na margem direita —
+   escura, quando o sistema está no escuro, porque a barra nativa segue o `color-scheme` e não o
+   tema da página. É a faixa escura que parecia um elemento a mais na tela e era uma barra de rolagem.
+
+   O estrago maior não era o visual. Uma nota de estudo é longa por natureza, e revisá-la por uma
+   janelinha que rola sozinha enquanto se digita é o que faz "não consigo editar direito".
+
+   `height: auto` devolve o comportamento certo: o editor CRESCE com a nota, quem rola é a página, e
+   não existe mais rolagem dentro de rolagem. O `min-height` é para a nota curta não virar uma tira
+   de duas linhas — a área de escrita precisa parecer uma folha, e um alvo de clique grande é o que
+   permite clicar "no fim do texto" sem mirar. */
+.col-editor .CodeMirror {
+    height: auto;
+}
+
+/* Só o mínimo, e MAIS NADA aqui. O codemirror.css combina `margin-bottom: -50px` no scroll com um
+   `padding-bottom` de mesmo tamanho para esconder a barra nativa; mexer num dos dois desfaz o par e
+   sobra rolagem interna — 42px dela, medidos, na primeira tentativa deste conserto. */
+.col-editor .CodeMirror-scroll {
+    min-height: 55vh;
+}
+
+/* A lista do autocompletar de [[ ]].
+
+   Ela mora no <body> e não dentro do editor — de dentro, o overflow do CodeMirror a recortaria. O
+   preço é que nenhum CSS com escopo a alcança, e por isso as regras estão aqui. */
+.cm-ligacoes {
+    position: absolute;
+    z-index: 2000;
+    min-width: 260px;
+    max-width: 420px;
+    max-height: 260px;
+    overflow-y: auto;
+    background: var(--panel);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    box-shadow: var(--sombra);
+    padding: 4px;
+    font-size: .9rem;
+}
+
+.cm-ligacoes-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    /* A pasta pode ser longa; o nome nunca deve ser empurrado para fora por causa dela. */
+    overflow: hidden;
+}
+
+.cm-ligacoes-nome {
+    color: var(--ink);
+    white-space: nowrap;
+}
+
+.cm-ligacoes-pasta {
+    color: var(--ink-faint);
+    font-size: .8em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* O item sob as setas. Mesma marca do abridor rápido de propósito: são o mesmo gesto — escolher uma
+   nota de uma lista com o teclado — e aprender duas linguagens visuais para isso seria uma a mais. */
+.cm-ligacoes-atual {
+    background: color-mix(in srgb, var(--ouro) 18%, transparent);
+    box-shadow: inset 3px 0 0 var(--ouro);
+}
+
+.cm-ligacoes-item:hover {
+    background: color-mix(in srgb, var(--ouro) 10%, transparent);
+}
+
+/* Uma menção não ligada no painel lateral. O trecho de frase é o que permite decidir sem abrir a outra
+   nota — e por isso ele pode quebrar em várias linhas, ao contrário de tudo o mais no painel. */
+.mencao {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--linha);
+}
+
+.mencao:last-of-type {
+    border-bottom: none;
+}
+
+.mencao-nota {
+    font-weight: 600;
+}
+
+/* A árvore de etiquetas. */
+.etiqueta-linha {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.etiqueta-linha:hover {
+    background: color-mix(in srgb, var(--ouro) 10%, transparent);
+}
+
+.etiqueta-atual {
+    background: color-mix(in srgb, var(--ouro) 18%, transparent);
+    box-shadow: inset 3px 0 0 var(--ouro);
+}
+
+/* Reserva o mesmo espaço da setinha nas folhas: sem isto, os rótulos de níveis irmãos ficam
+   desalinhados conforme um tenha filhos e o outro não, e a árvore deixa de parecer uma árvore. */
+.etiqueta-abrir,
+.etiqueta-abrir-vazio {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+}
+
+.etiqueta-abrir {
+    cursor: pointer;
+    color: var(--ink-faint);
+}
+
+.etiqueta-rotulo {
+    flex: 1;
+    color: var(--ink);
+}
+
+.etiqueta-conta {
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.etiqueta-proprias {
+    color: var(--ink-faint);
+    font-size: .78em;
+}
+
+/* A prévia do cartão no diálogo: é ela que ensina a sintaxe sem exigir que alguém a decore. Fonte
+   monoespaçada de propósito — o que está ali é o texto literal que vai para o arquivo. */
+.cartao-previa {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .85rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--panel-2);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    padding: 8px 10px;
+    margin: 4px 0 0;
+    color: var(--ink);
+}
+
+/* Um cartão na lista lateral da nota. Mesma linha divisória das menções: são duas listas do mesmo
+   painel, e duas linguagens visuais ali seria uma a mais para aprender. */
+.cartao-item {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--linha);
+}
+
+.cartao-item:last-of-type {
+    border-bottom: none;
+}
+
+/* Cartão suspenso: presente e claramente fora do ciclo. Esmaecido em vez de escondido — escondê-lo
+   tornaria suspender indistinguível de apagar, que é justamente a diferença que o recurso existe
+   para oferecer. */
+.cartao-suspenso {
+    opacity: .55;
+}
+
+.cartao-suspenso::before {
+    content: "suspenso";
+    display: inline-block;
+    font-size: .7rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    border: 1px solid var(--linha);
+    border-radius: 999px;
+    padding: 0 6px;
+    margin-bottom: 2px;
+}
+
+/* ——— CELULAR ———————————————————————————————————————————————————————————————————————
+
+   A NOTA VEM PRIMEIRO. Numa tela larga as três colunas convivem e a ordem natural é
+   navegação → nota → contexto. Empilhadas num celular, essa mesma ordem obriga quem abriu uma nota a
+   rolar a busca, as matérias, as recentes e as etiquetas ANTES de ver o texto — foram medidos ~1200px
+   de rolagem até a primeira linha da nota, num aparelho de 800px de altura. Abrir uma nota no celular
+   custava rolar um telefone e meio.
+
+   `order` resolve porque o MudGrid é flexbox: a marcação continua na ordem que faz sentido para leitor
+   de tela e para a tela larga, e só a apresentação muda. */
+@media (max-width: 959px) {
+    .col-editor { order: 1; }
+    .col-contexto { order: 2; }
+    .col-navegacao { order: 3; }
+
+    /* O painel de navegação vira o rodapé da tela: ele é para ONDE IR DEPOIS, não para agora. */
+    .col-navegacao .mud-paper { border-top: 2px solid var(--linha); }
+}
+
+/* Alvos de toque no corpo do app. O mínimo confortável é ~44px; os botões de ícone do MudBlazor vêm com
+   26px, que é mirar com a ponta do dedo. Só em telas de toque: no desktop, botões de 44px espalhariam a
+   barra da nota e roubariam espaço do texto. */
+@media (max-width: 959px) and (pointer: coarse) {
+    .mud-icon-button {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* A lista de notas e de matérias é onde mais se toca — e onde mais se erra o alvo. */
+    .mud-list-item {
+        min-height: 44px;
+    }
+}
+
+/* ——— PAINEL ——————————————————————————————————————————————————————————————————————— */
+
+/* Cada sugestão é clicável inteira, e não só um link dentro dela: no celular, um alvo do tamanho do
+   bloco é a diferença entre acertar e tentar duas vezes. */
+.sugestao {
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border-radius: var(--raio);
+    border: 1px solid var(--linha);
+    border-left: 4px solid var(--ouro);
+    cursor: pointer;
+}
+
+.sugestao:hover {
+    background: color-mix(in srgb, var(--ouro) 10%, transparent);
+}
+
+.atencao {
+    padding: 8px 0 8px 10px;
+    border-left: 3px solid var(--linha);
+    margin-bottom: 8px;
+}
+
+/* Cor só onde ela significa alguma coisa. "Sem cartões" e "está custando" são problemas de naturezas
+   diferentes e a pessoa age diferente em cada um; "por escrever" não é problema nenhum — é a lista do
+   que ela mesma decidiu estudar, e pintá-la de vermelho seria transformar plano em dívida. */
+.atencao-materiacustando { border-left-color: var(--perigo); }
+.atencao-materiasemcartoes { border-left-color: var(--ouro); }
+
+/* A previsão dos próximos 7 dias: sete colunas iguais, número em cima, barra, dia embaixo. As barras
+   crescem de baixo para cima (flex-end) porque é assim que se lê "quanto pesa" — a altura vem inline,
+   calculada em C# junto do resto do painel. */
+.previsao {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    margin-top: 6px;
+    max-width: 420px;
+}
+
+.previsao-dia {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+}
+
+.previsao-numero {
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+}
+
+.previsao-barra {
+    width: 100%;
+    max-width: 34px;
+    border-radius: 3px 3px 0 0;
+    background: var(--ouro);
+    opacity: 0.85;
+}
+
+.previsao-rotulo {
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+}
+
+.numero {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.atrito {
+    color: var(--perigo);
+    font-weight: 600;
+}
+
+/* A tabela de matérias tem sete colunas e não cabe num celular. Ela rola dentro da própria caixa — a
+   página nunca rola na horizontal. */
+.tabela-rolante {
+    overflow-x: auto;
+}
+
+/* Uma linha da lista de lançamentos do registro. O botão de apagar fica na ponta oposta ao texto: perto
+   demais do que se lê, ele é apertado sem querer justamente na tela que existe para desfazer erros. */
+.lancamento {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--linha);
+}
+
+.lancamento:last-child { border-bottom: none; }
+
+/* O cartão-problema é o único aviso do painel que está custando tempo TODO DIA — os outros podem esperar
+   a semana que vem. Daí o vermelho, o mesmo da matéria que está custando. */
+.atencao-cartaoproblema { border-left-color: var(--perigo); }
+
+/* A tela que quebrou. Ela aparece no lugar do conteúdo, com a moldura do app intacta em volta —
+   é o que diz, sem precisar de texto, que o resto continua funcionando. */
+.erro-de-tela {
+    max-width: 620px;
+    margin: 8vh auto;
+    background: var(--panel);
+    border: 1px solid var(--linha);
+    border-left: 4px solid var(--perigo);
+    border-radius: var(--raio);
+    padding: 24px 28px;
+}
+
+.erro-de-tela h2 { margin-top: 0; font-size: 1.3rem; }
+
+/* O detalhe técnico fica DISCRETO e legível, não escondido: sem ele, "quebrou" é tudo o que se
+   consegue relatar, e um relato assim não conserta nada. */
+.erro-de-tela-detalhe {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .82rem;
+    color: var(--ink-faint);
+    background: var(--panel-2);
+    border-radius: 6px;
+    padding: 8px 10px;
+    overflow-x: auto;
+}
+
+.erro-de-tela-botao {
+    margin-top: 8px;
+    background: var(--tinta);
+    color: #fff;
+    border: 0;
+    border-radius: var(--raio);
+    padding: 9px 16px;
+    cursor: pointer;
+}
+.erro-de-tela-botao:hover { background: #16304f; }
+
+/* O intervalo entre "a nota abriu" e "o editor existe". Pela internet ele dura segundos, e uma div
+   vazia nesse tempo é lida como "o teclado não funciona" — que foi exatamente o relato. */
+.editor-carregando {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 55vh;
+    justify-content: center;
+    color: var(--ink-faint);
+}
+
+/* —— O QUADRO DE TINTA ——————————————————————————————————————————————————————————————— */
+
+.tinta-barra {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    margin-bottom: .5rem;
+}
+
+.tinta-cor {
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+}
+
+.tinta-cor-ativa {
+    /* Anel POR FORA, com box-shadow, e não uma borda: borda mudaria o tamanho do círculo e faria as
+       quatro cores dançarem a cada troca. */
+    box-shadow: 0 0 0 2px var(--mud-palette-surface), 0 0 0 4px var(--mud-palette-primary);
+}
+
+.tinta-quadro {
+    /* touch-action: none É O QUE FAZ ESCREVER FUNCIONAR NO TABLET. Sem ele o navegador entende o
+       primeiro traço como rolagem da página: a tela desce e nada é desenhado. É a linha que separa
+       "quadro de tinta" de "quadro que não funciona no aparelho em que ele existe para funcionar". */
+    touch-action: none;
+
+    display: block;
+    width: 100%;
+    height: min(60vh, 520px);
+    background: #fff;          /* branco SEMPRE: o desenho vai para o vault e é lido em qualquer tema */
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 6px;
+    cursor: crosshair;
+}
+
+/* ——— TRANSCLUSÃO E HOVER PREVIEW ————————————————————————————————————————————————————— */
+
+/* O conteúdo embutido por ![[Nota]] — visivelmente "de outro lugar", sem virar cidadão de segunda:
+   a barra dourada diz "isto veio por referência" e o cabeçalho é o caminho de volta para a origem. */
+.transclusao {
+    margin: 12px 0;
+    padding: 8px 14px;
+    border-left: 3px solid var(--ouro);
+    background: color-mix(in srgb, var(--ouro) 6%, transparent);
+    border-radius: 0 var(--raio) var(--raio) 0;
+}
+
+.transclusao-origem {
+    font-size: 0.8rem;
+    margin-bottom: 4px;
+}
+
+.transclusao-origem a {
+    color: var(--ink-soft);
+    text-decoration: none;
+}
+
+.transclusao-origem a:hover { text-decoration: underline; }
+
+/* Título H1 dentro do embutido compete com o da nota que embute — reduz, não some. */
+.transclusao-conteudo h1 { font-size: 1.25rem; }
+.transclusao-conteudo h2 { font-size: 1.1rem; }
+.transclusao-conteudo > :last-child { margin-bottom: 0; }
+
+/* O popover do hover de wikilink (ver previa.js). position: fixed porque as coordenadas vêm de
+   getBoundingClientRect — que é relativo à viewport, não à página. A altura é teto com corte:
+   prévia é para reconhecer a nota, não para lê-la inteira. */
+.previa-de-nota {
+    position: fixed;
+    z-index: 2000;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 12px 16px;
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    box-shadow: var(--sombra);
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.previa-de-nota h1 { font-size: 1.1rem; }
+.previa-de-nota h2 { font-size: 1rem; }
+.previa-de-nota img { max-width: 100%; }
+
+/* O ESPIAR DE UM RECORTE (etiqueta ou matéria) dentro do mesmo popover: o nome em cima, as notas em
+   lista. Não é prosa como a prévia de nota — é um índice curto, então tipografia mais compacta. */
+.previa-recorte-cabeca {
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.previa-recorte-lista {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.previa-recorte-lista li { padding: 2px 0; }
+.previa-recorte-lista a { text-decoration: none; }
+.previa-recorte-lista a:hover { text-decoration: underline; }
+
+.previa-recorte-mais,
+.previa-recorte-vazio {
+    color: var(--ink-soft);
+    font-size: 0.8rem;
+    margin-top: 4px;
+}
+
+/* O mapa de calor das revisões: colunas = semanas (a mais antiga à esquerda), quadradinhos = dias.
+   Degraus de opacidade sobre o dourado da marca — intensidade é quantidade, não categoria. */
+/* A JANELA DEIXOU DE SER FIXA, e um ano são 52 colunas: 52 × 15px passam de 780px e estouravam o
+   cartão. A rolagem fica no invólucro, não no `.calor` — o `overflow` no próprio flex cortaria os
+   quadradinhos da última coluna pela metade. `scrollbar-width: thin` porque a barra é do gráfico,
+   não da página, e uma barra grossa aqui pesa mais que o próprio mapa. */
+.calor-rolagem {
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+}
+
+.calor {
+    display: flex;
+    gap: 3px;
+    margin-top: 6px;
+    width: max-content;
+}
+
+.calor-semana {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.calor-dia {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--panel-2);
+}
+
+.calor-1 { background: color-mix(in srgb, var(--ouro) 30%, var(--panel-2)); }
+.calor-2 { background: color-mix(in srgb, var(--ouro) 55%, var(--panel-2)); }
+.calor-3 { background: color-mix(in srgb, var(--ouro) 80%, var(--panel-2)); }
+.calor-4 { background: var(--ouro); }
+
+/* O histórico de HORAS usa a mesma grade, mas verde em vez de dourado: são duas leituras diferentes
+   empilhadas (tempo × revisões) e a cor é o que impede lê-las como a mesma coisa duas vezes. Verde é a
+   convenção de "presença/constância" (o próprio GitHub), que é o que a sequência de dias comemora. */
+.calor--horas .calor-1 { background: color-mix(in srgb, #2f9e57 28%, var(--panel-2)); }
+.calor--horas .calor-2 { background: color-mix(in srgb, #2f9e57 52%, var(--panel-2)); }
+.calor--horas .calor-3 { background: color-mix(in srgb, #2f9e57 78%, var(--panel-2)); }
+.calor--horas .calor-4 { background: #2f9e57; }
+
+/* ——— O CRONÔMETRO DE ESTUDO ———————————————————————————————————————————————————————————
+   Fixo no canto inferior direito, longe do alternador de tema (canto superior). É a âncora da "máquina
+   de estudar": aparece em toda tela e o tempo continua correndo quando se navega — o estado mora no
+   serviço do circuito, não neste desenho. */
+.cronometro {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 1400;
+}
+
+/* Parado e fechado: só a pílula "Estudar", discreta. */
+.cronometro-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--linha);
+    background: var(--panel);
+    color: var(--ink);
+    box-shadow: var(--sombra);
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.cronometro-pill:hover { border-color: var(--ouro); }
+
+/* Aberto (escolhendo ou contando): o painel. */
+.cronometro-painel {
+    background: var(--panel);
+    border: 1px solid var(--linha);
+    border-radius: var(--raio);
+    box-shadow: var(--sombra);
+    padding: 8px 10px;
+}
+
+.cronometro-linha {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cronometro-select { min-width: 150px; }
+
+/* A descrição da sessão: cabe no painel sem alargá-lo — o texto rola dentro do campo. */
+.cronometro-observacao { width: 230px; margin-top: 4px; }
+.cronometro-observacao .mud-input { font-size: 0.8rem; }
+
+.cronometro-info {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+    margin-right: 4px;
+    min-width: 96px;
+}
+
+.cronometro-materia {
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* O tempo é o herói do widget: números tabulares para ele não "dançar" a cada segundo. */
+.cronometro-tempo {
+    font-size: 1.35rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+}
+
+/* ——— O CICLO DE ESTUDOS ————————————————————————————————————————————————————————————— */
+/* O bloco de AGORA em destaque — é a única pergunta que a tela responde. */
+.ciclo-agora {
+    border-left: 4px solid var(--ouro);
+    background: color-mix(in srgb, var(--ouro) 6%, transparent);
+}
+
+/* O item da fila que é o atual: um leve realce para o olho achar onde está. */
+.ciclo-item-atual {
+    background: color-mix(in srgb, var(--mud-palette-primary) 8%, transparent);
+    border-radius: var(--raio);
+}
+
+/* Bloco já feito nesta volta: riscado e apagado, como tarefa concluída. */
+.ciclo-feito { text-decoration: line-through; color: var(--ink-soft); }
+
+/* ——— CALLOUTS (a sintaxe "> [!warning]" do Obsidian) ————————————————————————————————
+   A citação vira bloco destacado por CLASSE (posta na árvore, ver RenderizadorMarkdig) — o CSS só
+   pinta. A primeira linha é o título e vem engrossada via ::first-line, sem elemento a mais. */
+.nota-lida blockquote.callout {
+    border-left: 4px solid var(--ink-soft);
+    border-radius: var(--raio);
+    padding: 10px 14px;
+    margin: 12px 0;
+    background: color-mix(in srgb, var(--ink-soft) 7%, transparent);
+}
+
+.nota-lida .callout > p:first-child::first-line { font-weight: 600; }
+.nota-lida .callout > p { margin: 4px 0; }
+
+/* Com "blockquote" no seletor de propósito: a regra base acima é blockquote.callout (0,2,1), e uma
+   cor em .callout-atencao (0,2,0) PERDERIA para ela — todo callout ficaria cinza. Empatando a
+   especificidade, a ordem no arquivo decide, e as cores vêm depois. */
+.nota-lida blockquote.callout-info    { border-color: #3b82d0; background: color-mix(in srgb, #3b82d0 8%, transparent); }
+.nota-lida blockquote.callout-dica    { border-color: #2f9e57; background: color-mix(in srgb, #2f9e57 8%, transparent); }
+.nota-lida blockquote.callout-atencao { border-color: #d7a021; background: color-mix(in srgb, #d7a021 10%, transparent); }
+.nota-lida blockquote.callout-perigo  { border-color: #c94f42; background: color-mix(in srgb, #c94f42 9%, transparent); }
+.nota-lida blockquote.callout-citacao { border-color: var(--ink-soft); font-style: italic; }
+
+/* ——— CONTEÚDO LARGO NA LEITURA: ROLA DENTRO, NÃO VAZA PARA FORA ——————————————————————
+   Não havia regra NENHUMA de tabela aqui, e o resultado era o defeito relatado: uma tabela de quatro
+   colunas ("conta | classificação | impacto no resultado | …") saía pela borda do cartão e a última
+   coluna simplesmente não existia na tela. Não é rolagem escondida — é conteúdo cortado, sem barra e
+   sem pista de que há mais coisa ali.
+
+   `display: block` + `width: max-content` é o que dá à tabela uma caixa própria para rolar: sem o
+   max-content ela se espreme até caber e some o sentido de rolar; sem o max-width:100% ela empurra a
+   PÁGINA para o lado, e aí quem rola é o documento inteiro (o cartão, o menu, tudo).
+
+   Vale para tabela, bloco de código e Mermaid pelo mesmo motivo — são os três conteúdos de nota de
+   estudo que não se quebram em linha. */
+.nota-lida table {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+}
+
+.nota-lida th,
+.nota-lida td {
+    /* o padrão do navegador é sem borda e colado; numa tabela de estudo isso vira um muro de texto */
+    border: 1px solid var(--linha);
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.nota-lida thead th { background: color-mix(in srgb, var(--ink-soft) 8%, transparent); }
+
+.nota-lida pre { overflow-x: auto; max-width: 100%; }
+
+/* A imagem grande tem o problema oposto — não corta, mas estoura a coluna e empurra o resto. */
+.nota-lida img { max-width: 100%; height: auto; }
+
+/* ——— O ROTEIRO DA NOTA (outline) ————————————————————————————————————————————————————— */
+.roteiro { max-height: 240px; overflow-y: auto; }
+.roteiro-item { padding-top: 2px; padding-bottom: 2px; line-height: 1.3; cursor: pointer; }
+
+/* ——— O MANUAL ————————————————————————————————————————————————————————————————————————
+   Largura de leitura: manual é texto corrido, e linha de 1400px não se lê. */
+.manual { max-width: 860px; margin: 0 auto; }
+.manual .manual-passo { margin-top: 20px; margin-bottom: 6px; }
+.manual .manual-lista { margin: 4px 0 12px 22px; }
+.manual .manual-lista li { margin-bottom: 6px; font-size: 0.875rem; line-height: 1.5; }
+.manual code {
+    background: color-mix(in srgb, var(--ouro) 12%, transparent);
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+
+/* ——— A CAPTURA RÁPIDA ———————————————————————————————————————————————————————————————
+   Canto inferior ESQUERDO, espelhando o cronômetro à direita: os dois gestos que precisam existir em
+   toda tela — medir o estudo e salvar a ideia antes de ela morrer. */
+.captura {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    z-index: 1400;
+}
+
+/* O RESPIRO DO FIM DA PÁGINA. Capturar (esquerda) e o cronômetro (direita) são fixos, e fixo cobre o
+   que estiver embaixo — no celular a pílula pousava exatamente sobre o botão "Hoje" do fim da coluna.
+   O padding garante que todo conteúdo consegue rolar para ACIMA das pílulas; o custo é um rodapé de ar
+   que ninguém nota. Achado na varredura de fumaça em 390px. */
+main.conteudo { padding-bottom: 72px; }
+
+.captura-caixa {
+    width: min(360px, calc(100vw - 32px));
+}
+
+/* ——— O PLANO DA SEMANA ——————————————————————————————————————————————————————————————— */
+/* Cada meta é uma linha com uma barra de progresso feito/meta — o "quanto falta" da semana. */
+.plano-linha {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--linha);
+}
+.plano-linha:last-of-type { border-bottom: none; }
+.plano-barra { height: 8px; }
+
+/* O selo de novidade na barra — quantos acessos abriram para você e você ainda não viu.
+   Pequeno e ao lado do rótulo, não um ponto solto: um ponto diz "tem algo"; o número diz o quanto,
+   e é o que faz a pessoa decidir se abre agora ou depois. */
+.nav-selo {
+    display: inline-block;
+    min-width: 18px;
+    margin-left: 6px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--ouro);
+    color: var(--tinta);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+}
+
+/* ——— A NOTA PUBLICADA POR LINK ————————————————————————————————————————————————————————
+   A única tela que se abre sem conta. Ela é uma PÁGINA DE LEITURA, e não um recorte do aplicativo:
+   quem chega aqui veio de um link que alguém mandou, não de dentro do Learn.
+
+   COLUNA ESTREITA de propósito. O resto do produto usa a largura toda porque tem editor e prévia lado
+   a lado; aqui só há texto corrido, e texto corrido em 1400 px de largura é o jeito mais fácil de
+   tornar uma nota ilegível — o olho perde a linha na volta. */
+.nota-publica {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 24px 20px 64px;
+}
+
+.nota-publica > h1 {
+    margin: 0 0 4px;
+    line-height: 1.25;
+}
+
+.nota-publica-credito {
+    margin: 0 0 24px;
+    color: var(--ink-soft);
+    font-size: 14px;
+}
+
+.nota-publica-recado {
+    color: var(--ink-soft);
+    max-width: 52ch;
+}
+
+/* O aviso de que isto é um RECORTE — ver o comentário em NotaPublica.razor. Discreto, mas presente:
+   sem ele, o wikilink que virou texto sem link parece defeito da página. */
+.nota-publica-rodape {
+    margin-top: 48px;
+    padding-top: 12px;
+    border-top: 1px solid var(--linha);
+    color: var(--ink-soft);
+    font-size: 13px;
+}
+
+/* O apelido da pessoa, no card que pede o apelido dos outros. MONOESPAÇADO e destacado porque ele é
+   para ser DITADO ou copiado: numa fonte proporcional, "l" e "I" viram o mesmo desenho, e o apelido é
+   a única chave que o convite aceita — errar uma letra é convidar ninguém. */
+.apelido-meu {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: color-mix(in srgb, var(--acento-2) 12%, transparent);
+  padding: 1px 6px; border-radius: 5px; user-select: all;
+}

@@ -1,0 +1,1087 @@
+@page "/painel"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Domain.Desempenho
+@using Dominica.Learn.Domain.Painel
+@using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Domain.Compartilhamento
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+@inject ServicoDeConhecimento Conhecimento
+@inject ServicoDeCartoes Cartoes
+@inject ServicoDeDesempenho Desempenho
+@inject ServicoDeAcompanhamento Acompanhamento
+@inject ServicoDeLinksDeNota Publicacao
+@inject IRelogio Relogio
+@inject IDialogService Dialogos
+@inject NavigationManager Navegacao
+@inject ISnackbar Avisos
+@inject IUsuarioAtual Usuario
+@inject IJSRuntime JS
+
+<PageTitle>Painel · Dominica Learn</PageTitle>
+
+<ProvedoresDoMud />
+
+@* O PAINEL DE ESTUDO.
+
+   Ele responde uma pergunta só, e é a primeira do dia: O QUE AGORA. Todo o resto da tela existe para
+   justificar essa resposta — porque uma sugestão sem motivo é uma ordem, e ordem sem explicação deixa de
+   ser obedecida na primeira vez que a pessoa discorda.
+
+   HORAS E ACERTO VÊM DO REGISTRO, e só aparecem depois que existe registro. Antes disso a seção nem é
+   desenhada — uma tabela de zeros ensina a ignorar a tela. Progresso do edital continua de fora porque
+   edital ainda não existe; quando existir, entra aqui.
+
+   A JANELA É DE QUATRO SEMANAS: é o horizonte em que uma mudança de rotina já apareceu e um mês ruim
+   antigo já saiu. Ver ServicoDeDesempenho.JanelaPadrao. *@
+
+@if (_r is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+<MudGrid Spacing="2" Class="pa-2">
+
+    @* —— O QUE AGORA —— *@
+    <MudItem xs="12" md="7">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.h5" GutterBottom="true">O que agora</MudText>
+
+            @if (_r.Agora.Count == 0)
+            {
+                @* O PAINEL SABE FICAR CALADO. Inventar uma tarefa quando não há nenhuma é exatamente
+                   como se ensina alguém a ignorar o painel. *@
+                <MudText Typo="Typo.body1">
+                    Nada vencido, nada pendente. Se for estudar agora, escolha o que quiser —
+                    <b>hoje o sistema não tem opinião melhor que a sua.</b>
+                </MudText>
+            }
+            else
+            {
+                @foreach (var s in _r.Agora)
+                {
+                    <div class="sugestao" @onclick="@(() => Ir(s))" role="button" tabindex="0">
+                        <MudText Typo="Typo.h6">@s.Titulo</MudText>
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">@s.Motivo</MudText>
+                    </div>
+                }
+            }
+
+            @* O REGISTRO APARECE AQUI, e não só lá embaixo na tabela. É a diferença entre o painel ter
+               um dado e o painel USAR o dado: a fila de revisão já vem reordenada por isto, e dizer o
+               porquê no lugar onde se decide o que fazer é o que transforma um número numa razão. *@
+            @if (OndeVocePerde.Explicar(_d) is { Length: > 0 } porQue)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mt-3">
+                    <MudIcon Icon="@Icons.Material.Filled.TrendingDown" Size="Size.Small" Class="mr-1" />
+                    @porQue Por isso ela abre a fila de hoje.
+                </MudText>
+            }
+
+            <MudDivider Class="my-4" />
+
+            <div class="d-flex flex-wrap gap-4">
+                @* ParaHoje, e NÃO o total de vencidos: é o que a fila vai de fato entregar. A primeira
+                   versão mostrava 36 aqui e a fila entregava 2, porque o teto segurava os inéditos —
+                   dois números da mesma tela discordando, que é a forma mais rápida de a pessoa parar
+                   de confiar no painel. *@
+                <div>
+                    <MudText Typo="Typo.h4">@_r.ParaHoje</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                        para hoje
+                        @if (_r.RevisoesVencidas > 0 && _r.NovosHoje > 0)
+                        {
+                            <text>(@_r.RevisoesVencidas de revisão, @_r.NovosHoje novos)</text>
+                        }
+                    </MudText>
+                </div>
+                @if (_r.NovosGuardados > 0)
+                {
+                    <div>
+                        <MudText Typo="Typo.h4">@_r.NovosGuardados</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                            guardados pelo teto de @_r.Teto/dia
+                        </MudText>
+                    </div>
+                }
+                <div>
+                    <MudText Typo="Typo.h4">@_r.TotalDeCartoes</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">cartões no vault</MudText>
+                </div>
+                <div>
+                    <MudText Typo="Typo.h4">@_r.TotalDeNotas</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">notas</MudText>
+                </div>
+                @* O número já era calculado e NÃO era mostrado — e suspenso invisível é cartão que a
+                   pessoa acha que perdeu. O link leva para onde eles se devolvem à fila. *@
+                @if (_r.Suspensos > 0)
+                {
+                    <div>
+                        <MudText Typo="Typo.h4">@_r.Suspensos</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                            <MudLink Typo="Typo.caption" Href="revisar">suspensos — guardados</MudLink>
+                        </MudText>
+                    </div>
+                }
+            </div>
+
+            @* —— OS PRÓXIMOS 7 DIAS ——
+               A pergunta que o "para hoje" não responde: dá para viajar quinta? A repetição espaçada
+               agenda sozinha, e agenda que ninguém vê vira surpresa — o pico de quarta só é gerenciável
+               se aparecer na segunda. Vencidos NÃO entram aqui (já estão no "para hoje"; contá-los de
+               novo somaria os mesmos cartões em dois números da mesma tela), e inéditos também não —
+               eles não têm data, entram pelo teto do dia. *@
+            @if (_r.TotalDeCartoes > 0 && _r.ProximosDias.Count > 0)
+            {
+                <div class="mt-4">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Revisões agendadas — próximos 7 dias</MudText>
+                    <div class="previsao" role="img" aria-label="@RotuloDaPrevisao()">
+                        @foreach (var dia in _r.ProximosDias)
+                        {
+                            <div class="previsao-dia">
+                                <span class="previsao-numero">@dia.Cartoes</span>
+                                <div class="previsao-barra" style="height:@AlturaDaBarra(dia.Cartoes)px"></div>
+                                <span class="previsao-rotulo">@DiaCurto(dia.Dia)</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            <div class="d-flex flex-wrap gap-2 mt-4">
+                @if (_r.ParaHoje > 0)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.PlayArrow" Href="revisar">Começar a revisão</MudButton>
+                }
+                @* REGISTRAR FICA NO PAINEL, junto do resto: é aqui que a pessoa chega depois de estudar,
+                   e o registro que exige procurar onde fica é o registro que não é feito. *@
+                <MudButton Variant="Variant.Outlined"
+                           StartIcon="@Icons.Material.Filled.PostAdd" OnClick="RegistrarAsync">Registrar estudo</MudButton>
+            </div>
+        </MudPaper>
+    </MudItem>
+
+    @* —— ONDE PRESTAR ATENÇÃO —— *@
+    <MudItem xs="12" md="5">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true" Style="height:100%">
+            <MudText Typo="Typo.h6" GutterBottom="true">Onde prestar atenção</MudText>
+
+            @* —— PRAZOS ——
+               A cobrança que vem do FRONTMATTER: a nota que diz "prazo: 2026-09-01" aparece aqui até o
+               dia passar. Vencidos primeiro, em vermelho — inscrição perdida não tem revisão que salve.
+               Só aparece quando existe prazo declarado: seção vazia ensinaria a ignorar o painel. *@
+            @if (_prazos.Count > 0)
+            {
+                var hoje = DateOnly.FromDateTime(Relogio.Agora.DateTime);
+                <MudText Typo="Typo.overline" Class="d-block">Prazos</MudText>
+                <MudList T="string" Dense="true" Class="mb-2">
+                    @foreach (var p in _prazos.Take(6))
+                    {
+                        var vencido = p.Data < hoje;
+                        <MudListItem T="string" Href="@Rotas.Nota(p.Nota)">
+                            <div class="d-flex align-center gap-2">
+                                <MudIcon Size="Size.Small" Icon="@Icons.Material.Filled.Event"
+                                         Color="@(vencido ? Color.Error : Color.Default)" />
+                                <MudText Typo="Typo.body2"><b>@p.Nota.Nome</b></MudText>
+                                <MudText Typo="Typo.caption"
+                                         Style="@(vencido ? "color:var(--mud-palette-error)" : null)"
+                                         Class="@(vencido ? null : "mud-text-secondary")">
+                                    @p.Data.ToString("dd/MM") · @Prazos.Rotulo(p.Data, hoje)
+                                </MudText>
+                            </div>
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+
+            @if (_r.Atencoes.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Nenhum sinal. Toda matéria escrita tem cartão, e nada está custando mais que o normal.
+                </MudText>
+            }
+            else
+            {
+                @foreach (var a in _r.Atencoes.Take(8))
+                {
+                    <div class="atencao atencao-@a.Tipo.ToString().ToLowerInvariant()">
+                        <MudText Typo="Typo.body2"><b>@a.Titulo</b></MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">@a.Motivo</MudText>
+
+                        @* A SAÍDA FICA ONDE A COBRANÇA ACONTECE. Este item é o painel dizendo "faça
+                           cartões aqui", e para uma pasta de trabalho a resposta é "não vou" — todo dia,
+                           para sempre. Escondê-la numa tela de configuração seria a mesma coisa que não
+                           ter: quem está incomodado está OLHANDO para este parágrafo, não procurando
+                           ajustes. Ver EditorDeFrontmatter.CampoReferencia. *@
+                        @if (a.Tipo == TipoDeAtencao.MateriaSemCartoes)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Class="mt-1 pa-0"
+                                       Disabled="@(_marcando == a.Titulo)"
+                                       OnClick="@(() => AlternarReferenciaAsync(Materia.De(a.Titulo)))">
+                                Não vou fazer cartões aqui
+                            </MudButton>
+                        }
+                    </div>
+                }
+            }
+        </MudPaper>
+    </MudItem>
+
+    @* —— DESEMPENHO —— *@
+    <MudItem xs="12">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
+            <div class="d-flex align-center justify-space-between flex-wrap gap-2">
+                <MudText Typo="Typo.h6">@TituloDoDesempenho()</MudText>
+                <div class="d-flex align-center gap-1">
+                    @* A JANELA DEIXA DE SER FIXA. Ela nasceu em 8 semanas e ficou lá: quem estuda há um
+                       ano via os últimos dois meses como se fossem tudo, e a régua do próprio esforço
+                       parava atrás. O serviço sempre aceitou a janela por parâmetro — só a tela não
+                       perguntava. "Desde o início" é calculado do registro mais antigo, não chutado. *@
+                    @if (_horas is { Vazio: false } || _calorTotal > 0)
+                    {
+                        <MudSelect T="int" Value="_semanas" ValueChanged="MudarJanelaAsync" Dense="true"
+                                   Margin="Margin.Dense" Variant="Variant.Text" Style="max-width:170px"
+                                   Label="Período">
+                            @foreach (var (rotulo, semanas) in Janelas)
+                            {
+                                <MudSelectItem T="int" Value="@semanas">@rotulo</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                    @* O HISTÓRICO INTEIRO em planilha — não só as 4 semanas da tela. Href relativo, sem
+                       barra: com barra o download sairia do sub-caminho e daria 404, como no vault.zip.
+                       Só aparece quando há hora registrada: botão de exportar nada é ruído. *@
+                    @if (_horas is { Vazio: false })
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text"
+                                   StartIcon="@Icons.Material.Filled.Download" Href="sessoes.csv"
+                                   Target="_top">Exportar CSV</MudButton>
+                    }
+                    <MudButton Size="Size.Small" Variant="Variant.Text"
+                               StartIcon="@Icons.Material.Filled.PostAdd" OnClick="RegistrarAsync">Registrar</MudButton>
+                </div>
+            </div>
+
+            @* —— O HISTÓRICO DE HORAS ——
+               O mesmo mapa de calor do GitHub, mas medindo TEMPO. Responde "meu plano é real?" com três
+               leituras — esta semana, média por dia estudado, sequência — e o histórico em quadradinhos.
+               Só aparece com hora registrada: cronômetro parado ou "Registrar" alimentam isto. *@
+            @if (_horas is { Vazio: false })
+            {
+                <div class="mt-2">
+                    <div class="d-flex flex-wrap gap-4 mb-2">
+                        <div>
+                            <MudText Typo="Typo.h5">@Horas(_horas.NestaSemana)</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">esta semana</MudText>
+                        </div>
+                        <div>
+                            <MudText Typo="Typo.h5">@Horas(_horas.MediaPorDia)</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">por dia estudado</MudText>
+                        </div>
+                        <div>
+                            <MudText Typo="Typo.h5">@_horas.Sequencia</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                @(_horas.Sequencia == 1 ? "dia seguido" : "dias seguidos")
+                            </MudText>
+                        </div>
+                    </div>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">
+                        Horas por dia — @PeriodoEmPalavras() · <b>@Horas(_horas.Total)</b> no período
+                    </MudText>
+                    <div class="calor-rolagem"><div class="calor calor--horas" role="img" aria-label="@RotuloDasHoras()">
+                        @foreach (var semana in _horas.Dias.Chunk(7))
+                        {
+                            <div class="calor-semana">
+                                @foreach (var dia in semana)
+                                {
+                                    <div class="calor-dia calor-@IntensidadeDeHoras(dia.Estudado)"
+                                         title="@($"{dia.Dia:dd/MM} — {Horas(dia.Estudado)}")"></div>
+                                }
+                            </div>
+                        }
+                    </div></div>
+                </div>
+            }
+
+            @* —— O MAPA DE CALOR DAS REVISÕES ——
+               A promessa antiga desta tela ("vem quando houver registro"), cumprida: cada resposta de
+               cartão é anotada no registro, então o calor aqui é CONTADO, não estimado. Só aparece com
+               revisão registrada — antes disso seria uma grade de zeros, e grade de zeros ensina a
+               ignorar a seção. *@
+            @if (_calorTotal > 0)
+            {
+                <div class="mt-2">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">
+                        Revisões por dia — @PeriodoEmPalavras() ·
+                        <b>@_calorLembrado%</b> lembrado em @_calorTotal revisão(ões)
+                    </MudText>
+                    <div class="calor-rolagem"><div class="calor" role="img" aria-label="@RotuloDoCalor()">
+                        @foreach (var semana in _calor.Chunk(7))
+                        {
+                            <div class="calor-semana">
+                                @foreach (var dia in semana)
+                                {
+                                    <div class="calor-dia calor-@Intensidade(dia.Revisoes)"
+                                         title="@($"{dia.Dia:dd/MM} — {dia.Revisoes} revisão(ões)")"></div>
+                                }
+                            </div>
+                        }
+                    </div></div>
+                </div>
+            }
+
+            @if (_d is null || (_d.Questoes == 0 && _d.Horas == TimeSpan.Zero))
+            {
+                @* NADA DE TABELA DE ZEROS. Uma tela cheia de "0%" e "0h" no primeiro dia ensina a pessoa
+                   a ignorar a seção — e ela nunca mais volta a olhar. *@
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Você ainda não registrou horas nem questões. Depois de estudar, use <b>Registrar</b> —
+                    é o que faz o painel deixar de adivinhar por facilidade dos cartões e passar a dizer
+                    <b>onde você erra de verdade</b>.
+                </MudText>
+            }
+            else
+            {
+                <div class="d-flex flex-wrap gap-4 mt-2">
+                    <div>
+                        <MudText Typo="Typo.h4">@_d.Horas.TotalHours.ToString("0.#")h</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">estudadas</MudText>
+                    </div>
+                    @if (_d.Questoes > 0)
+                    {
+                        <div>
+                            <MudText Typo="Typo.h4">@_d.Questoes</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">questões</MudText>
+                        </div>
+                        <div>
+                            <MudText Typo="Typo.h4">@_d.Percentual.ToString("0.#")%</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">de acerto</MudText>
+                        </div>
+                    }
+                </div>
+
+                @if (_d.Pior is { } pior)
+                {
+                    @* A RESPOSTA A "ONDE ESTOU PERDENDO", que é a pergunta que só o registro consegue
+                       responder. Só aparece com amostra suficiente — ver DesempenhoDaMateria.
+
+                       E agora ela é ACIONÁVEL: saber onde perde sem um caminho para agir ali é meia resposta.
+                       "Revisar" leva direto à fila da matéria fraca; "meus erros" à fila do #errei-na-prova.
+                       É o loop de fraqueza fechando — do diagnóstico ao cartão, num clique. *@
+                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-3">
+                        <div class="d-flex align-center flex-wrap gap-2">
+                            <span>
+                                Onde você mais perde: <b>@pior.Materia.Rotulo</b> —
+                                @pior.Percentual.ToString("0.#")% em @pior.Questoes questões.
+                            </span>
+                            <MudSpacer />
+                            <MudButton Size="Size.Small" Variant="Variant.Text"
+                                       StartIcon="@Icons.Material.Filled.Style"
+                                       Href="@($"revisar/{Uri.EscapeDataString(pior.Materia.Nome)}")">Revisar @pior.Materia.Rotulo</MudButton>
+                            @if (_temErros)
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Text"
+                                           StartIcon="@Icons.Material.Filled.ReportProblem"
+                                           Href="@($"revisar?etiqueta={ServicoDeCartoes.EtiquetaDeErro}")">Revisar meus erros</MudButton>
+                            }
+                        </div>
+                    </MudAlert>
+                }
+
+                <div class="tabela-rolante mt-3">
+                <MudSimpleTable Dense="true" Hover="true">
+                    <thead>
+                        <tr>
+                            <th>Matéria</th>
+                            <th class="numero">Horas</th>
+                            <th class="numero">Questões</th>
+                            <th class="numero">Acerto</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var m in _d.Materias)
+                        {
+                            <tr>
+                                <td><b>@m.Materia.Rotulo</b></td>
+                                <td class="numero">@(m.Horas == TimeSpan.Zero ? "—" : m.Horas.TotalHours.ToString("0.#") + "h")</td>
+                                <td class="numero">@(m.Questoes == 0 ? "—" : m.Questoes.ToString())</td>
+                                @* Sem amostra o percentual sai entre parênteses e apagado: ele existe e
+                                   não sustenta conclusão nenhuma, e essa diferença precisa ser visível. *@
+                                <td class="numero @(m.TemAmostraSuficiente && m.Percentual < 60 ? "atrito" : null)">
+                                    @if (m.Questoes == 0)
+                                    {
+                                        <text>—</text>
+                                    }
+                                    else if (m.TemAmostraSuficiente)
+                                    {
+                                        <text>@m.Percentual.ToString("0.#")%</text>
+                                    }
+                                    else
+                                    {
+                                        <span class="mud-text-secondary">(@m.Percentual.ToString("0.#")%)</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                </div>
+
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">
+                    Percentual entre parênteses tem menos de @DesempenhoDaMateria.MinimoParaConcluir
+                    questões — o número existe e ainda não conclui nada.
+                </MudText>
+
+                @* O QUE FOI REGISTRADO, ao lado do botão que registra.
+
+                   Um número que entra e não sai é um número em que ninguém confia: quem digita 300 no
+                   lugar de 30 e descobre que não há conserto não corrige — para de registrar, e o painel
+                   volta a adivinhar. A lista fica AQUI, encostada no gesto, e não numa tela de histórico
+                   que ninguém abre; e é curta de propósito, porque ela existe para conferir o que se
+                   acabou de fazer, não para navegar o passado. *@
+                @if (_ultimos.Count > 0)
+                {
+                    <MudExpansionPanels Elevation="0" Class="mt-3">
+                        <MudExpansionPanel Text="@($"Últimos lançamentos ({_ultimos.Count})")" Dense="true">
+                            @foreach (var l in _ultimos)
+                            {
+                                <div class="lancamento">
+                                    <div>
+                                        <MudText Typo="Typo.body2">
+                                            <b>@l.Materia.Rotulo</b> — @l.Descricao
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                            @l.Em.ToLocalTime().ToString("dd/MM 'às' HH:mm")
+                                        </MudText>
+                                    </div>
+                                    @* CORRIGIR vem ANTES de apagar, e não é enfeite de ordem: apagar era
+                                       a única saída para um "300" digitado no lugar de "30", e apagar
+                                       um lançamento certo-no-dia-errado para redigitá-lo é onde a data
+                                       se perdia. Com o lápis à esquerda, a saída barata aparece primeiro. *@
+                                    <MudTooltip Text="Corrigir este lançamento">
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit"
+                                                       aria-label="@($"Corrigir {l.Descricao} de {l.Materia.Rotulo}")"
+                                                       Disabled="_apagando"
+                                                       OnClick="@(() => EditarAsync(l))" />
+                                    </MudTooltip>
+                                    @* Sem confirmação: apagar UM lançamento é reversível pelo próprio
+                                       gesto que o criou — registrar de novo leva dez segundos. Um diálogo
+                                       de "tem certeza?" aqui cobraria mais atenção do que o erro custa. *@
+                                    <MudTooltip Text="Apagar este lançamento">
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline"
+                                                       aria-label="@($"Apagar {l.Descricao} de {l.Materia.Rotulo}")"
+                                                       Disabled="_apagando"
+                                                       OnClick="@(() => ApagarAsync(l))" />
+                                    </MudTooltip>
+                                </div>
+                            }
+                        </MudExpansionPanel>
+                    </MudExpansionPanels>
+                }
+            }
+        </MudPaper>
+    </MudItem>
+
+    @* —— AS MATÉRIAS —— *@
+    <MudItem xs="12">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
+            @* CADASTRAR A MATÉRIA AQUI, e não só nas Notas.
+               Esta é a tela onde se olha o conjunto — quantas notas, quantos cartões, onde se perde — e
+               era também de onde se saía para criar. O estado vazio literalmente mandava embora ("crie a
+               primeira em Notas"), o que é o pior lugar para mandar alguém embora: no primeiro dia, quem
+               ainda não tem matéria nenhuma é justamente quem está montando as suas. E montar é uma
+               sequência — Português, Direito, Informática —, não uma visita.
+               O DIÁLOGO É O MESMO das Notas, e o caso de uso também: matéria continua nascendo como
+               pasta no vault com a nota-mapa dentro. Aqui só se ganhou a porta. *@
+            <div class="d-flex align-center justify-space-between flex-wrap gap-2 mb-2">
+                <MudText Typo="Typo.h6">As matérias</MudText>
+                <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.CreateNewFolder"
+                           Disabled="_criandoMateria" OnClick="CriarMateriaAsync">Nova matéria</MudButton>
+            </div>
+
+            @if (_r.Materias.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Nenhuma matéria ainda — <b>Nova matéria</b>, aqui em cima, cria a primeira. Ela vira
+                    uma pasta no vault com a nota-mapa dentro, e as notas que você escrever nela passam a
+                    contar nesta tabela.
+                </MudText>
+            }
+            else
+            {
+                <div class="tabela-rolante">
+                <MudSimpleTable Dense="true" Hover="true">
+                    <thead>
+                        <tr>
+                            <th>Matéria</th>
+                            <th class="numero">Notas</th>
+                            <th class="numero">Cartões</th>
+                            <th class="numero">A revisar</th>
+                            <th class="numero">Inéditos</th>
+                            <th class="numero">Assentados</th>
+                            <th class="numero">Facilidade</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var m in _r.Materias)
+                        {
+                            <tr>
+                                <td>
+                                    <b>@m.Materia.Rotulo</b>
+                                    @* ONDE SE DESFAZ. Marcada como referência, a matéria some de "onde
+                                       prestar atenção" — e com ela sumiria o botão que a marcou. Sem
+                                       este selo, a decisão seria irreversível pela tela, e só quem
+                                       soubesse editar o frontmatter no Obsidian conseguiria voltar
+                                       atrás. Esta tabela lista TODAS as matérias, então é o lugar. *@
+                                    @if (m.Referencia)
+                                    {
+                                        <MudTooltip Text="Material de consulta: o painel não pede cartões daqui. Clique para voltar a pedir.">
+                                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ma-0"
+                                                     Disabled="@(_marcando == m.Materia.Nome)"
+                                                     OnClick="@(() => AlternarReferenciaAsync(m.Materia))">referência</MudChip>
+                                        </MudTooltip>
+                                    }
+                                </td>
+                                <td class="numero">@m.Notas</td>
+                                <td class="numero">@(m.Cartoes == 0 ? "—" : m.Cartoes.ToString())</td>
+                                <td class="numero">@(m.Vencidos == 0 ? "—" : m.Vencidos.ToString())</td>
+                                <td class="numero">@(m.Ineditos == 0 ? "—" : m.Ineditos.ToString())</td>
+                                <td class="numero">@(m.Maduros == 0 ? "—" : m.Maduros.ToString())</td>
+                                @* Traço, e não "2,50×", quando não há cartão respondido: zero ali seria
+                                   lido como "muito difícil", quando significa "não se sabe ainda". *@
+                                <td class="numero @(m.Facilidade is > 0 and < PainelDeEstudo.FacilidadeDeAtrito ? "atrito" : null)">
+                                    @(m.Facilidade == 0 ? "—" : (m.Facilidade / 100.0).ToString("0.00") + "×")
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                </div>
+
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">
+                    <b>Assentados</b>: cartões que já voltam depois de mais de @PainelDeEstudo.IntervaloDeMaduro dias.
+                    <b>Facilidade</b>: todo cartão começa em 2,50× e cai quando você erra — abaixo disso é
+                    onde a matéria tem custado.
+                </MudText>
+            }
+        </MudPaper>
+    </MudItem>
+
+    @* —— QUEM ACOMPANHA MEUS ESTUDOS ——————————————————————————————————————————————————
+       O convite parte SEMPRE do dono, e por isso mora aqui, no painel dele — e não numa tela de
+       administração onde alguém escolheria de quem quer ver os estudos. Ninguém ganha acesso ao
+       painel de outra pessoa sem que ela tenha digitado o apelido dele.
+
+       É POR VAULT: o que se abre é o vault em que a pessoa está agora. Ver Acompanhamento. *@
+    <MudItem xs="12">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.h6" GutterBottom="true">Quem acompanha meus estudos</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mb-1">
+                Estas pessoas veem os seus números deste vault — horas, questões e acerto por matéria.
+                Elas <b>não</b> veem suas notas, e não conseguem registrar nada na sua conta.
+            </MudText>
+
+            @* O SEU APELIDO, AQUI, PORQUE É AQUI QUE ELE FAZ FALTA.
+               O campo abaixo pede o apelido DA OUTRA PESSOA — e o apelido não aparecia em tela nenhuma
+               fora da Administração: a barra do topo mostra o e-mail. Quem quisesse ser acompanhado não
+               tinha onde ler o próprio para ditar, e quem quisesse convidar não tinha como descobrir o
+               do outro. O convite dependia de as duas pessoas lembrarem do que digitaram no cadastro —
+               exatamente a dependência que o domínio da Turma critica por escrito, e que tinha ficado
+               de pé aqui. *@
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+                Peça o apelido de quem vai acompanhar. O seu é
+                <b class="apelido-meu">@_meuApelido</b>
+                <MudTooltip Text="copiar o seu apelido">
+                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.ContentCopy"
+                                   aria-label="Copiar o meu apelido" OnClick="CopiarApelidoAsync" />
+                </MudTooltip>
+                — é assim que te encontram.
+            </MudText>
+
+            <div class="d-flex align-center gap-2 flex-wrap">
+                <MudTextField @bind-Value="_apelidoConvidado" Label="Apelido de quem vai acompanhar"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:320px"
+                              Immediate="true" OnKeyDown="@(async (e) => { if (e.Key == "Enter") await ConvidarAsync(); })" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd"
+                           Disabled="@(_convidando || string.IsNullOrWhiteSpace(_apelidoConvidado))"
+                           OnClick="ConvidarAsync">Dar acesso</MudButton>
+            </div>
+
+            @if (_acompanhantes.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mt-3">
+                    Ninguém ainda. Seus estudos são só seus.
+                </MudText>
+            }
+            else
+            {
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    @foreach (var a in _acompanhantes)
+                    {
+                        <MudChip T="string" Color="Color.Default" Variant="Variant.Outlined"
+                                 OnClose="@(() => RevogarAsync(a.Convidado.Valor))"
+                                 CloseIcon="@Icons.Material.Filled.Close">@a.Convidado.Valor</MudChip>
+                    }
+                </div>
+            }
+        </MudPaper>
+    </MudItem>
+
+    @* —— O QUE EU PUBLIQUEI NUM LINK ——————————————————————————————————————————————————
+       ESTA LISTA É O QUE TORNA PUBLICAR REVERSÍVEL. Publicar acontece dentro do menu de UMA nota, e
+       quem publicou dez ao longo de um semestre não lembra quais foram — sem um lugar que mostre tudo,
+       revogar depende de a pessoa reabrir nota por nota procurando o item aceso no menu. Na prática,
+       isso é o mesmo que não poder revogar.
+
+       NO PAINEL, junto de "quem acompanha meus estudos", porque é a mesma pergunta: o que eu abri para
+       fora. Uma tela separada de "compartilhamentos" seria a tela que ninguém visita. *@
+    <MudItem xs="12">
+        <MudPaper Class="pa-4" Elevation="0" Outlined="true">
+            <MudText Typo="Typo.h6" GutterBottom="true">Notas publicadas em link</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+                Estas notas abrem para <b>qualquer pessoa com o endereço</b>, sem conta e sem login —
+                só a leitura, nada de editar. Elas não aparecem em buscador.
+            </MudText>
+
+            @if (_publicadas.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Nenhuma. Você publica uma nota pelo menu dela, em Notas.
+                </MudText>
+            }
+            else
+            {
+                <MudList T="string" Dense="true">
+                    @foreach (var l in _publicadas)
+                    {
+                        <MudListItem T="string" Icon="@Icons.Material.Filled.Public">
+                            <div class="d-flex align-center justify-space-between gap-2 flex-wrap">
+                                <div>
+                                    @* O CAMINHO INTEIRO, e não só o nome do arquivo: em vaults reais há
+                                       "Aula01" em quatro matérias, e escolher qual revogar por um nome
+                                       repetido é escolher no escuro. *@
+                                    <MudText Typo="Typo.body2">@l.Caminho.Valor</MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                        @l.Vault.Valor · no ar desde @l.CriadoEm.ToLocalTime().ToString("dd/MM/yyyy")
+                                    </MudText>
+                                </div>
+                                <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Text"
+                                           OnClick="@(() => DespublicarAsync(l))">Revogar</MudButton>
+                            </div>
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+}
+
+@code {
+    private RetratoDoEstudo? _r;
+    private ResumoDeDesempenho? _d;
+    private IReadOnlyList<LancamentoRegistrado> _ultimos = [];
+    private bool _apagando;
+
+    /// <summary>Nome da matéria sendo marcada agora. Trava só o botão dela, não a tela inteira.</summary>
+    private string? _marcando;
+
+    protected override async Task OnInitializedAsync() => await CarregarAsync();
+
+    private async Task CarregarAsync()
+    {
+        _r = await Cartoes.PainelAsync();
+        _d = await Desempenho.ResumoAsync();
+        _ultimos = await Desempenho.UltimosAsync();
+        await CarregarHistoricoAsync();
+        _temErros = await Cartoes.TemNotasDeErroAsync();
+        _prazos = await Conhecimento.PrazosAsync();
+        _acompanhantes = await Acompanhamento.QuemMeAcompanhaAsync();
+        _publicadas = await Publicacao.MeusAsync();
+        _meuApelido = (await Usuario.ApelidoAsync()).Valor;
+    }
+
+    // —— QUEM ACOMPANHA MEUS ESTUDOS ——————————————————————————————————————————————————
+    private IReadOnlyList<Acompanhamento> _acompanhantes = [];
+    private string _meuApelido = string.Empty;
+
+    /// <summary>
+    /// Copia o apelido. O botão é ATALHO, não a única saída: copiar falha por motivos que não são
+    /// defeito nosso (contexto não seguro, permissão negada), e por isso o apelido fica à mostra no
+    /// texto. Ver js/copiar.js.
+    /// </summary>
+    private async Task CopiarApelidoAsync()
+    {
+        try
+        {
+            var js = await JS.InvokeAsync<IJSObjectReference>("import", "./js/copiar.js");
+            if (await js.InvokeAsync<bool>("copiar", _meuApelido)) Avisos.Add("Apelido copiado.", Severity.Success);
+            else Avisos.Add("Não consegui copiar — selecione o apelido acima.", Severity.Info);
+        }
+        catch (JSException) { Avisos.Add("Não consegui copiar — selecione o apelido acima.", Severity.Info); }
+    }
+    private string _apelidoConvidado = string.Empty;
+    private bool _convidando;
+
+    private async Task ConvidarAsync()
+    {
+        if (_convidando || string.IsNullOrWhiteSpace(_apelidoConvidado)) return;
+        _convidando = true;
+        try
+        {
+            var r = await Acompanhamento.ConvidarAsync(_apelidoConvidado);
+            if (!r.Ok) { Avisos.Add(r.Mensagem ?? "Não consegui dar o acesso.", Severity.Error); return; }
+
+            // O CAMPO SÓ LIMPA QUANDO DEU CERTO. Limpar sempre apagaria o que a pessoa digitou junto
+            // com a mensagem de erro, e ela teria de redigitar para descobrir o que estava errado.
+            _apelidoConvidado = string.Empty;
+            _acompanhantes = await Acompanhamento.QuemMeAcompanhaAsync();
+            Avisos.Add($"{r.Valor!.Convidado.Valor} passa a acompanhar seus estudos.", Severity.Success);
+        }
+        finally { _convidando = false; }
+    }
+
+    private async Task RevogarAsync(string apelido)
+    {
+        // SEM CONFIRMAÇÃO, de propósito: tirar acesso é a ação SEGURA do par. Uma confirmação aqui
+        // colocaria atrito no lado certo — quem clica em "fechar" quer fechar, e reabrir custa digitar
+        // um apelido. A confirmação existiria se o risco fosse dar acesso, e dar acesso já exige digitar.
+        if (await Acompanhamento.RevogarAsync(apelido))
+        {
+            _acompanhantes = await Acompanhamento.QuemMeAcompanhaAsync();
+            Avisos.Add($"{apelido} não acompanha mais seus estudos.", Severity.Info);
+        }
+    }
+
+    // —— O QUE EU PUBLIQUEI ————————————————————————————————————————————————————————————
+    private IReadOnlyList<LinkDeNota> _publicadas = [];
+
+    /// <summary>
+    /// Tira a nota do ar. SEM CONFIRMAÇÃO, pela mesma razão do revogar acima: fechar acesso é a metade
+    /// segura do par. Quem se arrepender republica pelo menu da nota — e ganha um endereço NOVO, que é o
+    /// comportamento certo: o link antigo já circulou, e ressuscitá-lo devolveria acesso a quem quer que
+    /// o tivesse guardado.
+    /// </summary>
+    private async Task DespublicarAsync(LinkDeNota link)
+    {
+        if (await Publicacao.RevogarAsync(link.Token.Valor))
+        {
+            _publicadas = await Publicacao.MeusAsync();
+            Avisos.Add($"\"{link.Caminho.Nome}\" saiu do ar.", Severity.Info);
+        }
+        else
+        {
+            Avisos.Add("Não consegui revogar esse link.", Severity.Error);
+        }
+    }
+
+    private bool _criandoMateria;
+
+    /// <summary>
+    /// Cria uma matéria sem sair do painel.
+    ///
+    /// FICA AQUI depois de criar, ao contrário das Notas — que abrem a nota-mapa nova. São dois gestos
+    /// diferentes: nas Notas se cria a matéria PARA escrever nela agora; aqui se está CADASTRANDO, e
+    /// cadastrar costuma ser em série. Levar embora na primeira faria a segunda começar com um "voltar".
+    /// O caminho para a nota-mapa continua a um clique, no nome da matéria na própria tabela.
+    /// </summary>
+    private async Task CriarMateriaAsync()
+    {
+        if (_criandoMateria) return;
+        var dialogo = await Dialogos.ShowAsync<DialogoDeNovaMateria>("Matéria nova");
+        var fechou = await dialogo.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not string escolhido) return;
+
+        _criandoMateria = true;
+        try
+        {
+            // A VALIDAÇÃO DE VERDADE É DO CASO DE USO: ele é quem sabe o que já existe no vault. O
+            // diálogo só barra o óbvio (vazio, barra) para poupar a ida e volta.
+            var r = await Conhecimento.CriarMateriaAsync(escolhido);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui criar a matéria.", Severity.Error);
+                return;
+            }
+
+            // Recarrega o painel inteiro: matéria nova muda a tabela, o "onde prestar atenção" e o
+            // seletor de matéria do cronômetro na próxima abertura.
+            await CarregarAsync();
+            Avisos.Add($"Matéria \"{escolhido}\" criada.", Severity.Success);
+        }
+        finally
+        {
+            _criandoMateria = false;
+        }
+    }
+
+    /// <summary>
+    /// Abre a correção de um lançamento. Recarrega TUDO ao voltar: corrigir um número muda o resumo, o
+    /// mapa de horas, o "onde você perde" e a própria lista — recarregar só a lista deixaria a tela
+    /// mostrando o número velho ao lado do novo.
+    /// </summary>
+    private async Task EditarAsync(LancamentoRegistrado l)
+    {
+        var parametros = new DialogParameters<DialogoDeEditarLancamento> { { d => d.Lancamento, l } };
+        var dialogo = await Dialogos.ShowAsync<DialogoDeEditarLancamento>("Corrigir lançamento", parametros);
+        var r = await dialogo.Result;
+        if (r is { Canceled: false })
+        {
+            await CarregarAsync();
+            Avisos.Add("Lançamento corrigido.", Severity.Success);
+        }
+    }
+
+    // —— A JANELA DO HISTÓRICO ————————————————————————————————————————————————————————
+    // As duas grades (horas e revisões) leem a MESMA janela, de propósito: elas ficam empilhadas e
+    // comparar tempo com revisões em escalas diferentes é ler dois gráficos como se fossem um.
+
+    /// <summary>0 = "desde o início" (a janela real é perguntada ao serviço, que a calcula do registro
+    /// mais antigo). Um sentinela em vez de um número grande: 520 semanas chumbadas aqui seriam uma
+    /// data de corte inventada, e quem estudasse por mais tempo perderia o começo em silêncio.</summary>
+    private const int DesdeOInicio = 0;
+
+    // A ESCADA DE PERÍODOS. A semana entra porque é o horizonte em que se corrige a rotina — "esta
+    // semana rendeu?" é a pergunta de domingo à noite, e 4 semanas já diluem um domingo perdido. O
+    // trimestre entra pelo outro lado: é o ciclo em que um edital se mexe, e a distância entre 8
+    // semanas e 6 meses era grande demais para não ter degrau no meio.
+    private static readonly (string Rotulo, int Semanas)[] Janelas =
+    [
+        ("1 semana", 1),
+        ("4 semanas", 4),
+        ("8 semanas", MapaDeHoras.SemanasPadrao),
+        ("3 meses", 13),
+        ("6 meses", 26),
+        ("1 ano", 52),
+        ("Desde o início", DesdeOInicio),
+    ];
+
+    private int _semanas = MapaDeHoras.SemanasPadrao;
+
+    /// <summary>Quantas semanas de fato foram carregadas — igual a `_semanas`, exceto em "desde o
+    /// início", onde vem do serviço. É esta que os rótulos leem: dizer "1 ano" numa grade de 8 semanas
+    /// seria a tela mentindo sobre o próprio conteúdo.</summary>
+    private int _semanasCarregadas = MapaDeHoras.SemanasPadrao;
+
+    private async Task MudarJanelaAsync(int semanas)
+    {
+        _semanas = semanas;
+        await CarregarHistoricoAsync();
+    }
+
+    private async Task CarregarHistoricoAsync()
+    {
+        _semanasCarregadas = _semanas == DesdeOInicio
+            ? await Desempenho.SemanasDesdeOInicioAsync()
+            : _semanas;
+        (_calor, _calorLembrado, _calorTotal) = await Desempenho.CalorAsync(_semanasCarregadas);
+        _horas = await Desempenho.HorasAsync(_semanasCarregadas);
+    }
+
+    /// <summary>"Nas últimas 8 semanas" / "Todo o histórico" — o título acompanha a escolha em vez de
+    /// prometer quatro semanas enquanto a grade mostra um ano.</summary>
+    private string TituloDoDesempenho() => _semanas switch
+    {
+        DesdeOInicio => "Todo o histórico",
+        1 => "Na última semana",          // "nas últimas 1 semanas" é o preço de não olhar o singular
+        13 => "Nos últimos 3 meses",
+        26 => "Nos últimos 6 meses",
+        52 => "No último ano",
+        _ => $"Nas últimas {_semanas} semanas",
+    };
+
+    private string PeriodoEmPalavras() => _semanas switch
+    {
+        DesdeOInicio => $"desde o início ({_semanasCarregadas} semanas)",
+        52 => "último ano",
+        26 => "últimos 6 meses",
+        13 => "últimos 3 meses",
+        1 => "última semana",
+        _ => $"últimas {_semanasCarregadas} semanas",
+    };
+
+    /// <summary>As notas com "prazo:" no frontmatter, já na ordem do painel. Ver Prazos.</summary>
+    private IReadOnlyList<PrazoDaNota> _prazos = [];
+
+    /// <summary>Há cartões de erro — decide se o atalho "Revisar meus erros" aparece no aviso de fraqueza.</summary>
+    private bool _temErros;
+
+    // —— O HISTÓRICO DE HORAS ————————————————————————————————————————————————————————
+    private HistoricoDeHoras? _horas;
+
+    // Degraus fixos por MINUTOS num dia, não relativos ao pico: o mapa compara dias entre si ao longo de
+    // semanas, e uma escala que mudasse com o máximo faria a mesma terça parecer clara numa semana e escura
+    // na outra. Os cortes são de rotina de concurso — 30min, 1h, 2h — e o 4º degrau é "dia cheio".
+    private static int IntensidadeDeHoras(TimeSpan estudado) => estudado.TotalMinutes switch
+    {
+        <= 0 => 0,
+        <= 30 => 1,
+        <= 60 => 2,
+        <= 120 => 3,
+        _ => 4,
+    };
+
+    /// <summary>"1h30" / "45min" — leitura curta, sem "0,75h" que ninguém converte de cabeça.</summary>
+    private static string Horas(TimeSpan t)
+    {
+        var min = (int)Math.Round(t.TotalMinutes);
+        if (min <= 0) return "0min";
+        var h = min / 60;
+        var m = min % 60;
+        if (h == 0) return $"{m}min";
+        return m == 0 ? $"{h}h" : $"{h}h{m:00}";
+    }
+
+    private string RotuloDasHoras() =>
+        _horas is null || _horas.Vazio
+            ? "Histórico de horas: nada registrado ainda."
+            : $"Histórico de horas — {PeriodoEmPalavras()}: {Horas(_horas.Total)} no total, " +
+              $"{Horas(_horas.NestaSemana)} esta semana, sequência de {_horas.Sequencia} dia(s).";
+
+    // —— O MAPA DE CALOR ————————————————————————————————————————————————————————————
+    private IReadOnlyList<DiaDeCalor> _calor = [];
+    private int _calorLembrado;
+    private int _calorTotal;
+
+    // Degraus fixos, não relativos ao máximo: o calor compara DIAS ENTRE SI ao longo de semanas, e uma
+    // escala que mudasse com o pico faria a mesma quinta parecer clara numa semana e escura na outra.
+    private static int Intensidade(int revisoes) => revisoes switch
+    {
+        0 => 0,
+        <= 4 => 1,
+        <= 9 => 2,
+        <= 19 => 3,
+        _ => 4,
+    };
+
+    private string RotuloDoCalor() =>
+        $"Mapa de calor: {_calorTotal} revisão(ões) — {PeriodoEmPalavras()}, " +
+        $"{_calorLembrado}% lembradas.";
+
+    // —— A PREVISÃO DE 7 DIAS ————————————————————————————————————————————————————————
+
+    // A barra mais alta tem 40px e as outras são proporcionais A ELA, não a uma escala fixa: o que a
+    // faixa responde é "qual dia pesa mais?", e essa comparação vale igual com máximo 3 ou máximo 60.
+    // Dia com zero mostra 2px — a linha de chão que diz "olhei, não tem nada", diferente de buraco.
+    private double AlturaDaBarra(int cartoes)
+    {
+        if (_r is null || cartoes == 0) return 2;
+        var maximo = Math.Max(1, _r.ProximosDias.Max(d => d.Cartoes));
+        return Math.Max(2, 40.0 * cartoes / maximo);
+    }
+
+    // Nome do dia sem depender da cultura do servidor: o app é pt-BR onde quer que rode.
+    private static string DiaCurto(DateOnly dia) => dia.DayOfWeek switch
+    {
+        DayOfWeek.Monday => "seg",
+        DayOfWeek.Tuesday => "ter",
+        DayOfWeek.Wednesday => "qua",
+        DayOfWeek.Thursday => "qui",
+        DayOfWeek.Friday => "sex",
+        DayOfWeek.Saturday => "sáb",
+        _ => "dom",
+    };
+
+    /// <summary>A faixa inteira num rótulo só: barras individuais não são nada para um leitor de tela.</summary>
+    private string RotuloDaPrevisao()
+    {
+        if (_r is null) return string.Empty;
+        var partes = _r.ProximosDias.Select(d => $"{DiaCurto(d.Dia)} {d.Cartoes}");
+        return $"Revisões agendadas para os próximos 7 dias: {string.Join(", ", partes)}.";
+    }
+
+    /// <summary>
+    /// Marca (ou desmarca) a matéria como material de consulta, e RECARREGA o painel — a sugestão do
+    /// topo e a lista de atenção mudam juntas, e uma tela onde metade obedeceu ao clique e a outra
+    /// metade não é pior que uma tela que ignorou o clique.
+    ///
+    /// A MENSAGEM DIZ ONDE A DECISÃO FOI PARAR. Isto grava um campo no .md da matéria, não uma linha num
+    /// banco: quem abre o vault no Obsidian vai ver "referencia: true" no topo do arquivo, e precisa
+    /// saber que foi este botão que pôs aquilo lá.
+    /// </summary>
+    private async Task AlternarReferenciaAsync(Materia materia)
+    {
+        if (_marcando is not null) return;
+
+        _marcando = materia.Nome;
+        try
+        {
+            var r = await Conhecimento.AlternarReferenciaAsync(materia);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui marcar.", Severity.Warning);
+                return;
+            }
+
+            await CarregarAsync();
+            Avisos.Add(r.Valor
+                ? $"{materia.Rotulo} agora é referência — não vou mais pedir cartões. Está escrito no mapa da matéria."
+                : $"{materia.Rotulo} volta a ser matéria de estudo.", Severity.Success);
+        }
+        finally
+        {
+            _marcando = null;
+        }
+    }
+
+    /// <summary>
+    /// Apaga um lançamento e RECARREGA os números. Sem o recarregamento, a linha some da lista e o
+    /// percentual acima continua contando com ela — duas informações da mesma tela discordando, que é a
+    /// forma mais rápida de a pessoa parar de confiar no painel.
+    /// </summary>
+    private async Task ApagarAsync(LancamentoRegistrado l)
+    {
+        if (_apagando) return;
+
+        _apagando = true;
+        try
+        {
+            var r = await Desempenho.ApagarLancamentoAsync(l.Tipo, l.Id);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui apagar.", Severity.Warning);
+                return;
+            }
+
+            await CarregarAsync();
+            // DIZ O QUE SUMIU. "Apagado." sozinho deixa a dúvida de qual dos lançamentos foi — e a dúvida
+            // custa mais que a mensagem.
+            Avisos.Add($"Apaguei: {l.Materia.Rotulo} — {l.Descricao}.", Severity.Success);
+        }
+        finally
+        {
+            _apagando = false;
+        }
+    }
+
+    private async Task RegistrarAsync()
+    {
+        var parametros = new DialogParameters<DialogoDeRegistro>
+        {
+            { d => d.MateriaInicial, _r?.Materias.FirstOrDefault()?.Materia.Nome },
+        };
+
+        var d = await Dialogos.ShowAsync<DialogoDeRegistro>("Registrar estudo", parametros);
+        var r = await d.Result;
+        if (r is null || r.Canceled) return;
+
+        await CarregarAsync();
+    }
+
+    /// <summary>
+    /// Cada sugestão leva ao lugar onde ela se resolve. Um painel que só informa obriga a pessoa a
+    /// descobrir sozinha onde clicar — e aí ela deixa de consultá-lo.
+    /// </summary>
+    private void Ir(Sugestao s) => Navegacao.NavigateTo(s.Tipo switch
+    {
+        TipoDeSugestao.Revisar when s.Materia.Existe => $"revisar/{Uri.EscapeDataString(s.Materia.Nome)}",
+        TipoDeSugestao.Revisar => "revisar",
+        TipoDeSugestao.FazerCartoes => Rotas.Grafo(s.Materia),
+        _ => "notas",
+    });
+}

@@ -1,0 +1,157 @@
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Domain.Vault
+@implements IAsyncDisposable
+
+@inject ServicoDeConhecimento Conhecimento
+@inject NavigationManager Navegacao
+@inject IJSRuntime JS
+
+@* O abridor rápido — Ctrl+K (ou Ctrl+O, como no Obsidian).
+
+   POR QUE ELE É O RECURSO QUE MAIS MUDA O DIA A DIA: com vinte notas, a lista da esquerda serve.
+   Com duzentas, procurar ali é rolagem, e rolagem é o momento em que a pessoa desiste de abrir a nota
+   e escreve tudo de novo num arquivo solto — que é como um vault morre. Três teclas e o nome parcial
+   têm de bastar.
+
+   Ele vive junto dos provedores do MudBlazor, e não em cada página, porque tem de existir em TODAS as
+   telas interativas: um atalho que só funciona numa delas é um atalho que ninguém confia. *@
+
+<MudDialog @bind-Visible="_aberto" Options="_opcoes">
+    <TitleContent>
+        <MudText Typo="Typo.subtitle1">Abrir nota</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_termo" Immediate="true" DebounceInterval="120"
+                      OnDebounceIntervalElapsed="BuscarAsync" Variant="Variant.Outlined"
+                      Placeholder="Nome da nota — pode ser pedaço: &quot;dirtrib&quot;, &quot;licit&quot;"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                      AutoFocus="true" OnKeyDown="AoTeclar" />
+        @* OnKeyDown é o PARÂMETRO do MudTextField. Escrever `onkeydown="@AoTeclar"` — como eu fiz
+           primeiro — cria um atributo HTML literal em vez de um evento do Blazor: compila, renderiza,
+           e as setas e o Enter simplesmente não fazem nada. O analisador do MudBlazor também recusa
+           comentário Razor no meio dos atributos (MUD0002), então ele fica aqui embaixo. *@
+
+        @if (_resultados.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mt-3">
+                @(_termo.Length == 0 ? "Comece a digitar. Sem nada digitado, aparecem as últimas notas que você mexeu."
+                                     : "Nenhuma nota com esse nome.")
+            </MudText>
+        }
+        else
+        {
+            <MudList T="string" Dense="true" Class="mt-2">
+                @for (var i = 0; i < _resultados.Count; i++)
+                {
+                    var n = _resultados[i];
+                    var selecionado = i == _selecionado;
+                    <MudListItem T="string" OnClick="@(() => Abrir(n.Caminho))"
+                                 Class="@(selecionado ? "busca-rapida-atual" : null)">
+                        <MudText Typo="Typo.body2">@n.Titulo</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@n.Caminho.Valor</MudText>
+                    </MudListItem>
+                }
+            </MudList>
+        }
+    </DialogContent>
+</MudDialog>
+
+@code {
+    private readonly DialogOptions _opcoes = new()
+    {
+        MaxWidth = MaxWidth.Small, FullWidth = true, CloseOnEscapeKey = true, CloseButton = true,
+    };
+
+    private bool _aberto;
+    private string _termo = string.Empty;
+    private int _selecionado;
+    private IReadOnlyList<NotaIndexada> _resultados = [];
+    private IJSObjectReference? _js;
+    private DotNetObjectReference<BuscaRapida>? _referencia;
+
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (primeiraVez)
+        {
+            _referencia = DotNetObjectReference.Create(this);
+            _js = await JS.InvokeAsync<IJSObjectReference>("import", "./js/atalhos.js");
+            await _js.InvokeVoidAsync("ligar", _referencia);
+        }
+
+        // O FOCO SÓ PODE SER PEDIDO DEPOIS QUE O DIÁLOGO EXISTE NO DOM. Pedi-lo dentro de
+        // AbrirBuscaAsync — que é onde parece certo — chega cedo demais: o campo ainda não foi
+        // renderizado, o pedido cai no vazio e o foco fica na sobreposição do MudBlazor. Medido: o
+        // activeElement era "DIV.fixed pointer-events-none", e digitar não ia a lugar nenhum.
+        //
+        // `AutoFocus` do MudTextField e o `FocusAsync()` da referência TAMBÉM não resolvem aqui — os
+        // dois foram tentados e medidos. Quem resolve é o js/atalhos.js, achando o input no DOM.
+
+    }
+
+    /// <summary>Chamado pelo JavaScript quando o atalho é pressionado. Ver js/atalhos.js.</summary>
+    [JSInvokable]
+    public async Task AbrirBuscaAsync()
+    {
+        _termo = string.Empty;
+        _selecionado = 0;
+        await BuscarAsync();
+        _aberto = true;
+
+        // Quem põe o foco no campo é o js/atalhos.js, DEPOIS que este método retorna — sem foco, o
+        // atalho abre uma caixa onde ainda é preciso clicar antes de digitar, e aí não economizou
+        // tecla nenhuma. Ver o comentário lá.
+        StateHasChanged();
+    }
+
+    private async Task BuscarAsync()
+    {
+        _resultados = await Conhecimento.ParaAbrirRapidoAsync(_termo);
+        _selecionado = 0;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Setas e Enter. Sem teclado, o abridor obriga a tirar a mão do teclado para clicar — que é
+    /// justamente o gesto que ele existe para evitar.
+    /// </summary>
+    private void AoTeclar(KeyboardEventArgs e)
+    {
+        if (_resultados.Count == 0) return;
+
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                _selecionado = (_selecionado + 1) % _resultados.Count;
+                break;
+            case "ArrowUp":
+                _selecionado = (_selecionado - 1 + _resultados.Count) % _resultados.Count;
+                break;
+            case "Enter":
+                Abrir(_resultados[_selecionado].Caminho);
+                break;
+        }
+    }
+
+    private void Abrir(CaminhoNota caminho)
+    {
+        _aberto = false;
+        // Rotas.Nota e não "/notas/…": a barra inicial descartaria o sub-caminho. Ver Rotas.
+        Navegacao.NavigateTo(Rotas.Nota(caminho));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_js is not null)
+            {
+                await _js.InvokeVoidAsync("desligar");
+                await _js.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (OperationCanceledException) { }
+        _referencia?.Dispose();
+    }
+}

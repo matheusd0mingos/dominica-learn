@@ -1,0 +1,257 @@
+@* O CRONÔMETRO DE ESTUDO — o widget fixo que aparece em toda tela interativa.
+
+   O ESTADO NÃO ESTÁ AQUI: mora no EstadoDoCronometro (serviço do circuito), então o tempo continua
+   correndo quando a pessoa troca de página. Este componente é recriado a cada navegação e só LÊ o
+   serviço; ao remontar, ele re-liga o display do ponto em que o serviço já está.
+
+   PARAR REGISTRA A SESSÃO no mesmo lugar que o "Registrar estudo" manual — então o mapa de calor, as
+   horas e o "onde você perde" passam a sair do que foi cronometrado de verdade, não do que se lembrou
+   de digitar depois. É o que transforma "eu acho que estudei umas 3 horas" em dado. *@
+
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Web.Components.Pages
+@using Dominica.Learn.Web.Estudo
+@implements IAsyncDisposable
+@inject EstadoDoCronometro Crono
+@inject ServicoDeConhecimento Conhecimento
+@inject ServicoDeDesempenho Desempenho
+@inject IJSRuntime JS
+@inject ISnackbar Avisos
+@inject IDialogService Dialogos
+
+<div class="cronometro @(_aberto || Crono.Ativo ? "cronometro-aberto" : "")">
+    @if (!Crono.Ativo && !_aberto)
+    {
+        <button class="cronometro-pill" @onclick="Abrir" aria-label="Abrir o cronômetro de estudo">
+            <MudIcon Icon="@Icons.Material.Filled.Timer" Size="Size.Small" />
+            <span>Estudar</span>
+        </button>
+    }
+    else
+    {
+        <div class="cronometro-painel">
+            @if (!Crono.Ativo)
+            {
+                @* PARADO: escolher a matéria e começar. *@
+                <div class="cronometro-linha">
+                    <MudSelect T="string" @bind-Value="_materia" Dense="true" Variant="Variant.Outlined"
+                               Margin="Margin.Dense" Placeholder="Matéria" Class="cronometro-select">
+                        @foreach (var m in _materias)
+                        {
+                            <MudSelectItem T="string" Value="@m.Materia.Nome">@m.Materia.Rotulo</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Color="Color.Primary" Size="Size.Small"
+                                   aria-label="Começar" Disabled="@string.IsNullOrEmpty(_materia)" OnClick="Comecar" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
+                                   aria-label="Fechar" OnClick="Fechar" />
+                </div>
+            }
+            else
+            {
+                @* RODANDO ou PAUSADO: matéria, tempo grande, e os controles. *@
+                <div class="cronometro-linha">
+                    <div class="cronometro-info">
+                        <span class="cronometro-materia">@Crono.Materia?.Rotulo</span>
+                        <span id="cronometro-display" class="cronometro-tempo">0:00</span>
+                    </div>
+                    @if (Crono.Rodando)
+                    {
+                        <MudIconButton Icon="@Icons.Material.Filled.Pause" Size="Size.Small"
+                                       aria-label="Pausar" OnClick="Pausar" />
+                    }
+                    else
+                    {
+                        <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Color="Color.Primary" Size="Size.Small"
+                                       aria-label="Retomar" OnClick="Retomar" />
+                    }
+                    <MudIconButton Icon="@Icons.Material.Filled.Stop" Color="Color.Success" Size="Size.Small"
+                                   aria-label="Parar e registrar" Disabled="_gravando" OnClick="PararERegistrarAsync" />
+                    @* DETALHAR — o mesmo parar, com uma parada no diálogo completo.
+                       O cronômetro só sabe medir TEMPO, e quem acabou um bloco de questões quer
+                       registrar quantas fez e quantas acertou. Isso vivia noutra tela, no botão
+                       "Registrar" do painel — ou seja, no fim do estudo a pessoa tinha de lembrar de ir
+                       lá e digitar de novo a matéria e o tempo que o cronômetro acabou de contar.
+                       Aqui o parar continua igual (um clique, grava, some): detalhar é o CAMINHO A
+                       MAIS, não o novo caminho. Trocar um pelo outro cobraria uma confirmação de quem
+                       só queria marcar a hora. *@
+                    <MudIconButton Icon="@Icons.Material.Filled.PostAdd" Size="Size.Small"
+                                   aria-label="Parar e detalhar o registro" Disabled="_gravando"
+                                   title="Parar e detalhar (questões, acertos, de onde)"
+                                   OnClick="PararEDetalharAsync" />
+                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small"
+                                   aria-label="Descartar" OnClick="Descartar" />
+                </div>
+                @* O QUE FOI ESTUDADO, nas palavras da pessoa — opcional, e vai junto no registro quando
+                   o cronômetro para. O valor mora no EstadoDoCronometro (não aqui): o widget é recriado
+                   a cada navegação, e o texto digitado tem que sobreviver a abrir uma nota no meio do
+                   bloco. Aparece só com o cronômetro ativo: parado, não há sessão a descrever. *@
+                <MudTextField T="string" @bind-Value="Crono.Observacao" Immediate="true"
+                              Placeholder="O que você estudou? (opcional)" Variant="Variant.Outlined"
+                              Margin="Margin.Dense" MaxLength="512" Class="cronometro-observacao"
+                              aria-label="Descrição da sessão de estudo" />
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _aberto;
+    private bool _gravando;
+    private string? _materia;
+    private IReadOnlyList<MateriaContada> _materias = [];
+    private IJSObjectReference? _js;
+
+    private bool _descartado;
+
+    protected override void OnInitialized() => Crono.Mudou += AoMudar;
+
+    // O EVENTO VEM DE FORA DO RENDERIZADOR, e é por isso que ele precisa do try daqui: o que estoura
+    // dentro de um InvokeAsync que ninguém aguarda NÃO cai no ErrorBoundary — vira exceção não tratada
+    // e derruba o CIRCUITO INTEIRO (a aba para de responder a clique, em toda tela, e só o F5 resolve).
+    // Acontece na troca de página: o widget é recriado por página, e o antigo continua inscrito no
+    // evento até o descarte assíncrono — aí o Mudou chega num componente que já morreu.
+    private void AoMudar() => _ = InvokeAsync(async () =>
+    {
+        if (_descartado) return;
+        try
+        {
+            StateHasChanged();
+            await SincronizarDisplayAsync();
+        }
+        catch (ObjectDisposedException) { }        // componente/circuito já descartado — nada a atualizar
+        catch (JSDisconnectedException) { }        // aba fechada ou rede caiu no meio do interop
+        catch (OperationCanceledException) { }
+    });
+
+    protected override async Task OnInitializedAsync() =>
+        _materias = (await Conhecimento.MateriasAsync()).Where(m => m.Materia.Existe).ToList();
+
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        // Mesmo motivo do AoMudar: um interop que falha aqui (navegação no meio do import, aba fechando)
+        // sobe como exceção não tratada e leva o circuito junto. O widget é acessório — ele pode falhar
+        // calado; o que não pode é derrubar a tela inteira por causa do relógio do canto.
+        try
+        {
+            _js ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/cronometro.js");
+            // RE-LIGA O DISPLAY A CADA RENDER, e é isso que faz o cronômetro "reaparecer contando" quando
+            // a pessoa navega para outra página: o componente é novo, o serviço não, então o display
+            // retoma do ponto em que o serviço está. É idempotente — o próprio módulo troca o intervalo.
+            await SincronizarDisplayAsync();
+        }
+        catch (JSDisconnectedException) { }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task SincronizarDisplayAsync()
+    {
+        if (_js is null || !Crono.Ativo) return;
+        var segundos = Crono.Decorrido.TotalSeconds;
+        if (Crono.Rodando) await _js.InvokeVoidAsync("iniciar", "cronometro-display", segundos);
+        else await _js.InvokeVoidAsync("congelar", "cronometro-display", segundos);
+    }
+
+    private void Abrir() => _aberto = true;
+
+    private void Fechar() => _aberto = false;
+
+    private void Comecar()
+    {
+        if (Materia.De(_materia ?? "") is { Existe: true } materia)
+        {
+            _aberto = false;
+            Crono.Iniciar(materia);
+        }
+    }
+
+    private void Pausar() => Crono.Pausar();
+
+    private void Retomar() => Crono.Retomar();
+
+    private void Descartar()
+    {
+        Crono.Zerar();
+        _materia = null;
+    }
+
+    /// <summary>
+    /// Para o cronômetro e GRAVA a sessão. Menos de um minuto não vira registro — o serviço de
+    /// desempenho recusa, e é a régua certa: uma passada de dez segundos não é uma sessão de estudo.
+    /// </summary>
+    private async Task PararERegistrarAsync()
+    {
+        if (_gravando || Crono.Materia is null) return;
+        _gravando = true;
+        try
+        {
+            var materia = Crono.Materia;
+            var duracao = Crono.Decorrido;
+            Crono.Pausar();
+
+            // Vazio vira "Cronômetro" — o marcador de sempre, que distingue o cronometrado do digitado
+            // à mão na lista de lançamentos. Quem escreveu algo ganha o texto DELA no lugar.
+            var observacao = string.IsNullOrWhiteSpace(Crono.Observacao) ? "Cronômetro" : Crono.Observacao.Trim();
+            var r = await Desempenho.RegistrarSessaoAsync(materia, duracao, observacao);
+            if (r.Ok)
+            {
+                Avisos.Add($"Registrado: {(int)duracao.TotalMinutes} min em {materia.Rotulo}.", Severity.Success);
+                Descartar();
+            }
+            else
+            {
+                // Menos de 1 min (ou mais que o teto): não grava, mas não perde o que já contou — a
+                // pessoa decide descartar ou continuar contando.
+                Avisos.Add(r.Mensagem ?? "Não consegui registrar.", Severity.Info);
+            }
+        }
+        finally { _gravando = false; }
+    }
+
+    /// <summary>
+    /// Para o cronômetro e abre o registro COMPLETO, já com a matéria, o tempo contado e o que foi
+    /// escrito durante a sessão. Quem confirma registra questões e tempo de uma vez.
+    ///
+    /// PAUSA, NÃO ZERA, antes de abrir: se a pessoa desistir no diálogo, o tempo continua lá para ela
+    /// parar normalmente ou seguir estudando. Zerar aqui transformaria "cancelar" em "perdi a sessão",
+    /// que é o desfecho que faz alguém não clicar mais no botão.
+    /// </summary>
+    private async Task PararEDetalharAsync()
+    {
+        if (_gravando || Crono.Materia is null) return;
+
+        var materia = Crono.Materia;
+        var minutos = (int)Crono.Decorrido.TotalMinutes;
+        Crono.Pausar();
+
+        var parametros = new DialogParameters<DialogoDeRegistro>
+        {
+            { d => d.MateriaInicial, materia.Nome },
+            { d => d.MinutosIniciais, minutos },
+            { d => d.ObservacaoInicial, Crono.Observacao },
+        };
+        var dialogo = await Dialogos.ShowAsync<DialogoDeRegistro>("Registrar estudo", parametros);
+        var r = await dialogo.Result;
+
+        // O DIÁLOGO É QUEM GRAVA. Aqui só se decide o que fazer com o cronômetro depois: confirmou,
+        // a sessão virou registro e o contador zera; cancelou, nada foi gravado e o tempo continua.
+        if (r is { Canceled: false })
+        {
+            Descartar();
+            Avisos.Add("Registrado.", Severity.Success);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _descartado = true;   // corta o AoMudar que chegar entre o desinscrever e o fim do descarte
+        Crono.Mudou -= AoMudar;
+        try
+        {
+            if (_js is not null) await _js.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+        catch (OperationCanceledException) { }
+    }
+}

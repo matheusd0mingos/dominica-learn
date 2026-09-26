@@ -1,0 +1,35 @@
+@page "/hoje"
+@using Dominica.Learn.Application.CasosDeUso
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ServicoDeConhecimento Conhecimento
+@inject NavigationManager Navegacao
+
+@* /hoje É UM ENDEREÇO, não uma tela: cria a nota do dia se preciso e cai nela. Existe para a nota
+   diária ter um lugar fixo — favorito do navegador, atalho de PWA, link em qualquer nota — que
+   funciona igual todo dia, sem depender de saber a data. *@
+
+<PageTitle>Hoje · Dominica Learn</PageTitle>
+
+@if (_erro is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="ma-4">@_erro</MudAlert>
+}
+
+@code {
+    private string? _erro;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Idempotente por construção (o serviço lê antes de criar), então rodar no prerender E no
+        // circuito interativo não cria duas notas — e o redirect do prerender já leva a pessoa embora.
+        var r = await Conhecimento.NotaDeHojeAsync();
+        if (!r.Ok)
+        {
+            _erro = r.Mensagem ?? "Não consegui abrir a nota de hoje.";
+            return;
+        }
+        Navegacao.NavigateTo($"notas/{r.Valor!.Valor}", replace: true);
+    }
+}

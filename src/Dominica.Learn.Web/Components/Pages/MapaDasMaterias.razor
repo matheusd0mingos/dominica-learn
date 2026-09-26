@@ -1,0 +1,362 @@
+@page "/grafo/materias"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Grafo
+@using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Web.Tema
+@using Microsoft.AspNetCore.Authorization
+@using System.Globalization
+@attribute [Authorize]
+@rendermode InteractiveServer
+@implements IDisposable
+@implements IAsyncDisposable
+@inject ServicoDeConhecimento Conhecimento
+@inject EstadoDoTema Tema
+@inject NavigationManager Navegacao
+@inject IJSRuntime JS
+
+@* O TOPO DO DRILL DO GRAFO. Três níveis, cada um com endereço:
+
+     /grafo/materias              este mapa — quais matérias conversam
+     /grafo?materia=X             o grafo de uma matéria (clique num nó desce para cá)
+     /grafo/Direito/Atos.md       a vizinhança de uma nota
+
+   Subir é o botão "Todas as notas" — e o VOLTAR do navegador, porque cada nível é URL e não estado
+   de tela. É o mesmo princípio que tirou o mapa de etiquetas do interruptor.
+
+   POR QUE A ROTA LITERAL NÃO BRIGA COM O CATCH-ALL: "/grafo/{*caminho}" captura qualquer coisa, mas
+   rota literal tem precedência sobre catch-all no roteador — e um caminho de NOTA sempre termina em
+   ".md", então "/grafo/materias" nunca seria uma nota de verdade. Conferido no navegador.
+
+   DRILL POR NAVEGAÇÃO, NÃO POR EXPANDIR NO LUGAR — e isto é decisão, não limitação. Expandir o
+   aglomerado dentro do mesmo desenho re-arranja tudo (destrói a memória espacial que o layout
+   determinístico existe para proteger) e produz um estado expandido/colapsado que não cabe em URL. *@
+
+<PageTitle>Mapa das matérias · Dominica Learn</PageTitle>
+
+<ProvedoresDoMud />
+
+@* position:relative ancora os controles de zoom DENTRO do painel — ver grafo-controles no app.css. *@
+<MudPaper Class="pa-3" Elevation="0" Outlined="true" Style="position:relative">
+    <div class="d-flex align-center flex-wrap gap-3 mb-3">
+        <MudText Typo="Typo.h6">Mapa das matérias</MudText>
+        <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ZoomIn"
+                   Href="grafo">Todas as notas</MudButton>
+    </div>
+
+    @if (_carregando)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (_mapa.Nos.Count < 2)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+            Este mapa compara matérias — ele aparece quando o vault tem mais de uma. Crie pastas para os
+            seus assuntos e as notas de cada uma entram no lugar certo sozinhas.
+        </MudAlert>
+    }
+    else
+    {
+        @* Zoom e arrasto, o mesmo módulo do grafo de notas (grafo.js só mexe no viewBox). Sem eles o
+           mapa era um retrato fixo; com poucas matérias num canto, dava vontade de aproximar e não dava. *@
+        <div class="grafo-controles">
+            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add"
+                           aria-label="Aproximar" OnClick="@(() => ZoomAsync(true))" />
+            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Remove"
+                           aria-label="Afastar" OnClick="@(() => ZoomAsync(false))" />
+            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.CenterFocusStrong"
+                           aria-label="Enquadrar tudo" OnClick="EnquadrarAsync" />
+        </div>
+
+        @* SEM viewBox no markup, de propósito: o JS (grafo.js) é o dono do viewBox. Se o Blazor o
+           bindasse, cada render reaplicaria o enquadramento do servidor e desfaria o zoom — o botão +
+           aproximava e o render seguinte voltava tudo. O grafo.js aplica o enquadramento inicial no
+           `ligar`, logo após o primeiro render. *@
+        <svg id="@IdDoSvg" width="100%" style="height:64vh; touch-action:none" role="img"
+             aria-label="Mapa das matérias — quais assuntos se citam">
+            @foreach (var ponte in _mapa.Pontes)
+            {
+                var de = _mapa.Posicoes[ponte.De];
+                var para = _mapa.Posicoes[ponte.Para];
+                var materiaDe = _mapa.Nos[ponte.De].Materia;
+                var materiaPara = _mapa.Nos[ponte.Para].Materia;
+                var escolhida = PonteEscolhida(materiaDe, materiaPara);
+
+                @* A PONTE É CLICÁVEL — é o clique que transforma "há relação" em "vou ler a relação".
+                   A linha visível tem 2–6px, que é alvo de mira impossível: por isso o <g> carrega uma
+                   SEGUNDA linha, invisível e gorda (14px), que é quem recebe o toque — o truque padrão
+                   de área de acerto em SVG. Teclado no mesmo padrão dos nós: link, Enter. *@
+                <g class="no-do-grafo" style="cursor:pointer"
+                   tabindex="0" role="link"
+                   aria-label="@($"Ponte {materiaDe.Rotulo} e {materiaPara.Rotulo} — {ponte.Peso} par(es) de notas. Ver quais.")"
+                   @onclick="@(() => AbrirPonte(materiaDe, materiaPara))"
+                   @onkeydown="@(e => AoTeclarNaPonte(e, materiaDe, materiaPara))">
+                    <title>@materiaDe.Rotulo ↔ @materiaPara.Rotulo — @ponte.Peso par(es) de notas</title>
+                    <line x1="@N(de.X)" y1="@N(de.Y)" x2="@N(para.X)" y2="@N(para.Y)"
+                          stroke="transparent" stroke-width="14" />
+                    <line x1="@N(de.X)" y1="@N(de.Y)" x2="@N(para.X)" y2="@N(para.Y)"
+                          stroke="@(escolhida ? "var(--mud-palette-primary)" : "var(--mud-palette-lines-default)")"
+                          stroke-width="@N((escolhida ? 1.2 : 0) + 1.6 + Math.Min(ponte.Peso, 5) * 0.9)"
+                          stroke-opacity="@(escolhida ? "1" : "0.75")" />
+                </g>
+            }
+
+            @foreach (var p in _mapa.Posicoes)
+            {
+                var m = _mapa.Nos[p.Indice];
+                var descricao = $"{m.Materia.Rotulo} — {m.Notas} nota(s) · conversa com {m.Vizinhas} matéria(s)";
+
+                @* "SEM MATÉRIA" APARECE MAS NÃO É LINK: as notas da raiz não têm recorte próprio na URL
+                   (matéria vazia não é endereçável), e um link que levasse "para o vault inteiro"
+                   mentiria sobre onde se está descendo. O nó fica, cinza, com a explicação no title —
+                   informação, não botão. *@
+                @if (m.Materia.Existe)
+                {
+                    @* data-previa-materia: pairar espia as notas da matéria sem descer ao grafo dela. *@
+                    <g class="no-do-grafo" style="cursor:pointer" @onclick="@(() => Descer(m.Materia))"
+                       tabindex="0" role="link" aria-label="@($"{descricao}. Abrir o grafo desta matéria.")"
+                       data-previa-materia="@m.Materia.Nome"
+                       @onkeydown="@(e => AoTeclar(e, m.Materia))">
+                        <title>@descricao</title>
+                        <circle class="anel-de-foco" cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio + 4.5)" />
+                        <circle cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio)" fill="@CorDa(m.Materia)" />
+                        @if (_comRotulo.TryGetValue(p.Indice, out var lado))
+                        {
+                            <g>
+                                <text x="@N(p.X)" y="@N(RotulosDoGrafo.LinhaDeBase(p, lado))" text-anchor="middle"
+                                      font-size="@N(TamanhoDoRotulo)" fill="var(--mud-palette-text-secondary)">@m.Materia.Rotulo (@m.Notas)</text>
+                            </g>
+                        }
+                    </g>
+                }
+                else
+                {
+                    <g class="no-do-grafo">
+                        <title>@descricao · notas na raiz do vault, ainda sem pasta</title>
+                        <circle cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio)"
+                                fill="@PaletaDeMaterias.Cor(-1, Tema.Escuro)" />
+                        @if (_comRotulo.TryGetValue(p.Indice, out var lado))
+                        {
+                            <g>
+                                <text x="@N(p.X)" y="@N(RotulosDoGrafo.LinhaDeBase(p, lado))" text-anchor="middle"
+                                      font-size="@N(TamanhoDoRotulo)" fill="var(--mud-palette-text-secondary)">@m.Materia.Rotulo (@m.Notas)</text>
+                            </g>
+                        }
+                    </g>
+                }
+            }
+        </svg>
+
+        <div class="d-flex flex-wrap gap-4 mt-2">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                @_mapa.Nos.Count matéria(s) · @_mapa.Pontes.Count ponte(s)
+            </MudText>
+            @* A LINHA É O ACHADO desta tela, então ela é explicada aqui e não num manual: ponte é a
+               relação que a pasta separou — e que a prova cobra junta. *@
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                A linha liga matérias cujas notas se citam; ela engrossa com quantos pares de notas
+                cruzam. Clique numa matéria para descer ao grafo dela.
+            </MudText>
+        </div>
+
+        @if (_mapa.Pontes.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mt-3">
+                Nenhuma ponte ainda: nenhuma nota cita uma nota de OUTRA matéria. As pontes são o que a
+                prova cobra junto e a pasta separou — quando você ligar assuntos de matérias diferentes
+                com <code>[[wikilinks]]</code>, elas aparecem aqui.
+            </MudAlert>
+        }
+
+        @* —— A PONTE ABERTA ——
+           O painel dos pares, ABAIXO do mapa e não num diálogo: a ponte escolhida está na URL
+           (?de=&para=), então dá para mandar por mensagem "olha o que Direito puxa de Contabilidade" —
+           um diálogo é estado que morre com o clique fora. *@
+        @if (_ponteDe is not null && _pontePara is not null)
+        {
+            <MudPaper Class="pa-3 mt-3" Elevation="0" Outlined="true">
+                <div class="d-flex align-center gap-2 flex-wrap">
+                    <MudText Typo="Typo.subtitle1">
+                        A ponte <b>@_ponteDe.Rotulo</b> ↔ <b>@_pontePara.Rotulo</b>
+                    </MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                        @_pares.Count par(es) de notas
+                    </MudText>
+                    <MudSpacer />
+                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
+                                   aria-label="Fechar a ponte" Href="grafo/materias" />
+                </div>
+
+                @if (_pares.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                        Nenhum par entre essas duas — a ponte pode ter sumido numa edição recente.
+                    </MudText>
+                }
+                else
+                {
+                    @* CADA LADO É UM LINK PARA A SUA NOTA. É aqui que a relação vira leitura: o par
+                       mais citado vem primeiro, porque é o mais provável de ser o que se procura. *@
+                    <MudList T="string" Dense="true">
+                        @foreach (var par in _pares)
+                        {
+                            <MudListItem T="string">
+                                <MudLink Href="@Rotas.Nota(par.De.Caminho)">@par.De.Titulo</MudLink>
+                                <span class="mud-text-secondary"> ↔ </span>
+                                <MudLink Href="@Rotas.Nota(par.Para.Caminho)">@par.Para.Titulo</MudLink>
+                                @if (par.Vezes > 1)
+                                {
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary d-inline"> · @par.Vezes citações</MudText>
+                                }
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            </MudPaper>
+        }
+    }
+</MudPaper>
+
+@code {
+    /// <summary>A ponte aberta, na QUERY: o recorte precisa ser endereço — ver o comentário do painel.</summary>
+    [SupplyParameterFromQuery(Name = "de")] public string? De { get; set; }
+    [SupplyParameterFromQuery(Name = "para")] public string? Para { get; set; }
+
+    private Materia? _ponteDe;
+    private Materia? _pontePara;
+    private IReadOnlyList<ParDaPonte> _pares = [];
+
+    private MapaDeMaterias _mapa = MapaDeMaterias.Vazio;
+    private bool _carregando = true;
+    private Dictionary<Materia, int> _slots = [];
+    private IReadOnlyDictionary<int, LadoDoRotulo> _comRotulo = new Dictionary<int, LadoDoRotulo>();
+
+    private const double Largura = 900;
+    private const double Altura = 620;
+    private const double TamanhoDoRotulo = 10;
+
+    private const string IdDoSvg = "mapa-das-materias";
+
+    protected override void OnInitialized() => Tema.Mudou += AoMudarTema;
+
+    public void Dispose() => Tema.Mudou -= AoMudarTema;
+
+    // Guardado pelo mesmo motivo do grafo de notas: exceção em InvokeAsync não aguardado escapa do
+    // ErrorBoundary e derruba o circuito — trocar o tema no instante da navegação alcança uma
+    // instância já descartada. Ver o comentário longo em Grafo.razor.
+    private void AoMudarTema() => _ = InvokeAsync(() =>
+    {
+        try { StateHasChanged(); }
+        catch (ObjectDisposedException) { }
+        catch (OperationCanceledException) { }
+    });
+
+    // —— ZOOM E ARRASTO — o mesmo módulo do grafo de notas (só mexe no viewBox, não recalcula layout). ——
+    private IJSObjectReference? _js;
+
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (_carregando || _mapa.Nos.Count < 2) return;
+
+        _js ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/grafo.js");
+        await _js.InvokeVoidAsync("ligar", IdDoSvg, Viewbox);
+    }
+
+    private async Task ZoomAsync(bool aproximar)
+    {
+        if (_js is not null) await _js.InvokeVoidAsync("passo", IdDoSvg, aproximar);
+    }
+
+    private async Task EnquadrarAsync()
+    {
+        if (_js is not null) await _js.InvokeVoidAsync("enquadrar", IdDoSvg);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // O circuito pode já ter caído: descartar um módulo JS numa conexão morta lança à toa.
+        try
+        {
+            if (_js is not null)
+            {
+                await _js.InvokeVoidAsync("desligar", IdDoSvg);
+                await _js.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (OperationCanceledException) { }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _mapa = await Conhecimento.MapaDeMateriasAsync(Largura, Altura);
+
+        // AS CORES SÃO AS MESMAS DO GRAFO DE NOTAS, pelo mesmo critério (slot por tamanho, "Sem matéria"
+        // nunca colorida). Se Direito é dourado lá, tem de ser dourado aqui — uma matéria que troca de
+        // cor entre os níveis do drill faz a pessoa achar que desceu no lugar errado.
+        _slots = _mapa.Nos
+            .Where(n => n.Materia.Existe)
+            .OrderByDescending(n => n.Notas)
+            .ThenBy(n => n.Materia.Nome, StringComparer.CurrentCultureIgnoreCase)
+            .Take(PaletaDeMaterias.Coloridas)
+            .Select((n, i) => (n.Materia, Slot: i))
+            .ToDictionary(t => t.Materia, t => t.Slot);
+
+        // TODA MATÉRIA QUER RÓTULO — são poucas, e um nó de matéria sem nome não é nada. A prioridade
+        // (mais notas primeiro) só decide quem fica quando dois nomes de fato não cabem.
+        _comRotulo = RotulosDoGrafo.Escolher(
+            _mapa.Posicoes,
+            [.. _mapa.Nos.Select((n, i) => new CandidatoARotulo(i, $"{n.Materia.Rotulo} ({n.Notas})", n.Notas))],
+            TamanhoDoRotulo);
+
+        _carregando = false;
+    }
+
+    // A PONTE ESCOLHIDA SAI DA QUERY, e a leitura mora aqui e não no OnInitializedAsync: navegar de
+    // "?de=A&para=B" para "?de=A&para=C" reusa o componente (mesma página), e só OnParametersSetAsync
+    // roda de novo — a mesma lição da tela de etiquetas. O mapa em si fica no OnInitializedAsync,
+    // porque ele não muda com a query.
+    //
+    // NULO ≠ VAZIO, de propósito: parâmetro AUSENTE (null) é "nenhuma ponte aberta"; presente e vazio
+    // ("?de=&para=X") é a ponte com "Sem matéria" — Materia.De("") devolve Nenhuma, que é matéria
+    // legítima no mapa. Sem essa distinção, a ponte com a raiz do vault não teria endereço.
+    protected override async Task OnParametersSetAsync()
+    {
+        _ponteDe = De is null ? null : Materia.De(De);
+        _pontePara = Para is null ? null : Materia.De(Para);
+        _pares = _ponteDe is not null && _pontePara is not null
+            ? await Conhecimento.PonteAsync(_ponteDe, _pontePara)
+            : [];
+    }
+
+    private bool PonteEscolhida(Materia a, Materia b) =>
+        _ponteDe is not null && _pontePara is not null &&
+        ((a == _ponteDe && b == _pontePara) || (a == _pontePara && b == _ponteDe));
+
+    private void AbrirPonte(Materia a, Materia b) =>
+        Navegacao.NavigateTo(
+            $"grafo/materias?de={Uri.EscapeDataString(a.Nome)}&para={Uri.EscapeDataString(b.Nome)}");
+
+    private void AoTeclarNaPonte(KeyboardEventArgs e, Materia a, Materia b)
+    {
+        if (e.Key is "Enter" or "NumpadEnter") AbrirPonte(a, b);
+    }
+
+    /// <summary>Descer um nível: o grafo da matéria. URL relativa — ver Rotas.</summary>
+    private void Descer(Materia materia) =>
+        Navegacao.NavigateTo($"grafo?materia={Uri.EscapeDataString(materia.Nome)}");
+
+    private void AoTeclar(KeyboardEventArgs e, Materia materia)
+    {
+        if (e.Key is "Enter" or "NumpadEnter") Descer(materia);
+    }
+
+    private string CorDa(Materia m) =>
+        PaletaDeMaterias.Cor(_slots.TryGetValue(m, out var s) ? s : -1, Tema.Escuro);
+
+    private string Viewbox => Enquadramento
+        .Ajustar(_mapa.Posicoes, _mapa.Largura, _mapa.Altura)
+        .ParaViewBox();
+
+    // Ponto decimal SEMPRE: em pt-BR o padrão gravaria "451,3" e o SVG descartaria o atributo.
+    private static string N(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+}

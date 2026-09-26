@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.10" />
+    <!-- O provedor Sqlite arrasta SQLitePCLRaw 2.1.11, que tem vulnerabilidade conhecida
+         (GHSA-2m69-gcr7-jv3q) e faz o TreatWarningsAsErrors barrar a compilação — como deve. A referência
+         explícita à versão corrigida sobe a transitiva. Sqlite é necessário aqui, e não o provedor em
+         memória, porque ExecuteDelete/ExecuteUpdate são relacionais: são exatamente as operações que
+         desviam do rastreador de mudanças, e portanto onde um filtro faltando apagaria a nota de outra
+         pessoa. Testá-las é o motivo deste projeto ter um banco. -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.10" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Dominica.Learn.Infrastructure\Dominica.Learn.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Dominica.Learn.Domain\Dominica.Learn.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

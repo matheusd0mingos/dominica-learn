@@ -1,0 +1,6 @@
+**/bin/
+**/obj/
+**/vault-dev/
+.env
+docs/
+tests/

@@ -1,0 +1,234 @@
+@page "/acompanhando"
+@page "/acompanhando/{Dono}/{Vault}"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Compartilhamento
+@using Dominica.Learn.Domain.Desempenho
+@using Dominica.Learn.Domain.Vault
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+@inject ServicoDeAcompanhamento Acompanhamento
+@inject NavigationManager Navegacao
+
+@* ACOMPANHAR OS ESTUDOS DE OUTRA PESSOA — a tela do professor e a do amigo.
+
+   TELA PRÓPRIA, E NÃO O PAINEL COM OS BOTÕES ESCONDIDOS. O painel registra estudo, edita lançamento e
+   apaga lançamento; reaproveitá-lo aqui significaria confiar em `@if (!ehDeOutraPessoa)` espalhado por
+   uma tela de novecentas linhas, e a primeira condição esquecida seria um professor gravando horas na
+   conta do aluno. O que não existe não pode ser esquecido — aqui não há um só componente que escreva.
+
+   E O QUE SE MOSTRA É MENOS DE PROPÓSITO. Acompanhar não é auditar: quem olha quer saber se a pessoa
+   está estudando, quanto, e onde está perdendo. O detalhe de cada lançamento é dela. *@
+
+@* SEM ISTO, DIÁLOGO E AVISO FALHAM CALADOS. O MudDialogProvider e o MudSnackbarProvider
+   moram aqui; a página que os esquece continua funcionando em tudo o mais, e só o diálogo
+   simplesmente não abre — sem erro, sem console, sem pista. Foi o e2e que pegou. *@
+<ProvedoresDoMud />
+
+<PageTitle>Acompanhando · Dominica Learn</PageTitle>
+
+@if (Dono is null)
+{
+    <MudText Typo="Typo.h5" GutterBottom="true">Acompanhando</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">
+        Os estudos que outras pessoas deixaram você ver. Quem abre o acesso é o dono, no painel dele.
+    </MudText>
+
+    @if (_lista is null)
+    {
+        <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+    }
+    else if (_lista.Count == 0)
+    {
+        <MudPaper Class="pa-4" Outlined="true" Elevation="0">
+            <MudText Typo="Typo.body2">
+                Ninguém está compartilhando os estudos com você ainda. Peça a quem você quer acompanhar
+                para abrir o <b>Painel</b> e adicionar o seu apelido em <b>“Quem acompanha meus estudos”</b>.
+            </MudText>
+        </MudPaper>
+    }
+    else
+    {
+        <MudList T="string">
+            @foreach (var a in _lista)
+            {
+                <MudListItem T="string" Icon="@Icons.Material.Filled.Visibility"
+                             OnClick="@(() => Abrir(a))">
+                    <MudText Typo="Typo.body1">@a.Dono.Valor</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">vault @a.Vault.Valor</MudText>
+                </MudListItem>
+            }
+        </MudList>
+    }
+}
+else
+{
+    <div class="d-flex align-center gap-2 mb-1">
+        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small"
+                       aria-label="Voltar para a lista" Href="acompanhando" />
+        <MudText Typo="Typo.h5">Estudos de @Dono</MudText>
+    </div>
+    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-4">
+        vault @Vault · somente leitura · janela de @(_janelaDias) dias
+    </MudText>
+
+    @if (_carregando)
+    {
+        <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+    }
+    else if (_negado)
+    {
+        @* A MESMA MENSAGEM PARA "NÃO EXISTE" E PARA "NÃO É SEU". Distinguir contaria, a quem digita
+           apelidos na barra de endereço, quem tem conta aqui e em qual vault estuda. *@
+        <MudAlert Severity="Severity.Warning">
+            Você não tem acesso a estes estudos. Se tinha, o acesso pode ter sido retirado.
+        </MudAlert>
+    }
+    else if (_resumo is not null)
+    {
+        <MudGrid Spacing="2">
+            <MudItem xs="6" md="3">
+                <MudPaper Class="pa-3" Outlined="true" Elevation="0">
+                    <MudText Typo="Typo.overline" Class="mud-text-secondary">Horas no período</MudText>
+                    <MudText Typo="Typo.h5">@Horas(_resumo.Horas)</MudText>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="6" md="3">
+                <MudPaper Class="pa-3" Outlined="true" Elevation="0">
+                    <MudText Typo="Typo.overline" Class="mud-text-secondary">Questões</MudText>
+                    <MudText Typo="Typo.h5">@_resumo.Questoes</MudText>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="6" md="3">
+                <MudPaper Class="pa-3" Outlined="true" Elevation="0">
+                    <MudText Typo="Typo.overline" Class="mud-text-secondary">Acerto</MudText>
+                    <MudText Typo="Typo.h5">
+                        @(_resumo.Questoes == 0 ? "—" : _resumo.Percentual.ToString("0.#") + "%")
+                    </MudText>
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="6" md="3">
+                <MudPaper Class="pa-3" Outlined="true" Elevation="0">
+                    <MudText Typo="Typo.overline" Class="mud-text-secondary">Dias estudados</MudText>
+                    <MudText Typo="Typo.h5">@(_horas?.DiasEstudados ?? 0)</MudText>
+                    @if (_horas is { Sequencia: > 1 })
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@_horas.Sequencia dias seguidos</MudText>
+                    }
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+
+        @* ONDE A PESSOA ESTÁ PERDENDO — é a razão de um professor abrir esta tela, e o resumo já
+           calcula com a regra certa (acerto real, não média de médias; ver ResumoDeDesempenho). *@
+        @if (_resumo.Pior is { } pior)
+        {
+            <MudAlert Severity="Severity.Info" Class="mt-4" Icon="@Icons.Material.Filled.TrendingDown">
+                Pior desempenho em <b>@pior.Materia.Rotulo</b> —
+                @pior.Percentual.ToString("0.#")% em @pior.Questoes questões.
+            </MudAlert>
+        }
+
+        <MudText Typo="Typo.h6" Class="mt-6 mb-2">Por matéria</MudText>
+        @if (_resumo.Materias.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                Nenhum estudo registrado nesta janela.
+            </MudText>
+        }
+        else
+        {
+            <MudSimpleTable Dense="true" Striped="true" Style="overflow-x:auto">
+                <thead>
+                    <tr>
+                        <th>Matéria</th>
+                        <th style="text-align:right">Horas</th>
+                        <th style="text-align:right">Questões</th>
+                        <th style="text-align:right">Acerto</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var m in _resumo.Materias.OrderByDescending(x => x.Horas))
+                    {
+                        <tr>
+                            <td>@m.Materia.Rotulo</td>
+                            <td style="text-align:right">@Horas(m.Horas)</td>
+                            <td style="text-align:right">@m.Questoes</td>
+                            <td style="text-align:right">
+                                @* SEM AMOSTRA NÃO SE CONCLUI. Mostrar "100%" de três questões convida o
+                                   professor a elogiar o que não aconteceu — o domínio já sabe disso
+                                   (TemAmostraSuficiente), e a tela obedece em vez de repetir a regra. *@
+                                @(m.Questoes == 0 ? "—"
+                                    : m.TemAmostraSuficiente ? m.Percentual.ToString("0.#") + "%"
+                                    : $"{m.Percentual:0.#}% (amostra curta)")
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    }
+}
+
+@code {
+    [Parameter] public string? Dono { get; set; }
+    [Parameter] public string? Vault { get; set; }
+
+    private IReadOnlyList<Acompanhamento>? _lista;
+    private ResumoDeDesempenho? _resumo;
+    private HistoricoDeHoras? _horas;
+    private bool _carregando;
+    private bool _negado;
+    private int _janelaDias = (int)ServicoDeDesempenho.JanelaPadrao.TotalDays;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Dono is null)
+        {
+            _lista = await Acompanhamento.QueEuAcompanhoAsync();
+            // VISTO É AQUI, ao abrir a LISTA — e não ao abrir um painel. O aviso responde "abriram algo
+            // para você"; quem chegou até a lista já sabe. Marcar só no painel deixaria o selo aceso para
+            // quem viu e decidiu não entrar agora, e um selo que não some é um selo que se ignora.
+            await Acompanhamento.MarcarVistasAsync();
+            return;
+        }
+
+        _carregando = true;
+        _negado = false;
+        _resumo = null;
+        _horas = null;
+        try
+        {
+            // Os dois vêm da URL e podem ser qualquer coisa que alguém digitou. Passam pelos tipos do
+            // domínio antes de virar consulta — e um apelido inválido é "sem acesso", não erro de tela.
+            if (!ApelidoDoUsuario.TentarCriar(Dono, out var dono, out _) || dono is null
+                || NomeDoVault.Conhecido(Vault) is not { } vault)
+            {
+                _negado = true;
+                return;
+            }
+
+            // UMA CHAMADA SÓ, e não uma por número: cada chamada abre um escopo e um contexto próprios,
+            // e a autorização é reconferida em cada uma. Ler tudo de dentro da mesma leitura mantém o
+            // painel coerente — dois pedidos separados poderiam cair em lados diferentes de uma revogação.
+            var dados = await Acompanhamento.PainelDeAsync(dono, vault, async desempenho =>
+                new DadosDoPainel(
+                    await desempenho.ResumoAsync(),
+                    await desempenho.HorasAsync()));
+
+            if (dados is null) { _negado = true; return; }
+            (_resumo, _horas) = (dados.Resumo, dados.Horas);
+        }
+        finally { _carregando = false; }
+    }
+
+    private void Abrir(Acompanhamento a) =>
+        Navegacao.NavigateTo($"acompanhando/{Uri.EscapeDataString(a.Dono.Valor)}/{Uri.EscapeDataString(a.Vault.Valor)}");
+
+    private static string Horas(TimeSpan t) =>
+        t == TimeSpan.Zero ? "—" : $"{(int)t.TotalHours}h{t.Minutes:00}";
+
+    /// <summary>Só para trazer as duas leituras de dentro do mesmo escopo numa coisa só.</summary>
+    private sealed record DadosDoPainel(ResumoDeDesempenho Resumo, HistoricoDeHoras Horas);
+}

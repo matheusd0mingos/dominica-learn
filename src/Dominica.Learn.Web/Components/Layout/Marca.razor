@@ -1,0 +1,43 @@
+@* O arco Dominica — o símbolo da marca, portado de novo/plataforma/web/src/Logo.tsx.
+
+   As cores estão FIXAS no SVG, e não em variáveis de tema, de propósito: um logotipo que muda de cor
+   com o tema deixa de ser um logotipo. As mesmas quatro demãos do original — a silhueta marinho, o
+   miolo dourado claro, o contorno dourado e os três raios da base.
+
+   A ÚNICA variação permitida é `Invertida`, e ela existe por necessidade física: a silhueta é marinho
+   e a barra do app é marinho, então sobre a barra a silhueta some e sobra um arco dourado sem corpo.
+   Invertida troca a silhueta por creme — é a versão "em negativo" que toda marca tem, e não um segundo
+   logotipo. As demais demãos não mudam.
+
+   Nunca reproduza este caminho à mão em outro lugar. Se a marca mudar, muda aqui e no Logo.tsx, e
+   uma terceira cópia é a que ninguém lembra de atualizar. *@
+
+<span class="marca" aria-label="Dominica Learn">
+    <svg viewBox="0 0 60 64" width="@Tamanho" height="@(Tamanho * 64 / 60)" role="img" aria-hidden="true"
+         style="display:block;flex:none">
+        <path d="M8 58 L8 30 A22 22 0 0 1 52 30 L52 58 L43 58 L43 30 A13 13 0 0 0 17 30 L17 58 Z"
+              fill="@(Invertida ? "#F7F4EE" : "#0E1E33")" />
+        <path d="M23 58 L23 27 A7 7 0 0 1 37 27 L37 58 Z" fill="#D8B56B" />
+        <path d="M17 58 L17 30 A13 13 0 0 1 43 30 L43 58" fill="none" stroke="#C9A24A" stroke-width="1.2" />
+        <path d="M27 58 L6 63 M30 58 L30 63 M33 58 L54 63" fill="none" stroke="#C9A24A" stroke-width="1"
+              stroke-linecap="round" />
+    </svg>
+    @if (ComNome)
+    {
+        <span class="marca-nome">
+            <span class="wordmark">DOMINICA</span>
+            <span class="marca-modulo">Learn</span>
+        </span>
+    }
+</span>
+
+@code {
+    /// <summary>Largura do arco em pixels. A altura acompanha, na proporção 60×64 do original.</summary>
+    [Parameter] public int Tamanho { get; set; } = 28;
+
+    /// <summary>Falso mostra só o arco — para o favicon, o carregamento, um canto apertado.</summary>
+    [Parameter] public bool ComNome { get; set; } = true;
+
+    /// <summary>Versão em negativo: silhueta creme, para quando a marca assenta sobre o marinho.</summary>
+    [Parameter] public bool Invertida { get; set; }
+}

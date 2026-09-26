@@ -1,0 +1,86 @@
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+@inject ISnackbar Avisos
+@implements IAsyncDisposable
+
+@* O link público de uma nota: o endereço, o botão de copiar e o de revogar.
+
+   A URL FICA À MOSTRA NUM CAMPO SELECIONÁVEL, e não escondida atrás do botão "copiar". Copiar falha por
+   motivos que não são defeito nosso e que ninguém consegue resolver do lado de cá — contexto não seguro,
+   permissão negada — e um diálogo que só oferece o botão deixa a pessoa sem saída quando ele falha. Com o
+   endereço na tela, o pior caso é copiar à mão. Ver js/copiar.js.
+
+   REVOGAR MORA AQUI, junto do endereço, porque é o mesmo assunto: quem abre para conferir o link é quem
+   lembra de que já não queria mais aquilo no ar. Espalhar "publicar" num menu e "revogar" noutro lugar é
+   o desenho em que se publica fácil e se despublica nunca. *@
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Link público desta nota</MudText>
+    </TitleContent>
+
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-3">
+            Qualquer pessoa com este endereço lê a nota, <strong>sem precisar de conta</strong>.
+            Ele não aparece em buscador, e para de funcionar assim que você revogar.
+        </MudText>
+
+        <MudTextField T="string" Value="@Url" ReadOnly="true" Variant="Variant.Outlined"
+                      Label="Endereço" FullWidth="true" Lines="2"
+                      aria-label="Endereço público da nota" />
+
+        @* O QUE O LINK NÃO FAZ, dito antes de a pessoa mandar para alguém. Ela vai colar isto num grupo
+           esperando que os links internos da nota funcionem do outro lado — e eles não funcionam, de
+           propósito (ver ServicoDeLinksDeNota.RenderizarSozinha). Descobrir depois, pelo colega, é pior. *@
+        <MudText Typo="Typo.caption" Class="mt-3 d-block">
+            Vai só esta nota: links para outras notas e imagens do seu vault não abrem por este endereço.
+            Quem receber o link também não consegue editar nada.
+        </MudText>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton Color="Color.Error" OnClick="RevogarAsync">Revogar link</MudButton>
+        <MudSpacer />
+        <MudButton OnClick="@(() => Dialogo.Close(DialogResult.Ok(false)))">Fechar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CopiarAsync">Copiar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    /// <summary>O endereço completo, absoluto — é ele que a pessoa vai colar.</summary>
+    [Parameter] public string Url { get; set; } = string.Empty;
+
+    private IJSObjectReference? _js;
+
+    private async Task CopiarAsync()
+    {
+        try
+        {
+            _js ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/copiar.js");
+            var copiou = await _js.InvokeAsync<bool>("copiar", Url);
+
+            // A MENSAGEM DE FALHA DIZ O QUE FAZER, e o diálogo fica ABERTO nesse caso: fechar levaria
+            // junto o único lugar onde o endereço está visível.
+            if (copiou) Avisos.Add("Link copiado.", Severity.Success);
+            else Avisos.Add("Não consegui copiar por aqui — selecione o endereço acima e copie.", Severity.Info);
+        }
+        catch (JSException)
+        {
+            Avisos.Add("Não consegui copiar por aqui — selecione o endereço acima e copie.", Severity.Info);
+        }
+    }
+
+    /// <summary>Devolve `true` para a página saber que o link morreu e voltar a oferecer "publicar".</summary>
+    private void RevogarAsync() => Dialogo.Close(DialogResult.Ok(true));
+
+    public async ValueTask DisposeAsync()
+    {
+        // Descartar módulo JS num circuito já caído lança — e a exceção sobe como erro do circuito sem
+        // que nada de útil tenha acontecido. Mesma guarda do ProvedoresDoMud.
+        try { if (_js is not null) await _js.DisposeAsync(); }
+        catch (JSDisconnectedException) { }
+        catch (OperationCanceledException) { }
+    }
+}

@@ -1,0 +1,71 @@
+@page "/n/{Token}"
+@layout LayoutPublico
+
+@using Dominica.Learn.Application.CasosDeUso
+@inject ServicoDeLinksDeNota Links
+
+@* A NOTA QUE ALGUÉM PUBLICOU — a única tela do Learn que se abre sem conta.
+
+   ESTÁTICA (SSR), sem render mode, e isso é decisão de segurança e não de simplicidade. Uma página
+   interativa abriria um CIRCUITO por visitante: um WebSocket vivo, com escopo de injeção próprio, para
+   quem não tem conta — e um endereço público é justamente o que um robô visita mil vezes. Aqui a
+   resposta é HTML e acabou; não há nada para manter no ar depois dela.
+
+   NÃO TEM [Authorize], que é o ponto inteiro, e não tem [AllowAnonymous] porque não existe política
+   global que a obrigue — o Learn autoriza por página. Vale repetir por escrito: se um dia entrar um
+   fallback de autorização no Program.cs, ESTA rota precisa ficar de fora, senão o link some sem que
+   nenhum teste de vault reclame.
+
+   O CABEÇALHO `X-Robots-Tag: noindex` é posto no CabecalhosDeSeguranca para esta rota. "Não listado"
+   não é "publicado no Google", e um link que vaza para o índice de busca deixa de ser secreto para
+   sempre — sem que quem publicou tenha feito nada além de mandar a URL por e-mail.
+
+   QUEM LÊ O VAULT É O SERVIÇO, num escopo próprio declarando o dono. Ver ServicoDeLinksDeNota. *@
+
+<PageTitle>@(_nota?.Titulo ?? "Nota não encontrada") — Dominica Learn</PageTitle>
+
+<div class="nota-publica">
+    @if (_nota is null)
+    {
+        @* A MESMA TELA PARA TODOS OS "NÃO": token torto, token que não existe, nota apagada do disco.
+           Separar as respostas seria contar a quem varre endereços que ele acertou o segredo — e não
+           ajudaria ninguém, porque de fora não há o que fazer com a diferença. Para quem publicou, a
+           mensagem diz o que ele precisa saber: peça o link de novo a quem mandou. *@
+        <h1>Esta nota não está disponível</h1>
+        <p class="nota-publica-recado">
+            O link pode ter sido revogado por quem o criou, ou a nota pode ter mudado de lugar.
+            Se você recebeu este endereço de alguém, peça um link novo.
+        </p>
+    }
+    else
+    {
+        <h1>@_nota.Titulo</h1>
+        <p class="nota-publica-credito">
+            Publicada por <strong>@_nota.Dono.Valor</strong> em @_nota.PublicadaEm.ToLocalTime().ToString("dd/MM/yyyy")
+        </p>
+
+        @* MarkupString porque o HTML já saiu do renderizador da aplicação, que ESCAPA HTML bruto em vez
+           de interpretá-lo (ver IRenderizadorDeMarkdown). É o mesmo caminho da leitura de sempre — o
+           que não podia acontecer aqui era alguém montar HTML à mão para esta tela, que é a única do
+           produto exposta a quem não tem conta. *@
+        <article class="nota-lida">@((MarkupString)_nota.Html)</article>
+
+        @* DIZ QUE É UM RECORTE. Sem esta linha, o wikilink que virou texto sem link parece defeito da
+           página; com ela, é o que de fato é — o que foi publicado é este arquivo, e só ele. *@
+        <p class="nota-publica-rodape">
+            Esta é uma cópia de leitura de uma nota do Dominica Learn.
+            Links para outras notas do mesmo vault não abrem daqui.
+        </p>
+    }
+</div>
+
+@code {
+    [Parameter] public string? Token { get; set; }
+
+    private NotaPublicada? _nota;
+
+    // OnInitializedAsync e não OnParametersSet: em SSR estática o componente é montado uma vez por
+    // requisição, e a leitura é I/O. Fazê-la aqui é o que garante que o HTML sai pronto na resposta —
+    // não há segunda renderização para completar o que faltou.
+    protected override async Task OnInitializedAsync() => _nota = await Links.AbrirAsync(Token);
+}

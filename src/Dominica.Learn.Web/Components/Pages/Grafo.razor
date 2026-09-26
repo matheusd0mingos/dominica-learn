@@ -1,0 +1,544 @@
+@page "/grafo"
+@page "/grafo/{*caminho}"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Grafo
+@using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Web.Tema
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@using System.Globalization
+@attribute [Authorize]
+@rendermode InteractiveServer
+@implements IDisposable
+@implements IAsyncDisposable
+@inject ServicoDeConhecimento Conhecimento
+@inject ServicoDeCartoes Cartoes
+@inject EstadoDoTema Tema
+@inject NavigationManager Navegacao
+@inject ISnackbar Avisos
+@inject IJSRuntime JS
+
+@* AS ROTAS DESTA TELA:
+
+     /grafo                       o vault inteiro
+     /grafo?materia=Português     o grafo de UMA matéria
+     /grafo/Direito/Atos.md       a vizinhança de uma nota
+     /grafo/Direito/Atos.md?materia=Direito   as duas coisas juntas
+
+   A matéria vem na QUERY e não como segmento de rota, e isso não é preguiça: "/grafo/{*caminho}" é
+   catch-all, então "/grafo/materia/X" casaria com ele sempre que existisse uma pasta chamada "materia" —
+   um conflito silencioso que só apareceria no vault de quem tivesse essa pasta. Query não colide com
+   nada e ainda compõe com a vizinhança de uma nota.
+
+   O que importa é que o recorte É ENDEREÇO: dá para voltar, marcar e mandar por mensagem. Antes disso
+   ele era estado de tela, e "o grafo de Direito Administrativo" não tinha como ser encontrado de novo. *@
+
+<PageTitle>@TituloDaPagina · Dominica Learn</PageTitle>
+
+@* Os provedores vivem AQUI, e não no layout: diálogo e snackbar só aparecem no mesmo escopo
+   interativo de quem os abre. Ver ProvedoresDoMud. *@
+<ProvedoresDoMud />
+
+@* position:relative aqui é o que ancora os controles de zoom DENTRO do painel; sem ele
+   eles se prendem à janela e passeiam sobre o resto da tela ao rolar. *@
+<MudPaper Class="pa-3" Elevation="0" Outlined="true" Style="position:relative">
+    <div class="d-flex align-center flex-wrap gap-3 mb-3">
+        <MudText Typo="Typo.h6">@TituloDaPagina</MudText>
+
+        @if (_centro is not null)
+        {
+            @* O grafo INTEIRO de um vault de anos é bonito de printar e inútil de usar. O padrão é local. *@
+            <MudSlider T="int" Value="_saltos" ValueChanged="AoMudarSaltosAsync" Min="1" Max="4" Step="1"
+                       Style="max-width:180px">Distância: @_saltos salto(s)</MudSlider>
+            <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowBack"
+                       Href="@($"notas/{_centro.Valor}")">Voltar para a nota</MudButton>
+        }
+
+        @if (_centro is not null || _filtrada is not null)
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Text" Href="grafo">Ver o vault inteiro</MudButton>
+        }
+
+        @* SUBIR UM NÍVEL: o topo do drill. Ver MapaDeMaterias — três níveis, cada um com URL. *@
+        <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ZoomOut"
+                   Href="grafo/materias">Mapa das matérias</MudButton>
+
+        <MudSpacer />
+
+        @* SÓ APARECE QUANDO TEM O QUE FAZER. Com todas as ligações de citação única, ligar o filtro
+           esvaziaria o desenho; com todas repetidas, ele não faria nada. Nos dois casos um interruptor
+           visível seria um botão que parece quebrado. *@
+        @if (_grafo.Arestas.Any(a => a.Peso == 1) && _grafo.Arestas.Any(a => a.Peso >= 2))
+        {
+            <MudSwitch T="bool" Value="_soRepetidas" ValueChanged="AoAlternarRepetidas" Color="Color.Primary"
+                       Label="Só ligações repetidas" />
+        }
+        @* ESTA TELA É SÓ O GRAFO DE NOTAS. O mapa das etiquetas mora em "Etiquetas → Mapa", com rota
+           própria (/etiquetas/mapa), porque são DUAS PERGUNTAS DIFERENTES: aqui é "isto aponta para
+           aquilo" — hierarquia, cada ponto tem conteúdo e abre; lá é "isto costuma aparecer junto com
+           aquilo" — vizinhança, e etiqueta não tem conteúdo, é rótulo. Enquanto os dois dividiam esta
+           tela, o recorte por matéria, o "só as órfãs" e a vizinhança de uma nota não significavam
+           nada num deles, e o estado nem estava na URL. Ver GrafoDeEtiquetas. *@
+        <MudSwitch T="bool" Value="_soOrfas" ValueChanged="AoAlternarOrfas" Color="Color.Warning"
+                   Label="Só as órfãs" />
+    </div>
+
+    @if (_carregando)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (_visao.Posicionado.Grafo.Nos.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+            Nada para desenhar ainda. O grafo aparece quando as notas começam a se citar com
+            <code>[[wikilinks]]</code> — é a citação que cria a aresta, não a pasta.
+        </MudAlert>
+    }
+    else
+    {
+        @* SVG INLINE, sem biblioteca de grafo: as posições já vieram calculadas do domínio (LayoutDeForca),
+           então aqui não sobra nenhuma conta — só coordenadas viram atributos. É por isso que o layout é
+           testável e desenha igual em toda máquina. *@
+        @* Os controles de zoom são visíveis, e não só a roda do mouse: um gesto que não deixa rastro
+           na tela é um gesto que metade das pessoas nunca descobre — e quem está no celular não tem
+           roda nenhuma. *@
+        @* A SAÍDA DO DESENHO, para quem está no teclado. Cada ponto é uma parada do Tab, e num vault de
+           anos são centenas — sem isto, chegar à legenda logo abaixo custaria centenas de teclas.
+           Invisível até receber foco: é uma escada de incêndio, não um botão. *@
+        <a class="pular-grafo" href="#depois-do-grafo">Pular o grafo</a>
+
+        <div class="grafo-controles">
+            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Add"
+                           aria-label="Aproximar" OnClick="@(() => ZoomAsync(true))" />
+            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Remove"
+                           aria-label="Afastar" OnClick="@(() => ZoomAsync(false))" />
+            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.CenterFocusStrong"
+                           aria-label="Enquadrar tudo" OnClick="EnquadrarAsync" />
+        </div>
+
+        @* Sem viewBox no markup: o grafo.js é o dono dele. Bindado, cada render do Blazor reaplicaria o
+           enquadramento do servidor e desfaria o zoom — era por isso que o botão + não segurava. *@
+        <svg id="@IdDoSvg" width="100%" style="height:64vh; touch-action:none" role="img"
+             aria-label="@($"Grafo de ligações — {TituloDaPagina}")">
+            @* Com "só as órfãs" ligado não há aresta a desenhar — órfã é, por definição, a nota de grau
+               zero. Deixar as linhas na tela mostraria ligações entre pontos que sumiram. *@
+            <g stroke="var(--mud-palette-lines-default)">
+                @foreach (var a in ArestasVisiveis)
+                {
+                    var de = _visao.Posicionado.Posicoes[a.De];
+                    var para = _visao.Posicionado.Posicoes[a.Para];
+                    @* A LINHA É O RECURSO, e ela estava com 0,8 px e 55% de opacidade — quase
+                       invisível. Numa tela onde ligar duas notas é o gesto mais valioso do produto, o
+                       resultado do gesto precisa saltar aos olhos: quem ligou pela primeira vez tem de
+                       VER que ligou. Piso de 1,6 px, e o peso soma daí.
+
+                       E O COMENTÁRIO FICA AQUI, FORA DA TAG. Dentro dela, entre atributos, o Razor NÃO
+                       o trata como comentário: ele vira nome de atributo, o navegador recusa com
+                       InvalidCharacterError no setAttribute, e o CIRCUITO MORRE — o grafo inteiro
+                       ficava em branco, com a barra vermelha embaixo. Compilou, passou nos testes, e
+                       só apareceu no navegador. *@
+                    <line x1="@N(de.X)" y1="@N(de.Y)" x2="@N(para.X)" y2="@N(para.Y)"
+                          stroke-width="@N(1.6 + Math.Min(a.Peso, 5) * 0.9)" stroke-opacity="0.75" />
+                }
+            </g>
+
+            @foreach (var p in _visao.Posicionado.Posicoes)
+            {
+                var no = _grafo.Nos[p.Indice];
+                if (_soOrfas && !no.Orfa) { continue; }
+                var atual = _centro is not null && no.Caminho.Equals(_centro);
+                // A dívida de revisão do nó — o que transforma o desenho num mapa de "onde a memória
+                // está devendo". Nulo enquanto o estado carrega, e o grafo aparece sem esperar por ele.
+                var estado = _estado?.GetValueOrDefault(no.Caminho);
+                var devendo = estado is { Vencidos: > 0 };
+                var descricao = $"{no.Titulo} — {no.Materia.Rotulo} — {no.Grau} ligação(ões){(no.Orfa ? " · órfã" : "")}" +
+                                (devendo ? $" · {estado!.Vencidos} cartão(ões) vencido(s)" : "");
+
+                @* ALCANÇÁVEL POR TECLADO, e não só pelo mouse. Um "<g @onclick>" solto é invisível para
+                   quem navega de Tab e para leitor de tela: o grafo inteiro — que é uma das duas telas
+                   de navegação do produto — não abria nota nenhuma sem mouse.
+
+                   role="link" E NÃO "button", e a escolha resolve um problema real: em botão espera-se
+                   que ESPAÇO também acione, e o Espaço rola a página — impedir isso no Blazor exigiria
+                   `preventDefault` estático em toda tecla, que quebraria rolar com as setas. Link ativa
+                   com Enter, e é o que este ponto faz: leva para a nota.
+
+                   O aria-label repete o <title> porque nome acessível vindo de <title> em SVG dentro de
+                   HTML é irregular entre leitores — e um ponto sem nome é um "link" sem destino. *@
+                @* data-previa: o nó é uma NOTA, então passar o mouse (ou focar por teclado) mostra a
+                   prévia dela sem sair do grafo — o mesmo popover dos links de nota. É o que faltava para
+                   o ponto não ser só "clique e seja teleportado": dá para olhar antes de ir. Ver previa.js. *@
+                <g class="no-do-grafo" style="cursor:pointer" @onclick="@(() => Ir(no.Caminho))"
+                   tabindex="0" role="link" aria-label="@descricao" data-previa="@no.Caminho.Valor"
+                   @onkeydown="@(e => AoTeclarNoNo(e, no.Caminho))">
+                    @* O "title" nomeia a MATÉRIA em todos os nós — é o que impede a identidade de sair
+                       só da cor, exigência da paleta validada (ver PaletaDeMaterias). *@
+                    <title>@descricao</title>
+                    @* O PREENCHIMENTO é a matéria; o ANEL tracejado é a órfã — conhecimento que você
+                       produziu e nunca mais revisitou, a coisa mais útil que este desenho tem a dizer.
+                       Dois sinais em canais separados: se a órfã disputasse a cor, um apagaria o outro. *@
+                    @* O anel do foco de teclado. Só aparece com :focus-visible — ver app.css. *@
+                    <circle class="anel-de-foco" cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio + 4.5)" />
+                    @* O ANEL agora tem TRÊS leituras, em canais que não brigam: a COR diz a dívida
+                       (vermelho = cartão vencido nesta nota), o TRAÇO diz a órfã (tracejado), e o anel
+                       cheio na cor do texto continua sendo o "você está aqui". É o que faz o grafo
+                       responder "onde a memória está devendo" sem parar de responder o resto. *@
+                    <circle cx="@N(p.X)" cy="@N(p.Y)" r="@N(p.Raio)"
+                            fill="@CorDa(no.Materia)"
+                            stroke="@(atual ? "var(--mud-palette-text-primary)" : devendo ? CorDaDivida : no.Orfa ? CorDaOrfa : "none")"
+                            stroke-width="@(atual ? "2.5" : devendo ? "2.5" : no.Orfa ? "2" : "0")"
+                            stroke-dasharray="@(!atual && no.Orfa ? "3 2" : "")" />
+                    @* Rótulo só onde ele CABE — ver RotulosDoGrafo. A regra antiga contava nós ("até 25,
+                       rotule todos") e por isso enchia justamente o recorte mais apertado: o grafo de uma
+                       matéria tem poucas notas e elas estão amontoadas porque se citam. *@
+                    @if (_comRotulo.TryGetValue(p.Indice, out var lado))
+                    {
+                        @* O <g> não é decorativo: o Razor trata "<text>" no início de um bloco de código
+                           como a TAG DE ESCAPE dele (RZ1023). Abrir markup antes faz o <text> do SVG ser
+                           lido como elemento. *@
+                        <g>
+                            <text x="@N(p.X)" y="@N(RotulosDoGrafo.LinhaDeBase(p, lado))" text-anchor="middle"
+                                  font-size="@N(TamanhoDoRotulo)" fill="var(--mud-palette-text-secondary)">@Curto(no.Titulo)</text>
+                        </g>
+                    }
+                </g>
+            }
+        </svg>
+
+        @* LEGENDA — obrigatória, não opcional: com quatro tons validados e o resto em neutro, é ela que
+           carrega a identidade das matérias. Cada item é um LINK, então o recorte tem endereço próprio.
+           É também onde o "pular o grafo" aterrissa: o primeiro conteúdo depois do desenho. *@
+        <div id="depois-do-grafo" class="d-flex flex-wrap align-center gap-2 mt-2">
+            @foreach (var m in _visao.Materias)
+            {
+                var escolhida = _filtrada == m.Materia;
+                <MudChip T="string" Size="Size.Small" Variant="@(escolhida ? Variant.Filled : Variant.Text)"
+                         Href="@RotaDaMateria(escolhida ? null : m.Materia)">
+                    <span style="@($"display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:{PaletaDeMaterias.Cor(SlotDe(m.Materia), Tema.Escuro)}")"></span>
+                    @m.Materia.Rotulo (@m.Notas)
+                </MudChip>
+            }
+        </div>
+
+        @if (_visao.Materias.Count > PaletaDeMaterias.Coloridas && _filtrada is null)
+        {
+            @* Nada de limite silencioso: quem vê cinza precisa saber que é cinza por falta de cor
+               distinguível, e não por a matéria ser menos importante. *@
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
+                As @PaletaDeMaterias.Coloridas maiores têm cor própria; as demais ficam em cinza — acima
+                disso não há tom que dê para diferenciar com segurança. Clique numa matéria para ver o grafo dela.
+            </MudText>
+        }
+
+        <div class="d-flex flex-wrap gap-4 mt-2">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                @_grafo.Nos.Count nota(s) · @_grafo.Arestas.Count ligação(ões)
+                @(_filtrada is null ? $" · {_visao.Materias.Count} matéria(s)" : "") · @_orfas órfã(s)
+                @* NADA DE FILTRO SILENCIOSO: quem esconde diz quantas escondeu, ou o desenho filtrado
+                   passa por completo — mesma regra do aviso de pontes e do teto de cartões. *@
+                @if (_soRepetidas && !_soOrfas)
+                {
+                    <text> · @(_grafo.Arestas.Count(a => a.Peso == 1)) de citação única escondida(s)</text>
+                }
+            </MudText>
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                Clique num ponto para abrir a nota. O desenho é determinístico: o mesmo vault sai igual
+                sempre, para que a memória espacial funcione.
+            </MudText>
+            @* A DÍVIDA DE REVISÃO NA LEGENDA — é o que faz o grafo servir ao estudo, e não só à
+               contemplação: o anel vermelho aponta a nota devendo, o clique cai nela, e lá o botão
+               "Revisar esta nota" fecha o caminho grafo → conhecimento → treino. *@
+            @if (NotasDevendo > 0)
+            {
+                <MudText Typo="Typo.caption" Style="color:var(--mud-palette-error)">
+                    Anel vermelho = cartão vencido — @NotasDevendo nota(s) devendo revisão. Clique e revise dali.
+                </MudText>
+            }
+        </div>
+
+        @if (_visao.LigacoesParaFora > 0)
+        {
+            @* Recortar ESCONDE as pontes com outras matérias, e esconder sem avisar faria o recorte
+               parecer o vault inteiro. Numa base de estudo essas pontes são o achado mais valioso: é o
+               assunto que a pasta separou e a prova cobra junto. *@
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mt-3">
+                @_visao.LigacoesParaFora ligação(ões) desta matéria apontam para fora dela e não estão
+                desenhadas aqui. <MudLink Href="grafo">Veja o vault inteiro</MudLink> para enxergá-las.
+            </MudAlert>
+        }
+
+        @if (_orfas > 0 && !_soOrfas)
+        {
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mt-3">
+                @_orfas nota(s) sem nenhuma ligação@(_filtrada is null ? "" : " dentro desta matéria").
+                Nota órfã é conhecimento que você escreveu e nunca mais encontrou — ligá-la a algo é o que
+                a traz de volta para a revisão.
+            </MudAlert>
+        }
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public string? Caminho { get; set; }
+
+    /// <summary>Nome da matéria a recortar. Vem da query — ver o comentário das rotas no topo.</summary>
+    [SupplyParameterFromQuery(Name = "materia")] public string? MateriaPedida { get; set; }
+
+    private const double Largura = 900;
+    private const double Altura = 620;
+
+    private VisaoDoGrafo _visao = VisaoDoGrafo.Vazia;
+    private CaminhoNota? _centro;
+    private int _saltos = 2;
+    private bool _soOrfas;
+
+    private bool _carregando = true;
+    private int _orfas;
+    private Dictionary<Materia, int> _slots = [];
+
+    /// <summary>Os nós que ganharam vaga de rótulo nesta visão. Ver <see cref="EscolherRotulos"/>.</summary>
+    private IReadOnlyDictionary<int, LadoDoRotulo> _comRotulo = new Dictionary<int, LadoDoRotulo>();
+
+    /// <summary>
+    /// O tamanho do rótulo, em unidades do viewBox. Fica aqui, e não solto no atributo, porque quem
+    /// DECIDE quais rótulos cabem precisa saber deste número — decidir com um tamanho e desenhar com
+    /// outro é o mesmo que não decidir.
+    /// </summary>
+    private const double TamanhoDoRotulo = 10;
+
+    private GrafoDoVault _grafo => _visao.Posicionado.Grafo;
+    private Materia? _filtrada => _visao.Filtrada;
+
+    private static readonly string CorDaOrfa = "var(--mud-palette-warning)";
+
+    // Vermelho, e não âmbar: a órfã já é âmbar tracejada, e os dois sinais dizem coisas diferentes —
+    // órfã é "nunca conectei", dívida é "deixei de treinar". Cor distinta para pergunta distinta.
+    private static readonly string CorDaDivida = "var(--mud-palette-error)";
+
+    /// <summary>A dívida de revisão por nota. Nulo enquanto carrega — o grafo não espera por ela.</summary>
+    private IReadOnlyDictionary<CaminhoNota, EstadoDeRevisaoDaNota>? _estado;
+
+    private int NotasDevendo => _estado is null ? 0
+        : _grafo.Nos.Count(n => _estado.GetValueOrDefault(n.Caminho) is { Vencidos: > 0 });
+
+    /// <summary>
+    /// Carrega a dívida FORA do caminho do desenho: ela lê o vault inteiro, e segurar o grafo por causa
+    /// de um anel seria inverter as prioridades — primeiro o mapa, depois a camada de estudo sobre ele.
+    /// </summary>
+    private async Task CarregarEstadoAsync()
+    {
+        try { _estado = await Cartoes.EstadoPorNotaAsync(); }
+        catch { _estado = new Dictionary<CaminhoNota, EstadoDeRevisaoDaNota>(); }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private string TituloDaPagina => (_centro, _filtrada) switch
+    {
+        (not null, not null) => $"“{_centro.Nome}” em {_filtrada.Rotulo}",
+        (not null, null) => $"Em volta de “{_centro.Nome}”",
+        (null, not null) => $"Grafo de {_filtrada.Rotulo}",
+        _ => "Grafo do vault",
+    };
+
+    private string CorDa(Materia m) => PaletaDeMaterias.Cor(SlotDe(m), Tema.Escuro);
+
+    private int SlotDe(Materia m) => _slots.TryGetValue(m, out var s) ? s : -1;
+
+    /// <summary>A rota deste recorte. Null na matéria = o grafo sem filtro.</summary>
+    private string RotaDaMateria(Materia? materia)
+    {
+        var baseUrl = _centro is null ? "grafo" : $"grafo/{_centro.Valor}";
+        return materia is null ? baseUrl : $"{baseUrl}?materia={Uri.EscapeDataString(materia.Nome)}";
+    }
+
+    protected override void OnInitialized() => Tema.Mudou += AoMudarTema;
+
+    public void Dispose() => Tema.Mudou -= AoMudarTema;
+
+    // —— ZOOM E ARRASTO ——————————————————————————————————————————————————————————————
+    // O módulo JS mexe SÓ no viewBox do SVG. Ele não recalcula posição nenhuma: o layout vem pronto do
+    // domínio e é determinístico — o mesmo vault desenha igual sempre, que é o que deixa a pessoa
+    // decorar onde as coisas ficam. Zoom muda quanto se vê, nunca onde as coisas estão.
+    private IJSObjectReference? _js;
+
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (_carregando) return;
+
+        _js ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/grafo.js");
+        // Religa a cada render porque trocar de matéria ou de recorte RECRIA o <svg>: os ouvintes do
+        // elemento antigo morreriam com ele, e o novo nasceria sem nenhum. O `ligar` é idempotente.
+        await _js.InvokeVoidAsync("ligar", IdDoSvg, Viewbox);
+    }
+
+    private async Task ZoomAsync(bool aproximar)
+    {
+        if (_js is not null) await _js.InvokeVoidAsync("passo", IdDoSvg, aproximar);
+    }
+
+    private async Task EnquadrarAsync()
+    {
+        if (_js is not null) await _js.InvokeVoidAsync("enquadrar", IdDoSvg);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // O circuito pode já ter caído aqui: descartar um módulo JS numa conexão morta lança, e a
+        // exceção sobe como erro do circuito sem que nada de útil tenha acontecido.
+        try
+        {
+            if (_js is not null)
+            {
+                await _js.InvokeVoidAsync("desligar", IdDoSvg);
+                await _js.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException) { }
+        catch (OperationCanceledException) { }
+    }
+
+    // As cores das matérias são escolhidas em C# a partir do tema. Sem este redesenho, alternar para o
+    // escuro deixaria o grafo com os tons do tema claro até a próxima navegação.
+    //
+    // O TRY NÃO É ZELO EXCESSIVO: o evento vem do serviço de tema, fora do renderizador, e o que
+    // estoura num InvokeAsync que ninguém aguarda não cai no ErrorBoundary — derruba o CIRCUITO
+    // inteiro (a aba para de responder a clique em TODAS as telas). Trocar o tema no instante da
+    // navegação alcança esta instância já descartada; redesenhar um componente morto não é erro,
+    // é um nada — e é assim que tem que terminar.
+    private void AoMudarTema() => _ = InvokeAsync(() =>
+    {
+        try { StateHasChanged(); }
+        catch (ObjectDisposedException) { }
+        catch (OperationCanceledException) { }
+    });
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _centro = null;
+        if (!string.IsNullOrWhiteSpace(Caminho))
+        {
+            if (!CaminhoNota.TentarCriar(Caminho, out var c, out var erro) || c is null)
+            {
+                Avisos.Add(erro ?? "Caminho inválido.", Severity.Error);
+                _carregando = false;
+                return;
+            }
+            _centro = c;
+        }
+        await CarregarAsync();
+    }
+
+    private async Task CarregarAsync()
+    {
+        _carregando = true;
+
+        var materia = string.IsNullOrWhiteSpace(MateriaPedida) ? null : Materia.De(MateriaPedida);
+        _visao = await Conhecimento.GrafoAsync(_centro, _saltos, Largura, Altura, materia);
+        _orfas = _grafo.Orfas.Count();
+        _ = CarregarEstadoAsync();
+
+        // Slot por TAMANHO, não por ordem alfabética: as matérias que ocupam mais tela são as que mais
+        // ganham em ser distinguíveis. "Sem matéria" nunca recebe cor — ela é ausência, e o cinza diz
+        // isso melhor que qualquer tom.
+        _slots = _visao.Materias
+            .Where(m => m.Materia.Existe)
+            .Take(PaletaDeMaterias.Coloridas)
+            .Select((m, i) => (m.Materia, Slot: i))
+            .ToDictionary(t => t.Materia, t => t.Slot);
+
+        EscolherRotulos();
+        _carregando = false;
+    }
+
+    private async Task AoMudarSaltosAsync(int saltos)
+    {
+        _saltos = saltos;
+        await CarregarAsync();
+    }
+
+    private void AoAlternarOrfas(bool valor)
+    {
+        _soOrfas = valor;
+        // Com metade dos pontos fora da tela, sobra espaço: recalcular deixa aparecer o nome de órfã que
+        // antes perdia a vaga para um vizinho que agora nem está desenhado.
+        EscolherRotulos();
+    }
+
+    /// <summary>
+    /// O FILTRO DE PESO: esconder as ligações de citação única e deixar só as recorrentes.
+    ///
+    /// É o alívio para o miolo denso de um vault muito interligado: a maioria das arestas é "citei uma
+    /// vez", e são elas que viram a teia de fundo. As repetidas — peso 2 em diante — são as relações
+    /// que a pessoa REAFIRMOU escrevendo, e é o esqueleto que este filtro deixa à mostra.
+    ///
+    /// SÓ ESCONDE LINHA. Os pontos ficam todos: uma nota cujas ligações sumiram do desenho não virou
+    /// órfã — órfã é grau zero DE VERDADE, e o anel tracejado dela continua obedecendo ao grau real.
+    /// </summary>
+    private bool _soRepetidas;
+
+    private void AoAlternarRepetidas(bool valor) => _soRepetidas = valor;
+
+    private IEnumerable<ArestaDoGrafo> ArestasVisiveis =>
+        _soOrfas ? []
+        : _soRepetidas ? _grafo.Arestas.Where(a => a.Peso >= 2)
+        : _grafo.Arestas;
+
+    /// <summary>
+    /// QUEM GANHA RÓTULO. A conta é do domínio (<see cref="RotulosDoGrafo"/>); aqui só se decide a
+    /// PRIORIDADE, que é uma escolha de produto:
+    ///
+    ///   • a nota aberta vem sempre — é a única que a pessoa está procurando na tela;
+    ///   • a ÓRFÃ vem antes das ligadas, e isto é o oposto do que a intuição pede. Ela é o achado mais
+    ///     valioso do desenho — conhecimento que você escreveu e nunca mais encontrou —, e é também a
+    ///     que ninguém acha por outro caminho: uma nota bem ligada se alcança pelos vizinhos;
+    ///   • depois, o grau. Ponto grande com nome é o que dá forma ao mapa.
+    /// </summary>
+    private void EscolherRotulos()
+    {
+        var candidatos = _visao.Posicionado.Posicoes
+            .Where(p => !_soOrfas || _grafo.Nos[p.Indice].Orfa)
+            .Select(p =>
+            {
+                var no = _grafo.Nos[p.Indice];
+                var prioridade =
+                    _centro is not null && no.Caminho.Equals(_centro) ? 1_000_000
+                    : no.Orfa ? 1_000 + no.Grau
+                    : no.Grau;
+                return new CandidatoARotulo(p.Indice, Curto(no.Titulo), prioridade);
+            })
+            .ToList();
+
+        _comRotulo = RotulosDoGrafo.Escolher(_visao.Posicionado.Posicoes, candidatos, TamanhoDoRotulo);
+    }
+
+    // Rotas.Nota e NÃO $"/notas/{...}": a barra inicial descarta o sub-caminho onde o app é servido,
+    // e a navegação cai em dominio.com/notas/... — 404. Ver Rotas.
+    private void Ir(CaminhoNota caminho) => Navegacao.NavigateTo(Rotas.Nota(caminho));
+
+    /// <summary>
+    /// Enter abre a nota do ponto em foco. Só Enter: o ponto é um link (ver o comentário no markup), e
+    /// em link não se espera o Espaço — que, aqui, rolaria a página.
+    /// </summary>
+    private void AoTeclarNoNo(KeyboardEventArgs e, CaminhoNota caminho)
+    {
+        if (e.Key is "Enter" or "NumpadEnter") Ir(caminho);
+    }
+
+    private const string IdDoSvg = "grafo-do-vault";
+
+    /// <summary>
+    /// A janela que a tela mostra. NÃO é a moldura inteira do layout: num vault de três notas isso
+    /// seriam três pontos minúsculos nos cantos de um retângulo vazio. Ver Enquadramento.
+    /// </summary>
+    // As dimensões REAIS do layout, não as constantes: com muitos nós a moldura cresce com √n (ver
+    // GrafoAsync), e enquadrar pela constante cortaria o desenho pela metade.
+    private string Viewbox => Enquadramento
+        .Ajustar(_visao.Posicionado.Posicoes, _visao.Posicionado.Largura, _visao.Posicionado.Altura)
+        .ParaViewBox();
+
+    // O SVG lê número com PONTO decimal. Numa máquina em pt-BR o padrão gravaria "451,3" e o navegador
+    // descartaria o atributo inteiro — o grafo sairia colapsado no canto sem nenhum erro visível.
+    private static string N(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string Curto(string titulo) => titulo.Length <= 22 ? titulo : titulo[..21] + "…";
+}

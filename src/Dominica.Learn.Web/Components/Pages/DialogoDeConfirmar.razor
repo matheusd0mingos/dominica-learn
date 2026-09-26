@@ -1,0 +1,37 @@
+@* Confirmação genérica que DIZ A CONSEQUÊNCIA, no mesmo espírito do DialogoDeConfirmarExclusao.
+
+   "Tem certeza?" não informa nada: quem clicou já achava que tinha. Por isso este diálogo não tem
+   pergunta padrão — quem o abre é obrigado a escrever o que vai acontecer, e é isso que aparece.
+
+   EXISTE PORQUE AS DUAS CONFIRMAÇÕES DE TURMA não são exclusão de nota, e reaproveitar aquele diálogo
+   as faria falar de arquivos, ligações e recuperação — nada disso é verdade aqui. *@
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">@Titulo</MudText>
+    </TitleContent>
+
+    <DialogContent>
+        <MudText Typo="Typo.body2">@Corpo</MudText>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialogo.Cancel())">Cancelar</MudButton>
+        <MudButton Color="@Cor" Variant="Variant.Filled"
+                   OnClick="@(() => Dialogo.Close(DialogResult.Ok(true)))">@Confirmar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    [Parameter] public string Titulo { get; set; } = "Confirmar";
+
+    /// <summary>MarkupString para poder destacar o nome de quem vai ver os seus estudos.</summary>
+    [Parameter] public MarkupString Corpo { get; set; }
+
+    [Parameter] public string Confirmar { get; set; } = "Confirmar";
+
+    /// <summary>Error para o que destrói, Primary para o que só segue em frente.</summary>
+    [Parameter] public Color Cor { get; set; } = Color.Primary;
+}

@@ -1,0 +1,272 @@
+@page "/backup"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Domain.Vault
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+@using Dominica.Learn.Infrastructure.Vault
+@using Dominica.Learn.Web.Seguranca
+@using Microsoft.Extensions.Options
+@inject ApelidoDeQuemEntrou Apelidos
+@inject IOptions<OpcoesDoVault> OpcoesDoVault
+@inject AuthenticationStateProvider Autenticacao
+@inject IEmpacotadorDoVault Empacotador
+@inject ReconciliarVault Reconciliacao
+@inject ISnackbar Avisos
+
+<PageTitle>Backup do vault — Dominica Learn</PageTitle>
+
+<ProvedoresDoMud />
+
+<MudPaper Class="pa-4" Elevation="0" Outlined="true" Style="max-width:780px;margin:0 auto">
+    <MudText Typo="Typo.h5" GutterBottom="true">Backup do vault</MudText>
+
+    @* ESTA TELA É A PROVA DA PROMESSA DO PRODUTO. "O vault é seu" só vale se você conseguir levá-lo
+       embora sem pedir nada a ninguém — sem acesso ao servidor, sem SQL, sem suporte. *@
+    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+        Seu vault são arquivos <b>.md</b> no disco. Aqui você leva todos embora, ou traz os de outro
+        lugar. O que sai daqui abre no Obsidian sem conversão nenhuma.
+    </MudText>
+
+    <MudDivider Class="my-4" />
+
+    <MudText Typo="Typo.subtitle1">Baixar tudo</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+        Um <b>.zip</b> com as notas, os anexos e o agendamento dos flashcards — que mora dentro dos
+        próprios arquivos. Não há nada seu neste servidor que não venha neste pacote.
+    </MudText>
+    @* href="vault.zip" sem barra inicial: com barra, o download sairia do sub-caminho e daria 404.
+       Ver Rotas e o DEPLOY.md. *@
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Download"
+               Href="vault.zip" Target="_self">Baixar o vault (.zip)</MudButton>
+
+    <MudDivider Class="my-4" />
+
+    <MudText Typo="Typo.subtitle1">Levar os cartões para o Anki</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+        Um <b>.txt</b> que o Anki importa direto (Arquivo → Importar): frente, verso e a matéria como
+        tag. O agendamento não vai junto — o formato de texto do Anki não o carrega, e quem muda de
+        ferramenta recomeça o ritmo nela.
+    </MudText>
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Style"
+               Href="anki.txt" Target="_self">Baixar os cartões (Anki)</MudButton>
+
+    <MudDivider Class="my-4" />
+
+    <MudText Typo="Typo.subtitle1">Trazer de outro lugar</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+        Um <b>.zip</b> de vault — do Obsidian, do seu backup, ou do resumo que um colega mandou.
+        <b>Nada é sobrescrito:</b> tudo aterrissa numa pasta com a data de hoje, e de lá você move
+        para onde quiser — os <b>[[links]]</b> são consertados quando você move.
+    </MudText>
+
+    @* CustomContent e não ActivatorContent: é o padrão que o MudFileUpload desta versão aceita, e o
+       mesmo já usado na tela de notas para anexar arquivo. *@
+    <MudFileUpload @ref="_seletor" T="IBrowserFile" FilesChanged="ImportarAsync" Accept=".zip"
+                   MaxFileSize="RegrasDeImportacao.TamanhoMaximoDescompactadoBytes">
+        <CustomContent Context="seletor">
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Upload"
+                       Disabled="_importando"
+                       OnClick="@(() => seletor.OpenFilePickerAsync())">Escolher um .zip…</MudButton>
+        </CustomContent>
+    </MudFileUpload>
+
+    @if (_importando)
+    {
+        <div class="d-flex align-center gap-2 mt-3">
+            <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+            <MudText Typo="Typo.body2">Lendo o pacote…</MudText>
+        </div>
+    }
+
+    @if (_resultado is not null)
+    {
+        <MudAlert Severity="@(_resultado.Aceitas > 0 ? Severity.Success : Severity.Warning)"
+                  Dense="true" Class="mt-4">
+            @_resultado.Aceitas arquivo(s) importado(s) em <b>@_resultado.PastaDeChegada</b>.
+        </MudAlert>
+
+        @* O QUE FOI RECUSADO APARECE, item a item. Descartar em silêncio faria a pessoa procurar por
+           semanas uma nota que ela acha que importou. *@
+        @if (_resultado.Recusadas.Count > 0)
+        {
+            <MudText Typo="Typo.subtitle2" Class="mt-4">
+                @_resultado.Recusadas.Count item(ns) ficaram de fora
+            </MudText>
+            <MudSimpleTable Dense="true" Striped="true" Class="mt-2">
+                <tbody>
+                    @foreach (var r in _resultado.Recusadas.Take(50))
+                    {
+                        <tr>
+                            <td style="word-break:break-all">@r.NomeNoPacote</td>
+                            <td class="mud-text-secondary">@Explicar(r.Recusa)</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            @if (_resultado.Recusadas.Count > 50)
+            {
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    …e mais @(_resultado.Recusadas.Count - 50).
+                </MudText>
+            }
+        }
+    }
+</MudPaper>
+
+@* —— OS VAULTS —————————————————————————————————————————————————————————————————————
+
+   FICA NA TELA DE BACKUP, e não numa de configurações, porque é a mesma conversa: esta tela é sobre o
+   vault ser SEU — levar embora, trazer de volta. Quantos vaults você tem e como criar outro é a mesma
+   pergunta vista de outro ângulo.
+
+   POR QUE MAIS DE UM VAULT: "[[...]]" resolve por nome de arquivo no vault inteiro. Notas de trabalho e
+   de estudo no mesmo vault fazem um "[[Aterramento]]" escrito estudando poder apontar para a nota de
+   engenharia — e ninguém vê isso acontecer. Ver NomeDoVault. *@
+<MudPaper Class="pa-4 mt-4" Elevation="0" Outlined="true" Style="max-width:780px;margin:0 auto">
+    <MudText Typo="Typo.h5" GutterBottom="true">Os seus vaults</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+        Cada vault é uma pasta separada, com busca, grafo, wikilinks e revisão próprios — e abre sozinho
+        no Obsidian. Nada atravessa de um para o outro.
+    </MudText>
+
+    <MudList T="string" Dense="true" Class="mt-2">
+        @foreach (var v in _vaults)
+        {
+            <MudListItem T="string" Icon="@(v == _atual ? Icons.Material.Filled.FolderOpen : Icons.Material.Outlined.Folder)">
+                <MudText Typo="Typo.body2">
+                    <b>@v.Rotulo</b>
+                    @if (v == _atual)
+                    {
+                        <span class="mud-text-secondary"> — é onde você está</span>
+                    }
+                </MudText>
+            </MudListItem>
+        }
+    </MudList>
+
+    @* Formulário HTML comum, e não um botão do MudBlazor: criar um vault RECARREGA tudo, porque a tela
+       inteira foi montada a partir do vault anterior. Ver RotaDeTrocaDeVault. *@
+    @* O QUE FOI RECUSADO, dito na tela. O endpoint devolve o nome tentado em ?nome=; a mensagem é
+       gerada AQUI, pela mesma regra de domínio — nada que veio na URL vira texto da página. *@
+    @if (RecusaDoNome is { } recusa)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mt-3">
+            Não criei o vault: @recusa
+        </MudAlert>
+    }
+
+    <form action="vault/criar" method="post" class="d-flex align-center gap-2 mt-3">
+        <AntiforgeryToken />
+        <input type="text" name="nome" placeholder="trabalho" required value="@Nome"
+               minlength="@NomeDoVault.TamanhoMinimo" maxlength="@NomeDoVault.TamanhoMaximo"
+               class="mud-input-slot" style="padding:.5rem .75rem;border:1px solid var(--mud-palette-lines-default);border-radius:4px" />
+        <button type="submit" class="mud-button-root mud-button mud-button-outlined mud-button-outlined-primary mud-button-outlined-size-medium">
+            Criar vault
+        </button>
+    </form>
+    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-1">
+        Letras sem acento, números e hífen. Ao criar, você já entra nele.
+    </MudText>
+</MudPaper>
+
+@code {
+    private IReadOnlyList<NomeDoVault> _vaults = [];
+    private NomeDoVault _atual = NomeDoVault.Padrao;
+
+    /// <summary>O nome que a pessoa tentou criar, devolvido pelo endpoint quando ele recusou.</summary>
+    [SupplyParameterFromQuery(Name = "nome")]
+    public string? Nome { get; set; }
+
+    /// <summary>
+    /// Por que o nome tentado não serve — null quando não houve tentativa ou o nome era válido (aí a
+    /// criação aconteceu e ninguém volta para cá). A mensagem sai da REGRA, não da URL: ver o comentário
+    /// da recusa em RotaDeTrocaDeVault.
+    /// </summary>
+    private string? RecusaDoNome =>
+        string.IsNullOrEmpty(Nome) || NomeDoVault.TentarCriar(Nome, out _, out var porQue)
+            ? null
+            : porQue ?? "esse nome não serve.";
+
+    /// <summary>
+    /// A lista sai do DISCO — mesma escolha da barra e da matéria. Ver RaizDoVaultDoUsuario.VaultsDe.
+    /// Falhar aqui não pode levar a tela junto: sem a lista, o resto do backup continua funcionando, e
+    /// backup é a última coisa que se quer indisponível.
+    /// </summary>
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var estado = await Autenticacao.GetAuthenticationStateAsync();
+            var apelido = await Apelidos.DeAsync(estado.User);
+            _vaults = RaizDoVaultDoUsuario.VaultsDe(OpcoesDoVault.Value.Raiz, apelido);
+            _atual = await Apelidos.VaultDeAsync(estado.User);
+        }
+        catch (Exception)
+        {
+            _vaults = [];
+        }
+    }
+
+    private MudFileUpload<IBrowserFile>? _seletor;
+    private bool _importando;
+    private ResultadoDaImportacao? _resultado;
+
+    private async Task ImportarAsync(IBrowserFile? arquivo)
+    {
+        if (arquivo is null || _importando) return;
+
+        _importando = true;
+        _resultado = null;
+        StateHasChanged();
+
+        try
+        {
+            // O fluxo do navegador é lido direto pelo empacotador — sem passo intermediário em
+            // memória, que num pacote grande derrubaria o servidor antes de a primeira nota entrar.
+            await using var fluxo = arquivo.OpenReadStream(
+                maxAllowedSize: RegrasDeImportacao.TamanhoMaximoDescompactadoBytes);
+
+            // ZipArchive precisa poder BUSCAR posição no fluxo, e o do navegador não permite. Copiar
+            // para um temporário EM DISCO — e não para a memória — é o que mantém o custo constante.
+            var temporario = Path.GetTempFileName();
+            try
+            {
+                await using (var arquivoTemp = File.Create(temporario))
+                    await fluxo.CopyToAsync(arquivoTemp);
+
+                await using var paraLer = File.OpenRead(temporario);
+                _resultado = await Empacotador.ImportarAsync(paraLer);
+            }
+            finally
+            {
+                File.Delete(temporario);
+            }
+
+            // O índice é derivado do disco; sem reconciliar, as notas importadas existem em arquivo e
+            // não aparecem em lugar nenhum da interface — o que parece que o import não funcionou.
+            await Reconciliacao.ExecutarAsync();
+
+            Avisos.Add($"{_resultado.Aceitas} arquivo(s) importado(s).", Severity.Success);
+        }
+        catch (Exception e)
+        {
+            Avisos.Add($"Não consegui ler o pacote: {e.Message}", Severity.Error);
+        }
+        finally
+        {
+            _importando = false;
+        }
+    }
+
+    private static string Explicar(MotivoDaRecusa? motivo) => motivo switch
+    {
+        MotivoDaRecusa.CaminhoEscapa => "o caminho tentava sair da pasta do vault",
+        MotivoDaRecusa.TipoNaoPermitido => "tipo de arquivo não aceito no vault",
+        MotivoDaRecusa.PacoteGrandeDemais => "o pacote passou do tamanho máximo",
+        MotivoDaRecusa.ArquivoGrandeDemais => "arquivo grande demais para uma nota",
+        _ => "nome inválido",
+    };
+}

@@ -1,0 +1,114 @@
+﻿@page "/Account/Manage"
+
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using Dominica.Learn.Web.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>Profile</PageTitle>
+
+<h3>Profile</h3>
+<StatusMessage />
+
+<div class="row">
+    <div class="col-xl-6">
+        <EditForm Model="Input" FormName="profile" OnValidSubmit="OnValidSubmitAsync" method="post">
+            <DataAnnotationsValidator />
+            <ValidationSummary class="text-danger" role="alert" />
+            @* O APELIDO VEM PRIMEIRO, ANTES DO E-MAIL.
+               Ele é a identidade do produto: o nome da pasta do vault em disco, o que separa o seu
+               material do de todo mundo, e a única chave que o convite de "acompanhar meus estudos"
+               aceita. Não aparecia em tela nenhuma para o usuário comum — só na Administração —, então
+               quem quisesse ser acompanhado não tinha onde ler o próprio para ditar. Esta página se
+               chama "seu perfil"; era o primeiro lugar onde procurar.
+
+               DESABILITADO E DITO POR EXTENSO. Ele é imutável por contrato (ver ApelidoDoUsuario: o
+               apelido É o caminho no disco; trocá-lo significa mover a árvore inteira e reescrever o
+               índice com o Obsidian de alguém possivelmente aberto no meio). Um campo cinza sem
+               explicação se lê como defeito — "por que não me deixa editar?"; com a razão ao lado, se
+               lê como decisão. *@
+            <div class="form-floating mb-1">
+                <input type="text" value="@apelido" id="apelido" class="form-control" disabled />
+                <label for="apelido" class="form-label">Apelido</label>
+            </div>
+            <p class="form-text mb-3">
+                É por ele que você é encontrado — no convite de <b>acompanhar estudos</b> e nas turmas.
+                Não muda: o apelido é o nome da pasta do seu vault no disco.
+            </p>
+
+            <div class="form-floating mb-3">
+                <input type="text" value="@username" id="username" class="form-control" placeholder="Choose your username." disabled />
+                <label for="username" class="form-label">Username (e-mail)</label>
+            </div>
+            <div class="form-floating mb-3">
+                <InputText @bind-Value="Input.PhoneNumber" id="Input.PhoneNumber" class="form-control" placeholder="Enter your phone number" />
+                <label for="Input.PhoneNumber" class="form-label">Phone number</label>
+                <ValidationMessage For="() => Input.PhoneNumber" class="text-danger" />
+            </div>
+            <button type="submit" class="w-100 btn btn-lg btn-primary">Save</button>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    private ApplicationUser? user;
+    private string? username;
+    private string? apelido;
+    private string? phoneNumber;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        user = await UserManager.GetUserAsync(HttpContext.User);
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        username = await UserManager.GetUserNameAsync(user);
+        apelido = user.Apelido;
+        phoneNumber = await UserManager.GetPhoneNumberAsync(user);
+
+        Input.PhoneNumber ??= phoneNumber;
+    }
+
+    private async Task OnValidSubmitAsync()
+    {
+        if (user is null)
+        {
+            RedirectManager.RedirectToInvalidUser(UserManager, HttpContext);
+            return;
+        }
+
+        if (Input.PhoneNumber != phoneNumber)
+        {
+            var setPhoneResult = await UserManager.SetPhoneNumberAsync(user, Input.PhoneNumber);
+            if (!setPhoneResult.Succeeded)
+            {
+                RedirectManager.RedirectToCurrentPageWithStatus("Error: Failed to set phone number.", HttpContext);
+                return;
+            }
+        }
+
+        await SignInManager.RefreshSignInAsync(user);
+        RedirectManager.RedirectToCurrentPageWithStatus("Your profile has been updated", HttpContext);
+    }
+
+    private sealed class InputModel
+    {
+        [Phone]
+        [Display(Name = "Phone number")]
+        public string? PhoneNumber { get; set; }
+    }
+}

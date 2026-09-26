@@ -1,0 +1,196 @@
+@page "/plano"
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Domain.Desempenho
+@using Dominica.Learn.Domain.Estudo
+@using Dominica.Learn.Domain.Vault
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ServicoDeConhecimento Conhecimento
+@inject ServicoDeDesempenho Desempenho
+@inject ISnackbar Avisos
+
+<PageTitle>Plano da semana · Dominica Learn</PageTitle>
+
+<ProvedoresDoMud />
+
+@* O PLANO DA SEMANA — metas de horas por matéria, propostas pela sua fraqueza, mudáveis, e que você não
+   é obrigado a seguir.
+
+   Ele é uma SUGESTÃO, não uma jaula: o "feito" de cada matéria sai do registro de sessões, então estudar
+   fora do plano conta igual. O botão "Sugerir" reparte um orçamento de horas dando mais para as matérias
+   que você mais erra (ver PlanoDaSemana.Propor), mas o que fica é o que você aceitou — dá para editar cada
+   meta, tirar, somar, ou ignorar tudo. O plano mora numa nota do vault, então abre no Obsidian. *@
+
+<MudPaper Class="pa-4" Elevation="0" Outlined="true">
+    <div class="d-flex align-center flex-wrap gap-3 mb-1">
+        <MudText Typo="Typo.h6">Plano da semana</MudText>
+        <MudSpacer />
+        <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.OpenInNew"
+                   Href="@Rotas.Nota(PlanoDaSemana.CaminhoDaNota)">Abrir como nota</MudButton>
+    </div>
+
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+        Metas de horas por matéria — uma <b>sugestão</b>, não uma obrigação. O que você estuda conta mesmo
+        fora do plano. Peça uma sugestão pela sua fraqueza (mais horas para o que você erra), e ajuste à vontade.
+    </MudText>
+
+    @* SUGERIR: reparte um orçamento de horas pela fraqueza. O orçamento é editável — cada um tem a sua semana. *@
+    <div class="d-flex align-end flex-wrap gap-2 mb-3">
+        <MudNumericField T="int" @bind-Value="_orcamentoHoras" Label="Horas na semana" Min="1" Max="80" Step="1"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:150px" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AutoAwesome"
+                   OnClick="SugerirAsync" Disabled="_carregando">Sugerir pela minha fraqueza</MudButton>
+    </div>
+
+    <MudDivider Class="mb-3" />
+
+    @if (_carregando)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (_metas.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            Sem metas ainda. Clique em <b>Sugerir</b> para o plano se montar a partir do que você mais erra,
+            ou some matérias abaixo e escreva as suas.
+        </MudText>
+    }
+    else
+    {
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+            <b>@Horas(TotalFeito)</b> de <b>@Horas(TotalMeta)</b> cumpridas nesta semana
+        </MudText>
+
+        @foreach (var meta in _metas)
+        {
+            var feito = Feito(meta.Materia);
+            var cumpriu = feito >= meta.Meta;
+            var pct = meta.Meta > TimeSpan.Zero
+                ? Math.Min(100, feito.TotalMinutes / meta.Meta.TotalMinutes * 100) : 0;
+            <div class="plano-linha">
+                <div class="d-flex align-center gap-2 mb-1">
+                    <MudIcon Size="Size.Small" Color="@(cumpriu ? Color.Success : Color.Default)"
+                             Icon="@(cumpriu ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Schedule)" />
+                    <MudText Typo="Typo.body1"><b>@meta.Materia.Rotulo</b></MudText>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                        @Horas(feito) de @Horas(meta.Meta)
+                    </MudText>
+                    <MudSpacer />
+                    @* Editar a meta é decimal de horas — 1,5 = 1h30. A meia hora é o passo em que se pensa. *@
+                    <MudNumericField T="double" Value="meta.Meta.TotalHours" Label="meta (h)"
+                                     ValueChanged="@(h => EditarAsync(meta.Materia, h))"
+                                     Min="0.5" Max="40" Step="0.5" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                     Style="max-width:110px" />
+                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.DeleteOutline"
+                                   aria-label="Remover matéria do plano" OnClick="@(() => RemoverAsync(meta.Materia))" />
+                </div>
+                <MudProgressLinear Color="@(cumpriu ? Color.Success : Color.Primary)" Rounded="true"
+                                   Value="pct" Class="plano-barra" />
+            </div>
+        }
+    }
+
+    <MudDivider Class="my-3" />
+
+    @* ADICIONAR MATÉRIA à mão: quem não quer sugestão nenhuma escreve o próprio plano. *@
+    <div class="d-flex align-end flex-wrap gap-2">
+        <MudSelect T="string" @bind-Value="_novaMateria" Label="Matéria" Dense="true" Variant="Variant.Outlined"
+                   Margin="Margin.Dense" Style="min-width:180px">
+            @foreach (var m in _materias)
+            {
+                <MudSelectItem T="string" Value="@m.Materia.Nome">@m.Materia.Rotulo</MudSelectItem>
+            }
+        </MudSelect>
+        <MudNumericField T="double" @bind-Value="_novasHoras" Label="Horas" Min="0.5" Max="40" Step="0.5"
+                         Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:110px" />
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add"
+                   Disabled="@string.IsNullOrEmpty(_novaMateria)" OnClick="AdicionarAsync">Adicionar meta</MudButton>
+    </div>
+</MudPaper>
+
+@code {
+    private List<MetaDaSemana> _metas = [];
+    private IReadOnlyList<MateriaContada> _materias = [];
+    private ResumoDeDesempenho _resumo = ResumoDeDesempenho.Vazio;
+    private IReadOnlyDictionary<Materia, TimeSpan> _feito = new Dictionary<Materia, TimeSpan>();
+    private bool _carregando = true;
+    private string? _novaMateria;
+    private double _novasHoras = 2;
+    private int _orcamentoHoras = (int)PlanoDaSemana.OrcamentoPadrao.TotalHours;
+
+    private TimeSpan TotalMeta => new(_metas.Sum(m => m.Meta.Ticks));
+    private TimeSpan TotalFeito => new(_metas.Sum(m => Feito(m.Materia).Ticks));
+
+    protected override async Task OnInitializedAsync()
+    {
+        _materias = (await Conhecimento.MateriasAsync()).Where(m => m.Materia.Existe).ToList();
+        await RecarregarAsync();
+        _carregando = false;
+    }
+
+    private async Task RecarregarAsync()
+    {
+        _resumo = await Desempenho.ResumoAsync();
+        _feito = await Desempenho.HorasPorMateriaNaSemanaAsync();
+        _metas = [.. await Conhecimento.PlanoDaSemanaAsync()];
+    }
+
+    private TimeSpan Feito(Materia m) => _feito.GetValueOrDefault(m);
+
+    /// <summary>Monta as candidatas a partir do desempenho e pede a proposta ao domínio.</summary>
+    private async Task SugerirAsync()
+    {
+        var candidatas = _materias.Select(m => new CandidataAoPlano(m.Materia, AcertoDe(m.Materia)));
+        var proposta = PlanoDaSemana.Propor(candidatas, TimeSpan.FromHours(_orcamentoHoras));
+        if (proposta.Count == 0)
+        {
+            Avisos.Add("Não há matérias para montar um plano ainda.", Severity.Info);
+            return;
+        }
+        await SalvarAsync(proposta);
+    }
+
+    /// <summary>
+    /// O acerto que vira peso: só quando há amostra que o sustente. Pouca questão é ruído, e o plano trata
+    /// ruído como "não sei" (nulo) — fraqueza média, não conforto. Ver DesempenhoDaMateria.TemAmostraSuficiente.
+    /// </summary>
+    private double? AcertoDe(Materia m) =>
+        _resumo.Materias.FirstOrDefault(d => d.Materia == m) is { TemAmostraSuficiente: true } d
+            ? d.Percentual : null;
+
+    private async Task EditarAsync(Materia materia, double horas)
+    {
+        var meta = TimeSpan.FromHours(Math.Clamp(horas, 0.5, 40));
+        await SalvarAsync([.. _metas.Select(m => m.Materia == materia ? m with { Meta = meta } : m)]);
+    }
+
+    private async Task RemoverAsync(Materia materia) =>
+        await SalvarAsync([.. _metas.Where(m => m.Materia != materia)]);
+
+    private async Task AdicionarAsync()
+    {
+        if (Materia.De(_novaMateria ?? "") is not { Existe: true } materia) return;
+        var meta = TimeSpan.FromHours(Math.Clamp(_novasHoras, 0.5, 40));
+        // Se a matéria já está no plano, editar em vez de duplicar — duas linhas da mesma matéria confundem.
+        var novas = _metas.Any(m => m.Materia == materia)
+            ? _metas.Select(m => m.Materia == materia ? m with { Meta = meta } : m)
+            : _metas.Append(new MetaDaSemana(materia, meta));
+        await SalvarAsync([.. novas]);
+        _novaMateria = null;
+    }
+
+    private async Task SalvarAsync(IReadOnlyList<MetaDaSemana> novas)
+    {
+        var r = await Conhecimento.SalvarPlanoAsync(novas);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui salvar o plano.", Severity.Warning);
+            return;
+        }
+        await RecarregarAsync();
+    }
+
+    /// <summary>"5h" / "1h30" / "45min" — a mesma leitura curta do painel de horas e do domínio.</summary>
+    private static string Horas(TimeSpan t) => PlanoDaSemana.FormatarDuracao(t);
+}

@@ -1,0 +1,166 @@
+/* A navegação da barra. Tudo aqui assenta sobre o marinho, então as cores são fixas — o
+   marinho da barra não muda com o tema (ver app.css → --barra-fundo).
+
+   TODO SELETOR QUE MIRA UM NavLink PRECISA DE ::deep. O CSS deste arquivo é ESCOPADO: o Blazor
+   carimba um atributo `b-xxxxx` nos elementos escritos AQUI e prefixa os seletores com ele. O
+   <a> de um NavLink não é escrito aqui — quem o emite é o próprio componente NavLink —, então
+   ele não recebe o carimbo e a regra simplesmente não pega.
+
+   O sintoma foi bonito de tão enganoso: no tema ESCURO os links apareciam (herdando o dourado
+   de `a` no app.css) e no CLARO sumiam, porque ali `a` é marinho — e a barra é marinho. Texto
+   invisível sobre fundo da mesma cor, só em um dos dois temas.
+
+   `.nav-app` é escrito aqui, então ele leva o carimbo e serve de âncora para o ::deep. */
+
+.nav-app {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.nav-app ::deep .nav-item {
+    color: #fff;
+    opacity: .78;
+    text-decoration: none;
+    padding: 5px 11px;
+    border-radius: 8px;
+    font-size: 14px;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.nav-app ::deep .nav-item:hover {
+    opacity: 1;
+    background: rgba(201, 162, 74, .18);
+    color: #fff;
+}
+
+/* O item ativo ganha o fio dourado embaixo — o mesmo gesto da barra inteira, uma oitava acima.
+   `active` é a classe que o NavLink põe sozinho; nada aqui a calcula. */
+.nav-app ::deep .nav-item.active {
+    opacity: 1;
+    background: rgba(201, 162, 74, .18);
+    box-shadow: inset 0 -2px 0 #C9A24A;
+    border-radius: 8px 8px 0 0;
+}
+
+.nav-sep {
+    width: 1px;
+    height: 16px;
+    background: rgba(201, 162, 74, .4);
+    margin: 0 6px;
+    flex: none;
+}
+
+/* O apelido do usuário. Trunca em vez de empurrar o resto da barra para a linha de baixo. */
+.nav-app ::deep .nav-quem {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* "Sair" é um POST com antiforgery, então é um <form> com <button> — e não um link. O botão
+   é pintado para ficar indistinguível dos vizinhos, porque para quem usa ele é só mais um item. */
+.nav-sair { margin: 0; display: inline-flex; }
+
+/* "Sair" é escrito NESTE arquivo, então o ::deep não o alcança — ele precisa da regra direta.
+   É a mesma aparência dos vizinhos, repetida porque os dois caminhos de escopo são diferentes. */
+.nav-botao {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font: inherit;
+    font-size: 14px;
+    color: #fff;
+    opacity: .78;
+    padding: 5px 11px;
+    border-radius: 8px;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.nav-botao:hover {
+    opacity: 1;
+    background: rgba(201, 162, 74, .18);
+}
+
+/* NO CELULAR A BARRA VIRA UMA FAIXA QUE ROLA, e não uma pilha de linhas.
+
+   Medido num Pixel 7: com `flex-wrap`, os sete itens quebravam em CINCO linhas e o cabeçalho comia 135px
+   de altura antes de qualquer conteúdo — numa tela de 800px, um sexto dela só para navegar. E os alvos
+   de toque ficavam com 26px de altura, contra os ~44px que um dedo acerta sem mirar.
+
+   Rolagem horizontal é a solução honesta aqui: os itens continuam todos visíveis por deslize, ninguém
+   precisa aprender um menu escondido, e a altura volta a ser uma linha. */
+@media (max-width: 900px) {
+    .nav-app {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        /* Sem isto, a barra empurra a página inteira e cria rolagem lateral no documento. */
+        min-width: 0;
+        /* Esconde a barra de rolagem: ela apareceria por cima dos itens numa faixa desta altura. */
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .nav-app::-webkit-scrollbar { display: none; }
+
+    .nav-app ::deep .nav-item {
+        font-size: 14px;
+        /* 44px é o alvo confortável de toque. min-height, e não height, para o texto não ser cortado
+           quando o navegador aumenta a fonte por acessibilidade. */
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 12px;
+    }
+
+    .nav-app ::deep .nav-quem { max-width: 130px; }
+}
+
+/* O ALTERNADOR DE VAULT.
+
+   Um <select> nativo, e não um menu desenhado: a barra é ESTÁTICA (ver MainLayout), então aqui não há
+   circuito para um componente do MudBlazor abrir. O nativo ainda ganha de graça o teclado, o leitor de
+   tela e o comportamento certo no celular, onde ele vira a roda do sistema.
+
+   Ele se parece com os itens de navegação ao lado porque É um item de navegação: trocar de vault é a
+   maior mudança de contexto que existe neste app, e um controle de formulário cinza no meio de links
+   dourados leria como "ajuste", que é o oposto. */
+.nav-app ::deep .nav-vault {
+    display: flex;
+    align-items: center;
+}
+
+.nav-app ::deep .nav-vault-seletor {
+    appearance: none;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, .25);
+    border-radius: 4px;
+    color: inherit;
+    font: inherit;
+    font-size: .92rem;
+    padding: .25rem 1.6rem .25rem .6rem;
+    cursor: pointer;
+
+    /* A seta é desenhada aqui porque `appearance: none` some com a nativa. SVG embutido em vez de
+       arquivo: são 120 bytes e uma requisição a menos numa barra que aparece em toda página. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23c9a227' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right .55rem center;
+    background-size: .6rem;
+}
+
+.nav-app ::deep .nav-vault-seletor:hover {
+    border-color: rgba(255, 255, 255, .5);
+}
+
+/* A LISTA ABERTA É DESENHADA PELO SISTEMA, e ela não herda a cor da barra: sem isto, no Windows, sai
+   texto branco sobre fundo branco — invisível, e só na hora de escolher. */
+.nav-app ::deep .nav-vault-seletor option {
+    color: #1a1a1a;
+    background: #fff;
+}

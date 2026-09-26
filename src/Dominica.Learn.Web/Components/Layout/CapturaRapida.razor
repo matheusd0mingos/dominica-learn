@@ -1,0 +1,83 @@
+@using Dominica.Learn.Application.CasosDeUso
+@inject ServicoDeConhecimento Conhecimento
+@inject NavigationManager Navegacao
+@inject ISnackbar Avisos
+
+@* A CAPTURA RÁPIDA — o gesto que salva a ideia solta antes de ela morrer.
+
+   Vive FIXA NO CANTO (esquerdo, espelhando o cronômetro à direita) e em TODA tela interativa, porque a
+   ideia não escolhe onde aparecer: ela vem no meio da revisão, olhando o grafo, lendo outra nota. O
+   destino é sempre a NOTA DE HOJE, com a hora — nenhuma decisão de pasta, título ou matéria no caminho.
+   Capturar é já; organizar é depois. Ver NotaDiaria, onde a filosofia está por inteiro. *@
+
+<div class="captura">
+    @if (!_aberta)
+    {
+        <MudButton Class="captura-pill" Size="Size.Small" Variant="Variant.Filled"
+                   StartIcon="@Icons.Material.Outlined.Lightbulb"
+                   OnClick="@(() => _aberta = true)">Capturar</MudButton>
+    }
+    else
+    {
+        <MudPaper Class="pa-2 captura-caixa" Elevation="8">
+            <MudTextField T="string" @bind-Value="_texto" Lines="3" AutoFocus="true" Immediate="true"
+                          Variant="Variant.Outlined" Margin="Margin.Dense"
+                          Placeholder="O pensamento, sem cerimônia — cai na nota de hoje, com a hora."
+                          aria-label="Captura rápida" />
+            <div class="d-flex align-center gap-1 mt-1">
+                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                           Disabled="@(_gravando || string.IsNullOrWhiteSpace(_texto))"
+                           OnClick="GuardarAsync">Guardar</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Text" Disabled="_gravando"
+                           OnClick="AbrirHojeAsync">Nota de hoje</MudButton>
+                <MudSpacer />
+                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Close"
+                               aria-label="Fechar a captura" OnClick="@(() => _aberta = false)" />
+            </div>
+        </MudPaper>
+    }
+</div>
+
+@code {
+    private bool _aberta;
+    private bool _gravando;
+    private string? _texto;
+
+    private async Task GuardarAsync()
+    {
+        if (_gravando || string.IsNullOrWhiteSpace(_texto)) return;
+
+        _gravando = true;
+        try
+        {
+            var r = await Conhecimento.CapturarAsync(_texto);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui guardar.", Severity.Warning);
+                return;
+            }
+
+            // DIZ ONDE FOI PARAR — a regra de sempre: guardar sem dizer onde é o jeito mais rápido de a
+            // pessoa parar de confiar no botão. E fecha: a captura é um parêntese, não uma tela.
+            Avisos.Add("Guardado na nota de hoje.", Severity.Success);
+            _texto = null;
+            _aberta = false;
+        }
+        finally
+        {
+            _gravando = false;
+        }
+    }
+
+    private async Task AbrirHojeAsync()
+    {
+        var r = await Conhecimento.NotaDeHojeAsync();
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui abrir a nota de hoje.", Severity.Warning);
+            return;
+        }
+        _aberta = false;
+        Navegacao.NavigateTo($"notas/{r.Valor!.Valor}");
+    }
+}

@@ -1,0 +1,185 @@
+@page "/Account/Login"
+
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.Extensions.Options
+@using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Web.Data
+@using Dominica.Learn.Web.Seguranca
+
+@inject IEnviadorDeEmail Enviador
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject ILogger<Login> Logger
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+@inject IOptions<OpcoesDeAdministracao> Admin
+
+@* A PRIMEIRA tela de quem chega. Ela vinha do template: em inglês, num formulário Bootstrap solto
+   na página, com uma coluna ao lado oferecendo "entrar com outro serviço" — que aqui não existe e
+   cujo texto padrão manda o usuário ler um artigo da Microsoft. Nada disso é este produto. *@
+
+<PageTitle>Entrar — Dominica Learn</PageTitle>
+
+<div class="identidade-cartao">
+    <h1>Entrar</h1>
+
+    <StatusMessage Message="@errorMessage" />
+
+    <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login">
+        <DataAnnotationsValidator />
+        <ValidationSummary class="text-danger" role="alert" />
+
+        <div class="form-floating mb-3">
+            <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control"
+                       autocomplete="username webauthn" aria-required="true" placeholder="voce@exemplo.com" />
+            <label for="Input.Email" class="form-label">E-mail</label>
+            <ValidationMessage For="() => Input.Email" class="text-danger" />
+        </div>
+
+        <div class="form-floating mb-3">
+            <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control"
+                       autocomplete="current-password" aria-required="true" placeholder="sua frase secreta" />
+            <label for="Input.Password" class="form-label">Frase secreta</label>
+            <ValidationMessage For="() => Input.Password" class="text-danger" />
+        </div>
+
+        <div class="checkbox mb-3">
+            <label class="form-label">
+                <InputCheckbox @bind-Value="Input.RememberMe" class="darker-border-checkbox form-check-input" />
+                Continuar conectado
+            </label>
+        </div>
+
+        <button type="submit" class="w-100 btn btn-lg btn-primary">Entrar</button>
+
+        <div class="d-flex flex-column mt-3">
+            <span class="text-secondary mx-auto small">ou</span>
+            <PasskeySubmit Operation="PasskeyOperation.Request" Name="Input.Passkey" EmailName="Input.Email"
+                           class="btn btn-link mx-auto">Entrar com uma chave de acesso</PasskeySubmit>
+        </div>
+    </EditForm>
+
+    <hr />
+
+    @* O "ESQUECI MINHA FRASE" SÓ APARECE SE O E-MAIL SAI DAQUI, e essa condição é o ponto.
+
+       Sem servidor de e-mail configurado, o link existiria, o formulário diria "enviamos uma mensagem"
+       e nada sairia — mandar alguém esperar para sempre é pior que dizer a verdade em uma linha. Com
+       servidor configurado, esconder o link seria o defeito oposto: obrigar a pessoa a pedir socorro
+       para algo que o app resolve sozinho.
+
+       Quem responde é o enviador, não um comentário aqui. Ver IEnviadorDeEmail.Ligado. *@
+    <p class="text-secondary small mb-0">
+        @if (Enviador.Ligado)
+        {
+            <a href="@(NavigationManager.GetUriWithQueryParameters("Account/ForgotPassword", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))">
+                Esqueci minha frase secreta
+            </a>
+            <br />
+        }
+        else
+        {
+            <text>Perdeu o acesso? Fale com quem administra o Learn — a recuperação é feita por lá.</text>
+        }
+        @if (Admin.Value.CadastroAberto)
+        {
+            <br />
+            <a href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))">
+                Criar uma conta
+            </a>
+        }
+    </p>
+</div>
+
+@code {
+    private string? errorMessage;
+    private EditContext editContext = default!;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        editContext = new EditContext(Input);
+
+        if (HttpMethods.IsGet(HttpContext.Request.Method))
+        {
+            // Limpa o cookie externo para que o login comece de um estado limpo
+            await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
+        }
+    }
+
+    public async Task LoginUser()
+    {
+        if (!string.IsNullOrEmpty(Input.Passkey?.Error))
+        {
+            errorMessage = $"Erro: {Input.Passkey.Error}";
+            return;
+        }
+
+        SignInResult result;
+        if (!string.IsNullOrEmpty(Input.Passkey?.CredentialJson))
+        {
+            // Na entrada por chave de acesso não há formulário para validar.
+            result = await SignInManager.PasskeySignInAsync(Input.Passkey.CredentialJson);
+        }
+        else
+        {
+            if (!editContext.Validate())
+            {
+                return;
+            }
+
+            result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
+        }
+
+        if (result.Succeeded)
+        {
+            Logger.LogInformation("Usuário entrou.");
+            RedirectManager.RedirectTo(ReturnUrl);
+        }
+        else if (result.RequiresTwoFactor)
+        {
+            RedirectManager.RedirectTo(
+                "Account/LoginWith2fa",
+                new() { ["returnUrl"] = ReturnUrl, ["rememberMe"] = Input.RememberMe });
+        }
+        else if (result.IsLockedOut)
+        {
+            Logger.LogWarning("Conta bloqueada por tentativas.");
+            RedirectManager.RedirectTo("Account/Lockout");
+        }
+        else
+        {
+            // Mensagem propositalmente vaga: dizer "este e-mail não existe" entrega a quem tenta
+            // adivinhar quais contas existem neste servidor.
+            errorMessage = "Erro: e-mail ou frase secreta não conferem.";
+        }
+    }
+
+    private sealed class InputModel
+    {
+        [Required(ErrorMessage = "Informe o e-mail.")]
+        [EmailAddress(ErrorMessage = "Isso não parece um e-mail.")]
+        public string Email { get; set; } = "";
+
+        [Required(ErrorMessage = "Informe a frase secreta.")]
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = "";
+
+        [Display(Name = "Continuar conectado")]
+        public bool RememberMe { get; set; }
+
+        public PasskeyInputModel? Passkey { get; set; }
+    }
+}

@@ -1,0 +1,18 @@
+bin/
+obj/
+.env
+vault-dev/
+*.db
+*.db-shm
+*.db-wal
+
+# E2E: vault descartável, estado de login e saídas do Playwright
+e2e/.vault/
+e2e/.auth/
+e2e/node_modules
+e2e/test-results/
+e2e/playwright-report/
+
+# saída do Playwright quando ele roda da raiz do learn em vez de e2e/
+test-results/
+playwright-report/

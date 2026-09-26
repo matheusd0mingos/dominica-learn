@@ -1,0 +1,71 @@
+@using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Domain.Vault
+@inject IIndiceDoVault Indice
+
+@* ESCOLHER UMA NOTA DO VAULT. Usado pelos dois botões de ligar do painel.
+
+   POR QUE UM DIÁLOGO E NÃO UM CAMPO NA PRÓPRIA COLUNA: ligar é um gesto pontual, e um campo sempre
+   visível ali ocuparia espaço permanente para uma ação ocasional. O diálogo aparece, você escolhe, ele
+   some.
+
+   BUSCA POR CAMINHO INTEIRO, e não só pelo título: num vault com "Crase" em Português e em Direito, o
+   título sozinho não distingue as duas — e escolher a errada aqui grava a ligação errada no seu
+   arquivo. O caminho é o que desempata, e é o que aparece na lista. *@
+
+<MudDialog>
+    <TitleContent><MudText Typo="Typo.h6">@Titulo</MudText></TitleContent>
+
+    <DialogContent>
+        <MudAutocomplete T="string" Label="Nota" @bind-Value="_escolhida"
+                         SearchFunc="Procurar" ResetValueOnEmptyText="true"
+                         CoerceText="true" Variant="Variant.Outlined" Dense="true"
+                         AdornmentIcon="@Icons.Material.Filled.Search" Immediate="true"
+                         Placeholder="digite parte do nome…" MaxItems="20" AutoFocus="true" />
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">@Explicacao</MudText>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialogo.Cancel())">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@string.IsNullOrWhiteSpace(_escolhida)"
+                   OnClick="Confirmar">Ligar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    [Parameter] public string Titulo { get; set; } = "Escolher nota";
+    [Parameter] public string Explicacao { get; set; } = string.Empty;
+
+    /// <summary>A nota aberta. Ela sai da lista: nota não aponta para ela mesma.</summary>
+    [Parameter] public CaminhoNota? Excluir { get; set; }
+
+    private IReadOnlyList<string> _caminhos = [];
+    private string? _escolhida;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // TUDO DE UMA VEZ, e a filtragem é local. O vault de uma pessoa cabe folgado na memória, e uma
+        // consulta ao índice por tecla digitada faria uma ida e volta pelo circuito a cada letra — que é
+        // exatamente o custo que este app já aprendeu a evitar no editor.
+        var todos = await Indice.TodosOsCaminhosAsync();
+        _caminhos = todos
+            .Where(c => Excluir is null || c != Excluir)
+            .Select(c => c.Valor)
+            .OrderBy(v => v, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
+    private Task<IEnumerable<string>> Procurar(string? termo, CancellationToken ct) =>
+        Task.FromResult(string.IsNullOrWhiteSpace(termo)
+            ? _caminhos.Take(20)
+            : _caminhos.Where(c => c.Contains(termo, StringComparison.CurrentCultureIgnoreCase)));
+
+    private void Confirmar()
+    {
+        if (string.IsNullOrWhiteSpace(_escolhida)) return;
+        if (!CaminhoNota.TentarCriar(_escolhida, out var caminho, out _) || caminho is null) return;
+        Dialogo.Close(DialogResult.Ok(caminho));
+    }
+}

@@ -1,0 +1,1915 @@
+@page "/notas"
+@page "/notas/{*caminho}"
+@using Dominica.Learn.Application
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Domain.Analise
+@using Dominica.Learn.Domain.Grafo
+@using Dominica.Learn.Domain.Anexos
+@using Dominica.Learn.Domain.Cartoes
+@using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Web.Interop
+@using Microsoft.JSInterop
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ServicoDeNotas Servico
+@inject IIndiceDoVault Indice
+@inject IEditorDeTexto Editor
+@inject IRenderizadorDoCliente Leitura
+@inject ServicoDeConhecimento Conhecimento
+@inject ServicoDeAnexos Anexos
+@inject ServicoDeCartoes Cartoes
+@inject ServicoDeLinksDeNota Publicacao
+@inject NavigationManager Navegacao
+@inject ISnackbar Avisos
+@inject IDialogService Dialogos
+@inject ILogger<Notas> Log
+@inject IRelogio Relogio
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>@(_aberta?.Nota.Titulo ?? "Notas") · Dominica Learn</PageTitle>
+
+@* Os provedores vivem AQUI, e não no layout: diálogo e snackbar só aparecem no mesmo escopo
+   interativo de quem os abre. Ver ProvedoresDoMud. *@
+@* AS BIBLIOTECAS DO EDITOR COMEÇAM A BAIXAR JÁ, junto com o resto da página.
+   Sem isto elas só são pedidas lá na frente, DEPOIS de o circuito subir e o interop rodar — e aí a
+   pessoa espera em série o que podia ter vindo em paralelo. `preload` não executa nada: apenas põe o
+   arquivo no cache do navegador para quando o `criar` precisar dele. Só nesta página, porque só aqui
+   existe editor: quem abre o painel ou a revisão não paga por isto.
+
+   O CSS NÃO É PRELOAD, É STYLESHEET DE VERDADE — e essa diferença de uma palavra custou caro.
+   O editor.js injetava o <link rel="stylesheet"> por conta própria e, antes de injetar, perguntava ao
+   <head> se já não havia um link com aquele href. O preload que estava aqui respondia "há" — e o
+   estilo nunca era aplicado. Preload BAIXA, não APLICA.
+   Declarar a folha aqui, direto, é melhor que o preload em todos os aspectos: baixa igualmente cedo,
+   aplica sozinha, e tira do JavaScript uma decisão que ele não precisava tomar. Quem carrega estilo é
+   a página; o editor.js só carrega script. Ver a nota sobre o mapa `pedidos` em js/editor.js. *@
+<HeadContent>
+    <link rel="stylesheet" href="lib/codemirror/codemirror.css" />
+    <link rel="preload" as="script" href="lib/codemirror/codemirror.js" />
+    <link rel="preload" as="script" href="lib/codemirror/xml.js" />
+    <link rel="preload" as="script" href="lib/codemirror/markdown.js" />
+    <link rel="preload" as="script" href="lib/codemirror/continuelist.js" />
+</HeadContent>
+
+<ProvedoresDoMud />
+
+<MudGrid Spacing="2" Class="pa-2">
+
+    @* —— NAVEGAÇÃO: busca, favoritas, matérias, recentes, etiquetas ——
+       SOME NO MODO AMPLIADO. Não é `display:none` num CSS: a coluna deixa de ser RENDERIZADA, então o
+       MudGrid devolve os 3/12 dela ao editor de verdade — escondê-la por estilo deixaria o buraco. *@
+    @if (!_ampliada)
+    {
+    <MudItem xs="12" md="3" Class="col-navegacao">
+        <MudPaper Class="pa-3" Elevation="0" Outlined="true">
+            <MudTextField @bind-Value="_termo" Immediate="true" DebounceInterval="250"
+                          OnDebounceIntervalElapsed="BuscarAsync" Placeholder="Buscar no vault…"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+
+            <MudButton StartIcon="@Icons.Material.Filled.Add" Variant="Variant.Text" Class="mt-2"
+                       OnClick="@(() => CriarAsync())">Nota nova</MudButton>
+
+            @* HOJE E ALEATÓRIA, lado a lado — dois hábitos do Obsidian que não tinham porta de entrada.
+               "Hoje" é a nota diária (cria se preciso, ver NotaDiaria); "Aleatória" é a serendipidade:
+               reencontrar o que você esqueceu que escreveu é como nota antiga volta a receber link. *@
+            <div class="d-flex gap-1">
+                <MudButton StartIcon="@Icons.Material.Filled.Today" Variant="Variant.Text" Size="Size.Small"
+                           OnClick="AbrirHojeAsync">Hoje</MudButton>
+                <MudButton StartIcon="@Icons.Material.Filled.Casino" Variant="Variant.Text" Size="Size.Small"
+                           OnClick="AbrirAleatoriaAsync">Aleatória</MudButton>
+            </div>
+
+            @if (_acertos.Count > 0)
+            {
+                <MudText Typo="Typo.overline" Class="mt-3 d-block">Resultados</MudText>
+                <MudList T="string" Dense="true">
+                    @foreach (var a in _acertos)
+                    {
+                        <MudListItem T="string" OnClick="@(() => Ir(a.Nota.Caminho))">
+                            <MudText Typo="Typo.body2"><b>@a.Nota.Titulo</b></MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@a.Trecho</MudText>
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+            else
+            {
+                @if (_favoritas.Count > 0)
+                {
+                    @* Favoritas vêm ANTES das recentes: recente é o que você mexeu, favorita é o que você
+                       decidiu que importa — e num vault de estudo de anos as duas listas divergem rápido. *@
+                    <MudText Typo="Typo.overline" Class="mt-3 d-block">Favoritas</MudText>
+                    <MudList T="string" Dense="true">
+                        @foreach (var f in _favoritas)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.Star" IconColor="Color.Warning"
+                                         OnClick="@(() => Ir(f.Caminho))">
+                                <MudText Typo="Typo.body2">@f.Titulo</MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+
+                @* MATÉRIAS — a divisão principal de um vault de concurso, e a única que já existe desde
+                   o primeiro arquivo, porque é a pasta. Vem antes de Recentes e Etiquetas: recente
+                   responde "no que mexi", etiqueta é transversal, e matéria é onde a nota MORA. *@
+                <div class="d-flex align-center justify-space-between mt-3">
+                    <MudText Typo="Typo.overline">Matérias</MudText>
+                    <MudTooltip Text="Criar matéria (vira uma pasta com o mapa dela dentro)">
+                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.CreateNewFolder"
+                                       OnClick="CriarMateriaAsync" />
+                    </MudTooltip>
+                </div>
+                @if (_materias.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                        Nenhuma ainda. Crie a nota dentro de uma pasta — "Direito/Licitações" — e a pasta
+                        vira a matéria, aqui e no grafo.
+                    </MudText>
+                }
+                <MudList T="string" Dense="true">
+                    @foreach (var m in _materias)
+                    {
+                        <MudListItem T="string" OnClick="@(() => FiltrarPorMateriaAsync(m.Materia))"
+                                     Icon="@(m.Materia.Existe ? Icons.Material.Filled.Folder : Icons.Material.Outlined.Inbox)">
+                            <div class="d-flex align-center justify-space-between">
+                                <MudText Typo="Typo.body2">@m.Materia.Rotulo (@m.Notas)</MudText>
+                                @if (m.Materia.Existe)
+                                {
+                                    @* Duas perguntas diferentes, dois destinos: a lista responde "o que
+                                       tem aqui dentro", o grafo responde "como isso se conecta". *@
+                                    <MudTooltip Text="@($"Nota nova em {m.Materia.Rotulo}")">
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.NoteAdd"
+                                                       OnClick="@(() => CriarAsync($"{m.Materia.Nome}/"))" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="@($"Ver o grafo de {m.Materia.Rotulo}")">
+                                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Hub"
+                                                       Href="@Rotas.Grafo(m.Materia)" />
+                                    </MudTooltip>
+                                }
+                            </div>
+                        </MudListItem>
+                    }
+                </MudList>
+
+                <MudText Typo="Typo.overline" Class="mt-3 d-block">Recentes</MudText>
+                <MudList T="string" Dense="true">
+                    @foreach (var n in _recentes)
+                    {
+                        <MudListItem T="string" OnClick="@(() => Ir(n.Caminho))">
+                            <MudText Typo="Typo.body2">@n.Titulo</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">@n.Caminho.Pasta</MudText>
+                        </MudListItem>
+                    }
+                </MudList>
+
+                <MudText Typo="Typo.overline" Class="mt-3 d-block">Etiquetas</MudText>
+                <div>
+                    @foreach (var e in _etiquetas.Take(30))
+                    {
+                        <MudChip T="string" Size="Size.Small" OnClick="@(() => FiltrarPorEtiquetaAsync(e))">
+                            @e.Etiqueta.ToString() (@e.Notas)
+                        </MudChip>
+                    }
+                </div>
+            }
+
+            @* No RODAPÉ da coluna, discreto de propósito: recuperar é ação de dia ruim, não de rotina.
+               Mas precisa estar ONDE SE PROCURA — quem apagou uma nota vai olhar a lista de notas. *@
+            <MudButton Size="Size.Small" Variant="Variant.Text" Class="mt-3"
+                       StartIcon="@Icons.Material.Filled.RestorePage"
+                       OnClick="RecuperarApagadaAsync">Recuperar nota apagada…</MudButton>
+        </MudPaper>
+    </MudItem>
+    }
+
+    @* —— EDITOR ——
+       No modo ampliado ele toma as 12 colunas: é a nota ocupando a tela, que é o que a leitura pede.
+       Uma nota de estudo tem tabela larga e bloco de código; em 6/12 de uma tela de notebook isso não
+       cabe, e o que sobra é rolar de lado dentro de uma faixa estreita. *@
+    <MudItem xs="12" md="@(_ampliada ? 12 : 6)" Class="col-editor">
+        <MudPaper Class="pa-3" Elevation="0" Outlined="true" Style="min-height:70vh">
+            @if (_aberta is null)
+            {
+                <MudText Typo="Typo.h6">Nenhuma nota aberta</MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Escolha uma nota à esquerda ou crie uma nova. O vault vive em arquivos .md no disco —
+                    dá para abrir a mesma pasta no Obsidian Desktop a qualquer momento.
+                </MudText>
+            }
+            else
+            {
+                <div class="d-flex align-center justify-space-between mb-2">
+                    <div>
+                        <MudText Typo="Typo.h6">@_aberta.Nota.Titulo</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@_aberta.Nota.Caminho</MudText>
+                    </div>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@_estado</MudText>
+                </div>
+
+                @if (_conflito)
+                {
+                    @* O conflito NÃO é resolvido sozinho: o outro lado pode ser o Obsidian do notebook com
+                       meia hora de trabalho. Quem decide é quem está aqui. *@
+                    <MudAlert Severity="Severity.Warning" Class="mb-2">
+                        Esta nota mudou fora do editor. Recarregue para ver o que veio de fora, ou grave por cima
+                        se o que está aqui é o que vale.
+                        <MudButton Size="Size.Small" OnClick="RecarregarAsync">Recarregar</MudButton>
+                        <MudButton Size="Size.Small" Color="Color.Warning" OnClick="ForcarGravacaoAsync">Gravar por cima</MudButton>
+                    </MudAlert>
+                }
+
+                <div class="d-flex align-center gap-2 mb-2">
+                    @* Value/ValueChanged em vez de @bind-Value: alternar para "Ler" precisa RENDERIZAR, e
+                       o bind só atribuiria o campo. *@
+                    <MudToggleGroup T="bool" Value="_lendo" ValueChanged="AoTrocarModoAsync"
+                                    Size="Size.Small" Color="Color.Primary" CheckMark="false">
+                        <MudToggleItem T="bool" Value="false" Text="Escrever" />
+                        <MudToggleItem T="bool" Value="true" Text="Ler" />
+                    </MudToggleGroup>
+                    <MudTooltip Text="@(_favorita ? "Desfavoritar" : "Favoritar (grava no frontmatter da nota)")">
+                        <MudIconButton Size="Size.Small" OnClick="AlternarFavoritoAsync"
+                                       Icon="@(_favorita ? Icons.Material.Filled.Star : Icons.Material.Outlined.StarBorder)"
+                                       Color="@(_favorita ? Color.Warning : Color.Default)" />
+                    </MudTooltip>
+                    @* AMPLIAR — o botão fica ao lado do Escrever/Ler porque é dali que a pessoa decide
+                       como vai LER. Em 6/12 de tela a tabela de uma nota de contabilidade não cabe, e o
+                       que se via era a última coluna cortada na borda do cartão. *@
+                    <MudTooltip Text="@(_ampliada ? "Voltar às três colunas" : "Ampliar a nota (esconde as colunas laterais)")">
+                        <MudIconButton Size="Size.Small"
+                                       Icon="@(_ampliada ? Icons.Material.Filled.FullscreenExit : Icons.Material.Filled.Fullscreen)"
+                                       aria-label="@(_ampliada ? "Voltar às três colunas" : "Ampliar a nota")"
+                                       Color="@(_ampliada ? Color.Primary : Color.Default)"
+                                       OnClick="AlternarAmpliadaAsync" />
+                    </MudTooltip>
+                    <MudTooltip Text="Ver esta nota no grafo do vault">
+                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Hub"
+                                       Href="@($"grafo/{_aberta.Nota.Caminho.Valor}")" />
+                    </MudTooltip>
+
+                    @* ESCREVER À MÃO fica ao lado de anexar, e não numa aba: o desenho é um anexo,
+                       feito aqui em vez de vindo de fora. Ver DialogoDeTinta. *@
+                    <MudTooltip Text="Escrever à mão (vira um PNG na pasta Anexos)">
+                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Draw"
+                                       aria-label="Escrever à mão" Disabled="_anexando"
+                                       OnClick="EscreverAMaoAsync" />
+                    </MudTooltip>
+
+                    @* O anexo entra no VAULT, não num bucket da aplicação: quem abrir a mesma pasta no
+                       Obsidian vê a imagem, porque o `![[…]]` é relativo ao vault e não uma URL daqui. *@
+                    <MudFileUpload @ref="_seletorDeArquivos" T="IReadOnlyList<IBrowserFile>" FilesChanged="AnexarAsync"
+                                   MaximumFileCount="10" Accept="@_extensoesAceitas"
+                                   MaxFileSize="ServicoDeAnexos.TamanhoMaximoPadraoBytes">
+                        <CustomContent Context="seletor">
+                            <MudTooltip Text="Anexar imagem, PDF ou áudio (vai para a pasta Anexos do vault)">
+                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.AttachFile"
+                                               aria-label="Anexar arquivo"
+                                               Disabled="_anexando"
+                                               OnClick="@(() => seletor.OpenFilePickerAsync())" />
+                            </MudTooltip>
+                        </CustomContent>
+                    </MudFileUpload>
+
+                    @if (_anexando)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+                    }
+
+                    @* O cartão é criado por DIÁLOGO, e não escrevendo "::" à mão. A sintaxe existe e
+                       continua valendo — mas uma sintaxe que precisa ser decorada é uma sintaxe que não
+                       se usa, e sem este botão o recurso de flashcard existia no código e não na vida. *@
+                    @* aria-label em cada botão de ícone: o texto do MudTooltip aparece só ao passar o
+                       mouse e não vira nome acessível nenhum — para quem usa leitor de tela, e para
+                       qualquer teste automatizado, estes botões eram "button" sem mais nada. *@
+                    <MudTooltip Text="Criar um cartão de revisão (o trecho selecionado vira a resposta)">
+                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Style"
+                                       aria-label="Criar cartão de revisão"
+                                       Disabled="_lendo" OnClick="CriarCartaoAsync" />
+                    </MudTooltip>
+
+                    @* LACUNA: o gesto mais barato de todos. Selecionar "178" em "o art. 178 define os
+                       grupos" e clicar aqui transforma a própria frase da nota em cartão, sem inventar
+                       pergunta nem duplicar texto — e ela continua legível, porque "==" é destaque. *@
+                    <MudTooltip Text="Virar lacuna: o trecho selecionado some do cartão e vira a resposta">
+                        <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Highlight"
+                                       aria-label="Virar lacuna"
+                                       Disabled="_lendo" OnClick="VirarLacunaAsync" />
+                    </MudTooltip>
+
+                    @* Renomear e excluir ficam num menu, e não como botões soltos ao lado dos outros, por
+                       uma razão de segurança e não de espaço: são as duas únicas ações desta barra que
+                       não têm volta. Um clique errado ao mirar o "anexar" não pode apagar uma nota. *@
+                    <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true"
+                             AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight"
+                             aria-label="Mais ações desta nota">
+                        <MudMenuItem Icon="@Icons.Material.Filled.DriveFileRenameOutline"
+                                     OnClick="RenomearAsync">Renomear ou mover…</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.History"
+                                     OnClick="VerVersoesAsync">Versões…</MudMenuItem>
+                        @* BAIXAR É UM LINK, não um OnClick: quem entrega o arquivo é a rota /nota.md, e
+                           mandar o .md pelo circuito em base64 para o JavaScript remontar num blob seria
+                           mais código para um resultado pior (ver Vault/RotaDaNota.cs). Href com Target
+                           "_self" porque é download — não abre aba, e o navegador cuida do resto. *@
+                        <MudMenuItem Icon="@Icons.Material.Filled.Download"
+                                     Href="@($"nota.md?caminho={Uri.EscapeDataString(_aberta.Nota.Caminho.Valor)}")"
+                                     Target="_self">Baixar como .md</MudMenuItem>
+                        @* O ITEM MUDA DE NOME CONFORME O ESTADO, e o estado é o que a pessoa precisa
+                           saber antes de abrir o menu. "Compartilhar por link…" numa nota já publicada
+                           esconderia justamente o fato que importa — que ela JÁ está no ar. *@
+                        @if (_link is null)
+                        {
+                            <MudMenuItem Icon="@Icons.Material.Filled.Link"
+                                         OnClick="PublicarAsync">Publicar num link…</MudMenuItem>
+                        }
+                        else
+                        {
+                            <MudMenuItem Icon="@Icons.Material.Filled.Public" IconColor="Color.Primary"
+                                         OnClick="VerLinkAsync">Link público (no ar)…</MudMenuItem>
+                        }
+                        <MudMenuItem Icon="@Icons.Material.Filled.ReportProblem"
+                                     OnClick="RegistrarErroAsync">Errei uma questão…</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.DeleteOutline" IconColor="Color.Error"
+                                     OnClick="ExcluirAsync">Excluir…</MudMenuItem>
+                    </MudMenu>
+                </div>
+
+                @* O editor NÃO é destruído ao ler: manter os dois no DOM e trocar a visibilidade preserva
+                   posição de cursor e rolagem, e evita recriar o CodeMirror a cada alternância. *@
+                @* ALTURA AQUI SÓ COMO PISO, e ela mora no app.css (.col-editor .CodeMirror-scroll).
+                   Era `height:56vh`, fixo — e uma altura fixa transforma a nota longa num visor: o texto
+                   passa a rolar DENTRO da caixa, aparece a barra de rolagem nativa colada na margem
+                   direita (escura, quando o sistema está no escuro) e o cartão para de acompanhar o
+                   conteúdo. Nota de estudo é longa; quem tem de rolar é a página. *@
+                @* ENQUANTO O EDITOR NÃO CHEGA, A DIV NÃO PODE FICAR MUDA.
+                   Pela internet o CodeMirror leva SEGUNDOS até existir — circuito, interop, e o
+                   download das bibliotecas. Nesse intervalo a div é um retângulo vazio: quem clica e
+                   digita ali não digita em lugar nenhum, porque não há editor ainda. Sem este aviso,
+                   a conclusão de quem usa é "o teclado não funciona". *@
+                @if (!_lendo && _sessao is null)
+                {
+                    <div class="editor-carregando">
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Color="Color.Primary" />
+                        <span>Abrindo o editor…</span>
+                    </div>
+                }
+                <div id="@IdDoEditor" style="@(_lendo ? "display:none" : null)"></div>
+                <div id="@IdDaLeitura" class="nota-lida" style="@(_lendo ? "min-height:56vh" : "display:none")">
+                    @((MarkupString)(_renderizada?.Html ?? string.Empty))
+                </div>
+            }
+        </MudPaper>
+    </MudItem>
+
+    @* —— O QUE APONTA PARA CÁ ——
+
+       A COLUNA INTEIRA SÓ EXISTE COM UMA NOTA ABERTA. Antes ela renderizava sempre, e só o conteúdo era
+       condicional — o resultado era um cartão dizendo "Aponta para esta nota / Nada ainda" quando não há
+       nota nenhuma. No desktop passava por decoração; no celular, onde as colunas empilham, era uma tela
+       inteira de nada entre o editor e a navegação. *@
+    @if (_aberta is not null && !_ampliada)
+    {
+    <MudItem xs="12" md="3" Class="col-contexto">
+        <MudPaper Class="pa-3" Elevation="0" Outlined="true">
+            @* —— ETIQUETAS DESTA NOTA ——
+
+               VEM PRIMEIRO na coluna porque é o que se olha primeiro numa nota: o que ela É antes do que
+               ela cita. E existe porque etiquetar só tinha UM caminho — digitar "#assim" no meio do
+               texto. Quem não conhece a sintaxe não etiquetava; quem conhece não tinha como VER as
+               etiquetas da nota aberta sem procurá-las com o olho, nem como tirar uma. Mesma história do
+               "[[" e do botão de ligar: a sintaxe fica, mas deixa de ser pedágio. *@
+            <MudText Typo="Typo.overline" Class="d-block">Etiquetas</MudText>
+
+            @if (_etiquetasDaNota.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    Nenhuma. Etiqueta boa é a que <b>atravessa</b> as matérias — <b>#súmula</b>,
+                    <b>#pegadinha</b>, <b>#errei-na-prova</b>. A que só repete o nome da pasta não
+                    acrescenta nada.
+                </MudText>
+            }
+            else
+            {
+                <div class="d-flex flex-wrap gap-1 mt-1">
+                    @foreach (var e in _etiquetasDaNota)
+                    {
+                        @* A ORIGEM APARECE, e ela decide o botão. A que está escrita no meio de uma frase
+                           não pode sair por clique: apagá-la reescreveria o texto da pessoa. Ela vem sem
+                           "x" e com a explicação no tooltip — honesto ganha de conveniente. *@
+                        @if (e.PodeTirar)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                                     OnClose="@(() => TirarEtiquetaAsync(e.Etiqueta))" Disabled="_etiquetando"
+                                     title="@($"Clique no x para tirar {e.Etiqueta} desta nota")">
+                                @e.Etiqueta.ToString()
+                            </MudChip>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                     OnClick="@(() => FiltrarPorEtiquetaAsync(new EtiquetaContada(e.Etiqueta, 0)))"
+                                     title="@($"{e.Etiqueta} está escrita no texto da nota. Para tirar, apague no editor — assim dá para ver o que some.")">
+                                @e.Etiqueta.ToString()
+                            </MudChip>
+                        }
+                    }
+                </div>
+            }
+
+            @* O CAMPO ACEITA O QUE NÃO EXISTE AINDA. Um seletor fechado só das etiquetas do vault
+               impediria o gesto mais comum de todos: a primeira nota de um assunto novo. *@
+            <MudAutocomplete T="string" @bind-Value="_etiquetaNova" Dense="true" Margin="Margin.Dense"
+                             Variant="Variant.Outlined" Class="mt-2" Placeholder="pôr uma etiqueta…"
+                             SearchFunc="ProcurarEtiqueta" CoerceValue="true" ResetValueOnEmptyText="true"
+                             Immediate="true" MaxItems="10" Disabled="_etiquetando"
+                             AdornmentIcon="@Icons.Material.Filled.Sell" Adornment="Adornment.Start"
+                             OnKeyUp="AoTeclarNaEtiqueta" aria-label="Pôr uma etiqueta nesta nota" />
+
+            @* —— O QUE COSTUMA VIR JUNTO ——
+
+               A COOCORRÊNCIA SERVIDA ONDE ELA VIRA AÇÃO. A conta é a mesma que desenha o mapa das
+               etiquetas, mas o mapa responde "o que anda junto no meu vault", que é pergunta de fim de
+               semana. Aqui a pergunta é a do dia: "marquei #tributário; o que eu costumo marcar junto e
+               esqueci agora?". Ninguém escreveu essas ligações — elas só existem no conjunto. *@
+            @if (_sugestoesDeEtiqueta.Count > 0)
+            {
+                @* O TÍTULO SEGUE O QUE A LISTA DE FATO TEM. As por coocorrência vêm primeiro; quando não
+                   há nenhuma, o que sobra são as mais usadas do vault, e chamá-las de "costumam vir
+                   junto" seria a tela afirmando um parentesco que ela não calculou. Cada ficha ainda
+                   explica a si mesma no tooltip. *@
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">
+                    @(_sugestoesDeEtiqueta.Any(s => s.PorCoocorrencia) ? "Costumam vir junto:" : "As mais usadas no vault:")
+                </MudText>
+                <div class="d-flex flex-wrap gap-1">
+                    @foreach (var s in _sugestoesDeEtiqueta)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Default"
+                                 Disabled="_etiquetando" title="@ComoExplicar.A(s)"
+                                 OnClick="@(() => PorEtiquetaAsync(s.Etiqueta.Valor))">
+                            + @s.Etiqueta.ToString()
+                        </MudChip>
+                    }
+                </div>
+            }
+
+            @* —— NESTA NOTA: O ROTEIRO ——
+
+               O outline da nota longa — o resumo de lei com doze seções precisa de um mapa próprio. Sai
+               da ANÁLISE (os mesmos Cabecalhos que o domínio já extraía), não do HTML: o índice de cada
+               item é a posição no markdown, e o JS rola até o título correspondente ignorando os que
+               vieram por transclusão. O título da nota (nível 1) fica de fora — ele é a página inteira. *@
+            @if (_aberta is { } notaAberta && notaAberta.Nota.Analise.Cabecalhos.Count(c => c.Nivel > 1) >= 3)
+            {
+                <MudDivider Class="my-3" />
+                <MudText Typo="Typo.overline" Class="d-block">Nesta nota</MudText>
+                <div class="roteiro">
+                    @foreach (var (cab, i) in notaAberta.Nota.Analise.Cabecalhos.Select((c, i) => (c, i)))
+                    {
+                        if (cab.Nivel <= 1) { continue; }
+                        var indice = i;
+                        <MudLink Typo="Typo.body2" Class="roteiro-item d-block"
+                                 Style="@($"padding-left:{(cab.Nivel - 2) * 12}px")"
+                                 OnClick="@(() => IrAoCabecalhoAsync(indice))">@cab.Texto</MudLink>
+                    }
+                </div>
+            }
+
+            <MudDivider Class="my-3" />
+
+            <MudText Typo="Typo.overline" Class="d-block">Aponta para esta nota</MudText>
+
+            @* OS DOIS BOTÕES DE LIGAR, e eles ficam AQUI porque é aqui que as ligações vivem. Juntar
+               "ver" e "fazer" no mesmo bloco é o que faz o recurso se explicar sozinho: até hoje só
+               existia o caminho de digitar "[[", que é invisível para quem não conhece a sintaxe.
+
+               O de baixo escreve na OUTRA nota, e essa direção não tinha caminho nenhum na interface —
+               era abrir a outra nota e digitar lá. Ver ServicoDeConhecimento.LigarAsync: é o mesmo
+               método para as duas, muda só qual das notas é a de dentro. *@
+            <div class="d-flex flex-column align-start">
+                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.Link" Disabled="_ligando"
+                           OnClick="LigarDaquiAsync">Ligar a uma nota</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.CallReceived" Disabled="_ligando"
+                           OnClick="LigarParaCaAsync">Fazer outra apontar para cá</MudButton>
+            </div>
+            @if (_aberta.Backlinks.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">Nada ainda.</MudText>
+            }
+            else
+            {
+                @* CADA ORIGEM COM A FRASE DA CITAÇÃO — "Licitações aponta para cá" é metade da
+                   informação; "o prazo corre conforme [[Prescrição]]" é a conexão inteira, sem abrir a
+                   outra nota. Os trechos chegam DEPOIS (leem as notas de origem, fora do caminho de
+                   abertura); enquanto isso a lista de nomes já serve. Ver TrechoDaLigacao. *@
+                <MudList T="string" Dense="true">
+                    @foreach (var origem in _aberta.Backlinks.Where(b => !b.EhInterna).Select(b => b.Origem).Distinct())
+                    {
+                        <MudListItem T="string" OnClick="@(() => Ir(origem))">
+                            <MudText Typo="Typo.body2">@origem.Nome</MudText>
+                            @if (_trechosDosBacklinks is { } trechos)
+                            {
+                                @foreach (var t in trechos.Where(t => t.Origem == origem).Take(3))
+                                {
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">@t.Trecho</MudText>
+                                }
+                            }
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+
+            @if (_aberta is not null)
+            {
+                // Distinct pelo ALVO: citar "[[Pregão]]" três vezes na mesma nota é UM assunto por
+                // escrever, não três.
+                var quebradas = _aberta.Saidas.Where(l => l.Quebrada)
+                    .Select(l => l.Alvo).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                @if (quebradas.Count > 0)
+                {
+                    @* Ligação quebrada é RECURSO: é a lista do que você decidiu estudar e ainda não estudou. *@
+                    <MudText Typo="Typo.overline" Class="mt-4 d-block">Ainda por escrever</MudText>
+                    <MudList T="string" Dense="true">
+                        @foreach (var q in quebradas)
+                        {
+                            <MudListItem T="string" OnClick="@(() => CriarAsync(q))">
+                                <MudText Typo="Typo.body2">@q</MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            }
+
+            @* —— CARTÕES DESTA NOTA ——
+
+               Ver os cartões que a nota já tem é o que fecha o ciclo do botão de criar: sem esta lista,
+               criar um cartão é um gesto sem retorno visível, e ninguém sabe se a nota tem dois ou
+               dezoito até chegar o dia da revisão. Sai do TEXTO da nota, não do índice — é o mesmo
+               analisador que monta a fila, então o que aparece aqui é exatamente o que vai ser revisado. *@
+            @if (_cartoes.Count > 0)
+            {
+                var hoje = DateOnly.FromDateTime(Relogio.Agora.DateTime);
+                var vencidos = _cartoes.Count(c => !c.Suspenso && c.AgendamentoOu(hoje).Vencido(hoje));
+                <MudText Typo="Typo.overline" Class="mt-4 d-block">Cartões desta nota (@_cartoes.Count)</MudText>
+
+                @* O TREINO A UM CLIQUE DO TEXTO. A nota que tem cartão vencido diz isso AQUI, onde o
+                   conhecimento mora, e o botão cai na fila recortada só desta nota — é a ponte
+                   conhecimento → treino que faltava para a leitura não ser um fim em si. *@
+                @if (vencidos > 0 && _aberta is not null)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning" Class="mb-1"
+                               StartIcon="@Icons.Material.Filled.Style"
+                               Href="@($"revisar?nota={Uri.EscapeDataString(_aberta.Nota.Caminho.Valor)}")">
+                        Revisar esta nota (@vencidos vencido@(vencidos == 1 ? "" : "s"))
+                    </MudButton>
+                }
+                @* O SUSPENSO PRECISA APARECER AQUI, ou suspender vira apagar: fora da fila e fora desta
+                   lista, ele não existe em lugar nenhum da interface, e a promessa de que dá para
+                   voltar atrás fica sem como ser cumprida. *@
+                @foreach (var c in _cartoes.Take(12))
+                {
+                    <div class="cartao-item @(c.Suspenso ? "cartao-suspenso" : null)">
+                        <MudText Typo="Typo.body2">@c.Frente</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">@c.Verso</MudText>
+                        @if (c.Suspenso)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.PlayCircleOutline"
+                                       OnClick="@(() => SuspenderAsync(c, false))">Voltar para a fila</MudButton>
+                        }
+                    </div>
+                }
+                @if (_cartoes.Count > 12)
+                {
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">…e mais @(_cartoes.Count - 12).</MudText>
+                }
+            }
+
+            @* —— MENÇÕES NÃO LIGADAS ——
+
+               É a resposta à pergunta "e se eu descobrir a conexão só depois?". Ninguém escreve links
+               enquanto pensa: escreve-se "a prescrição tributária corre desde…" e só semanas depois se
+               cria a nota "Prescrição". Esta lista são todos os encontros que já aconteceram e ficaram
+               sem registro. *@
+            @if (_aberta is not null)
+            {
+                <MudText Typo="Typo.overline" Class="mt-4 d-block">Mencionam sem ligar</MudText>
+
+                @if (_mencoes is null)
+                {
+                    @* Carrega DEPOIS da nota aparecer: a varredura lê arquivos do disco, e segurar a
+                       abertura da nota por causa de um painel lateral seria trocar o essencial pelo
+                       acessório. *@
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Procurando…</MudText>
+                }
+                else if (_mencoes.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Nenhuma.</MudText>
+                }
+                else
+                {
+                    @foreach (var m in _mencoes.Take(15))
+                    {
+                        <div class="mencao">
+                            <MudText Typo="Typo.body2" Class="mencao-nota">@m.Titulo</MudText>
+                            @* O TRECHO É OBRIGATÓRIO, não enfeite: sem ver a frase, a pessoa teria de
+                               abrir a outra nota para decidir, e aí não economizou nada. *@
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">@m.Mencao.Trecho</MudText>
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                                       Disabled="_ligando"
+                                       OnClick="@(() => LigarMencaoAsync(m))">Ligar</MudButton>
+                        </div>
+                    }
+                    @if (_mencoes.Count > 15)
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                            …e mais @(_mencoes.Count - 15).
+                        </MudText>
+                    }
+                }
+            }
+
+            @* —— PARECIDAS, AINDA NÃO LIGADAS ——
+
+               A conexão que SURGE em vez de esperar você lembrar. As menções pegam citação literal do
+               nome; isto pega o parentesco que não citou ninguém — mesmas etiquetas, mesmos alvos — e
+               oferece o link pronto. É a essência do vault: a estrutura emergindo do que você escreve,
+               com a máquina apontando o encontro que ainda não aconteceu. *@
+            @if (_aberta is not null && _parecidas is { Count: > 0 })
+            {
+                <MudText Typo="Typo.overline" Class="mt-4 d-block">Parecidas — ainda não ligadas</MudText>
+                @foreach (var p in _parecidas)
+                {
+                    <div class="mencao">
+                        <MudLink Typo="Typo.body2" Class="mencao-nota" data-previa="@p.Caminho.Valor"
+                                 OnClick="@(() => Ir(p.Caminho))">@p.Caminho.Nome</MudLink>
+                        @* O MOTIVO É OBRIGATÓRIO: sugestão sem porquê é a máquina mandando, com porquê é
+                           ela mostrando o que viu — e a pessoa decide. *@
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">@p.Motivo</MudText>
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                                   Disabled="_ligando"
+                                   OnClick="@(() => LigarParecidaAsync(p))">Ligar</MudButton>
+                    </div>
+                }
+            }
+        </MudPaper>
+    </MudItem>
+    }
+</MudGrid>
+
+@code {
+    private const string IdDoEditor = "editor-da-nota";
+    private const string IdDaLeitura = "leitura-da-nota";
+
+    [Parameter] public string? Caminho { get; set; }
+
+    private NotaAberta? _aberta;
+    private SessaoDeEdicao? _sessao;
+    private bool _abrindoEditor;
+    private DotNetObjectReference<Notas>? _referencia;
+    private ImpressaoDigital? _impressaoCarregada;
+
+    private IReadOnlyList<NotaIndexada> _recentes = [];
+    private IReadOnlyList<NotaIndexada> _favoritas = [];
+    private IReadOnlyList<TemplateDisponivel> _templates = [];
+    private IReadOnlyList<MateriaContada> _materias = [];
+    private IReadOnlyList<EtiquetaContada> _etiquetas = [];
+    private IReadOnlyList<MencaoEmNota>? _mencoes;
+
+    /// <summary>Parecidas ainda não ligadas — nulo enquanto procura, vazio quando não há.</summary>
+    private IReadOnlyList<NotaParecida>? _parecidas;
+
+    /// <summary>A frase de cada citação dos backlinks — nula enquanto carrega; a lista de nomes já serve.</summary>
+    private IReadOnlyList<BacklinkComTrecho>? _trechosDosBacklinks;
+
+    /// <summary>Busca as frases dos backlinks fora do caminho de abertura — mesma regra das menções.</summary>
+    private async Task CarregarTrechosDosBacklinksAsync(CaminhoNota caminho)
+    {
+        try
+        {
+            var trechos = await Conhecimento.BacklinksComTrechoAsync(caminho);
+            if (_aberta?.Nota.Caminho != caminho) return;
+            _trechosDosBacklinks = trechos;
+        }
+        catch (Exception e)
+        {
+            _trechosDosBacklinks = [];
+            Log.LogWarning(e, "Não consegui montar os trechos dos backlinks de {Caminho}.", caminho.Valor);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+    private IReadOnlyList<Cartao> _cartoes = [];
+    private bool _ligando;
+
+    private IReadOnlyList<EtiquetaDaNota> _etiquetasDaNota = [];
+    private IReadOnlyList<EtiquetaSugerida> _sugestoesDeEtiqueta = [];
+    private string? _etiquetaNova;
+    private bool _etiquetando;
+    private IReadOnlyList<Acerto> _acertos = [];
+    private string _termo = string.Empty;
+    private string _estado = string.Empty;
+    private bool _conflito;
+    private string? _textoPendente;
+
+    /// <summary>
+    /// O conteúdo como ele está NO DISCO, até onde esta tela sabe. É a referência para decidir se há o
+    /// que gravar ao trocar de nota — comparar com <c>_textoPendente</c> não serviria: ele só existe
+    /// depois que o autosave rodou, e o caso que se perdia é o que nunca rodou.
+    /// </summary>
+    private string? _textoNoDisco;
+
+    private bool _lendo;
+    private bool _favorita;
+    private bool _anexando;
+
+    /// <summary>
+    /// A nota ocupando as 12 colunas, sem navegação nem contexto ao lado.
+    ///
+    /// Existe porque em 6/12 de uma tela de notebook uma tabela de nota de estudo NÃO CABE, e o que
+    /// acontecia era a última coluna sair pela borda do cartão — cortada, não rolável. A rolagem do
+    /// conteúdo largo foi resolvida no CSS (ver `.nota-lida table`); isto resolve a outra metade, que é
+    /// simplesmente ter largura.
+    ///
+    /// A preferência é do NAVEGADOR (localStorage, junto do tema): quem lê ampliado vai ler a próxima
+    /// nota ampliado também, e sem lembrar disso o botão teria de ser reclicado a cada nota aberta.
+    /// </summary>
+    private bool _ampliada;
+    private bool _leuPreferenciaDeLargura;
+
+    /// <summary>O link público desta nota, se ela estiver publicada. Null = privada (ou ainda carregando).</summary>
+    private Dominica.Learn.Domain.Compartilhamento.LinkDeNota? _link;
+    private MudFileUpload<IReadOnlyList<IBrowserFile>>? _seletorDeArquivos;
+
+    // O `accept` do seletor de arquivos vem da MESMA lista que o servidor aplica. Duas listas, uma na
+    // tela e outra no domínio, divergem no primeiro formato novo — e a divergência aparece como "escolhi
+    // o arquivo e nada aconteceu".
+    private static readonly string _extensoesAceitas = string.Join(',', TiposDeAnexo.Extensoes);
+    private NotaRenderizada? _renderizada;
+    private bool _precisaCompletarLeitura;
+
+    protected override async Task OnInitializedAsync() => await RecarregarLateraisAsync();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Caminho)) { _aberta = null; return; }
+        if (!CaminhoNota.TentarCriar(Caminho, out var caminho, out var erro) || caminho is null)
+        {
+            Avisos.Add(erro ?? "Caminho inválido.", Severity.Error);
+            return;
+        }
+        await AbrirAsync(caminho);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        // A PREFERÊNCIA DE LARGURA VEM ANTES DO `_aberta is null`, e por isso está aqui em cima: ela é da
+        // TELA, não da nota. Lida lá embaixo, quem chegasse em /notas sem nota aberta não a leria — e a
+        // primeira nota aberta ainda viria estreita.
+        if (primeiraVez && !_leuPreferenciaDeLargura)
+        {
+            _leuPreferenciaDeLargura = true;
+            try
+            {
+                var tema = await JS.InvokeAsync<IJSObjectReference>("import", "./js/tema.js");
+                var ampliada = await tema.InvokeAsync<bool>("ampliadaGuardada");
+                if (ampliada) { _ampliada = true; StateHasChanged(); }
+            }
+            catch (JSException) { /* sem localStorage: abre nas três colunas, que é o padrão */ }
+        }
+
+        if (_aberta is null) return;
+
+        // O editor só pode ser criado DEPOIS que a div existe no DOM — e recriado a cada troca de nota.
+        //
+        // A trava é SÍNCRONA e vem antes do await de propósito. Sem ela, o Blazor renderiza de novo
+        // enquanto a criação do editor está suspensa no await, entra aqui outra vez, vê `_sessao` ainda
+        // nulo e cria um SEGUNDO CodeMirror na mesma div — a nota aparece duplicada na tela, com dois
+        // editores disputando o mesmo texto. Foi assim que apareceu na primeira vez que rodou.
+        if (_sessao is null && !_abrindoEditor)
+        {
+            _abrindoEditor = true;
+            try
+            {
+                _referencia ??= DotNetObjectReference.Create(this);
+                // O foco vem DENTRO do `criar`, e não numa chamada própria: cada interop é uma ida e
+                // volta na rede, e uma a menos aqui é 300 ms a menos até o cursor piscar.
+                _sessao = await Editor.AbrirAsync(IdDoEditor, _aberta.Nota.Conteudo,
+                    DotNetObjectReference.Create<object>(this));
+
+                // UM RENDER A MAIS, de propósito: `_sessao` acabou de deixar de ser nulo, e é ele que
+                // esconde o "Abrindo o editor…". Sem esta linha o aviso fica na tela para sempre, por
+                // cima de um editor que já está pronto — medido, não suposto.
+                StateHasChanged();
+            }
+            finally
+            {
+                _abrindoEditor = false;
+            }
+        }
+
+        // Fórmulas e diagramas são desenhados DEPOIS do HTML estar na página. O sinalizador evita
+        // reprocessar a cada render do Blazor — o Mermaid redesenharia o diagrama inteiro a cada tecla.
+        if (_precisaCompletarLeitura && _lendo && _renderizada is not null)
+        {
+            _precisaCompletarLeitura = false;
+            await Leitura.CompletarAsync(IdDaLeitura, _renderizada.TemFormulas, _renderizada.TemDiagramas);
+        }
+    }
+
+    /// <summary>
+    /// Liga/desliga a nota em largura total e guarda a escolha no navegador.
+    ///
+    /// NÃO PRECISA MANDAR O EDITOR SE REMEDIR: o CodeMirror é criado com um ResizeObserver que observa a
+    /// LARGURA da div e chama `refresh()` sozinho quando ela muda (ver js/editor.js). Chamar aqui seria
+    /// uma ida e volta de interop a mais para fazer o que já acontece — e, pior, mediria antes de o
+    /// Blazor ter aplicado a nova coluna, que é justamente a medida errada que o observador evita.
+    /// </summary>
+    private async Task AlternarAmpliadaAsync()
+    {
+        _ampliada = !_ampliada;
+        try
+        {
+            var modulo = await JS.InvokeAsync<IJSObjectReference>("import", "./js/tema.js");
+            await modulo.InvokeVoidAsync("guardarAmpliada", _ampliada);
+        }
+        catch (JSException) { /* não lembrar a preferência não pode impedir de ampliar */ }
+    }
+
+    private async Task AoTrocarModoAsync(bool lendo)
+    {
+        _lendo = lendo;
+        if (_aberta is null || !_lendo) return;
+        // Renderiza o texto que está NO EDITOR, não o que veio do disco: quem alterna para ler quer ver o
+        // que acabou de escrever, mesmo que o autosave ainda não tenha disparado.
+        var texto = _sessao is null ? _aberta.Nota.Conteudo : await _sessao.LerAsync();
+        _renderizada = await Conhecimento.RenderizarAsync(texto);
+        _precisaCompletarLeitura = true;
+    }
+
+    /// <summary>
+    /// Abre o quadro de tinta e, se algo for desenhado, grava o PNG nos anexos e insere o embed.
+    ///
+    /// PASSA PELO MESMO CAMINHO DE ANEXAR, de propósito: mesmo serviço, mesma pasta, mesmo limite,
+    /// mesmo antivírus, mesmo `![[…]]`. Um desenho não é uma categoria nova de coisa — é um anexo que
+    /// nasceu aqui dentro em vez de vir de fora, e tratá-lo como caso especial dobraria as regras a
+    /// manter sem dobrar o que o produto faz.
+    /// </summary>
+    private async Task EscreverAMaoAsync()
+    {
+        if (_sessao is null || _anexando) return;
+
+        var opcoes = new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, CloseOnEscapeKey = false };
+        var dialogo = await Dialogos.ShowAsync<DialogoDeTinta>("Escrever à mão", opcoes);
+        var r = await dialogo.Result;
+        if (r is null || r.Canceled || r.Data is not byte[] png) return;
+
+        _anexando = true;
+        try
+        {
+            // O NOME LEVA DATA E HORA porque desenho não tem nome de arquivo para herdar. Sem isso
+            // seriam "desenho.png", "desenho-1.png", e em duas semanas ninguém sabe qual é qual — e o
+            // `![[…]]` na nota também não diria.
+            var nome = $"desenho-{DateTime.Now:yyyy-MM-dd-HHmmss}.png";
+
+            using var fluxo = new MemoryStream(png);
+            var anexo = await Anexos.AnexarAsync(nome, fluxo, png.Length);
+            if (!anexo.Ok)
+            {
+                Avisos.Add(anexo.Mensagem ?? "Não consegui guardar o desenho.", Severity.Error);
+                return;
+            }
+
+            await _sessao.InserirAsync(anexo.Valor!.Markdown + "\n");
+            // Grava já, pelo mesmo motivo do anexo comum: o arquivo está no disco e a referência a ele
+            // só na tela. Esperar o autosave deixa uma janela em que fechar a aba perde a ligação.
+            await AoMudarOTexto(await _sessao.LerAsync());
+            Avisos.Add("Desenho inserido na nota.", Severity.Success);
+        }
+        finally
+        {
+            _anexando = false;
+        }
+    }
+
+    /// <summary>
+    /// Sobe os arquivos escolhidos para a pasta de anexos do vault e insere a referência no cursor.
+    /// </summary>
+    private async Task AnexarAsync(IReadOnlyList<IBrowserFile>? arquivos)
+    {
+        if (_aberta is null || _sessao is null || arquivos is null || arquivos.Count == 0) return;
+
+        _anexando = true;
+        try
+        {
+            foreach (var arquivo in arquivos)
+            {
+                // maxAllowedSize explícito: o padrão do IBrowserFile é 512 KB e recusa QUALQUER foto de
+                // celular com uma exceção que, sem este parâmetro, apareceria como "erro ao anexar" sem
+                // dizer o motivo.
+                await using var fluxo = arquivo.OpenReadStream(ServicoDeAnexos.TamanhoMaximoPadraoBytes);
+                var r = await Anexos.AnexarAsync(arquivo.Name, fluxo, arquivo.Size);
+                if (!r.Ok)
+                {
+                    Avisos.Add(r.Mensagem ?? $"Não consegui anexar {arquivo.Name}.", Severity.Error);
+                    continue;
+                }
+                await _sessao.InserirAsync(r.Valor!.Markdown + "\n");
+            }
+
+            // Salva já: o anexo está no disco e a referência a ele está só na tela. Esperar o autosave
+            // deixaria uma janela em que fechar a aba perde a ligação entre nota e arquivo.
+            await AoMudarOTexto(await _sessao.LerAsync());
+        }
+        finally
+        {
+            _anexando = false;
+            // Limpa a seleção: o arquivo já foi para o vault e a referência já está na nota. A ficha
+            // "quadro.png ✕" continuar na barra sugeriria que ainda falta alguma coisa acontecer, e
+            // anexar o mesmo arquivo de novo nem dispararia o evento com ele ainda selecionado.
+            if (_seletorDeArquivos is not null) await _seletorDeArquivos.ClearAsync();
+        }
+    }
+
+    /// <summary>
+    /// Transforma a seleção em lacuna. Grava na hora — o cartão nasceu de um clique só, e esperar o
+    /// autosave deixaria uma janela em que fechar a aba o perderia.
+    /// </summary>
+    /// <summary>Tira o cartão da fila, ou o devolve — com o histórico dele intacto.</summary>
+    private async Task SuspenderAsync(Cartao cartao, bool suspenso)
+    {
+        if (_aberta is null) return;
+
+        var r = await Cartoes.SuspenderAsync(_aberta.Nota.Caminho, cartao.Linha, suspenso);
+        if (!r.Ok) { Avisos.Add(r.Mensagem ?? "Não consegui.", Severity.Warning); return; }
+
+        // Recarrega a nota inteira, e não só a lista: a marca foi gravada NO ARQUIVO, e o editor na tela
+        // está com o texto de antes — a próxima digitação gravaria por cima e desfaria a suspensão.
+        await AbrirAsync(_aberta.Nota.Caminho);
+    }
+
+    /// <summary>O mesmo registro de erro da tela de revisão, alcançável de onde se está escrevendo.</summary>
+    private async Task RegistrarErroAsync()
+    {
+        var sugerida = _aberta is null ? null : Materia.De(_aberta.Nota.Caminho).Nome;
+        var parametros = new DialogParameters<DialogoDeErro> { { d => d.MateriaInicial, sugerida } };
+
+        var d = await Dialogos.ShowAsync<DialogoDeErro>("Errei uma questão", parametros);
+        var r = await d.Result;
+        if (r is null || r.Canceled || r.Data is not CaminhoNota onde) return;
+
+        Avisos.Add($"Guardado em {onde.Nome}.", Severity.Success);
+        await RecarregarLateraisAsync();
+    }
+
+    private async Task VirarLacunaAsync()
+    {
+        if (_aberta is null || _sessao is null) return;
+
+        if (!await _sessao.EnvolverSelecaoAsync("=="))
+        {
+            // Dizer o que falta, em vez de o botão não fazer nada: um botão que não responde é lido como
+            // defeito, e a pessoa clica mais três vezes antes de desistir.
+            Avisos.Add("Selecione antes o trecho que deve virar a lacuna — o número do artigo, a data, o prazo.",
+                Severity.Info);
+            return;
+        }
+
+        await AoMudarOTexto(await _sessao.LerAsync());
+        _cartoes = AnalisadorDeCartoes.Analisar(_aberta.Nota.Caminho, await _sessao.LerAsync());
+    }
+
+    private async Task AlternarFavoritoAsync()
+    {
+        if (_aberta is null) return;
+        var r = await Conhecimento.AlternarFavoritoAsync(_aberta.Nota.Caminho);
+        if (!r.Ok) { Avisos.Add(r.Mensagem ?? "Não consegui marcar.", Severity.Error); return; }
+
+        _favorita = r.Valor;
+        // O favorito foi gravado NO ARQUIVO, então o conteúdo do editor está velho — recarrega para que a
+        // próxima gravação não desfaça a marcação por conflito de impressão digital.
+        await AbrirAsync(_aberta.Nota.Caminho);
+    }
+
+    /// <summary>
+    /// Chamado pelo editor a cada tecla dentro de um <c>[[</c> aberto. Ver js/editor.js.
+    ///
+    /// O JavaScript só sabe que existe um "[[" e desenha a lista; QUAIS notas entram, em que ordem, e se
+    /// o texto sai como <c>[[Crase]]</c> ou <c>[[Português/Crase]]</c> é decidido aqui — a última é regra
+    /// de domínio, e errá-la produz um link ambíguo, que não dá erro e leva para a nota errada.
+    /// </summary>
+    [JSInvokable]
+    public Task<IReadOnlyList<SugestaoDeLigacao>> AoCompletarLigacao(string termo) =>
+        Conhecimento.ParaCompletarLigacaoAsync(termo);
+
+    /// <summary>
+    /// As etiquetas que já existem no vault, para o que foi digitado depois do "#". Ver
+    /// <see cref="ServicoDeConhecimento.ParaCompletarEtiquetaAsync"/>.
+    /// </summary>
+    [JSInvokable]
+    public Task<IReadOnlyList<SugestaoDeEtiqueta>> AoCompletarEtiqueta(string termo) =>
+        Conhecimento.ParaCompletarEtiquetaAsync(termo);
+
+    /// <summary>
+    /// COLAR IMAGEM NA NOTA (Ctrl+V) — chamado pelo editor quando o que veio da área de transferência
+    /// é uma imagem, e não texto.
+    ///
+    /// O CAMINHO É O MESMO DO DESENHO À MÃO, de propósito: bytes → serviço de anexos → `![[…]]` no
+    /// cursor → grava. Print de aula não é uma categoria nova de coisa; é um anexo que chegou por
+    /// outra porta. Um segundo caminho para guardar imagem teria dois limites de tamanho, dois lugares
+    /// onde o nome é decidido e duas chances de divergir do que o vault entende.
+    ///
+    /// O NOME LEVA DATA E HORA porque colagem quase nunca tem nome de arquivo — a área de transferência
+    /// entrega "image.png" para tudo, quando entrega alguma coisa. Sem isso, a segunda colagem do dia
+    /// vira "image-2.png" e em duas semanas ninguém sabe qual print é qual.
+    ///
+    /// O TAMANHO VEM DO NAVEGADOR e é conferido ANTES de abrir o fluxo: `OpenReadStreamAsync` também
+    /// tem teto, e estourar o dele derruba o circuito com uma exceção em vez de dizer à pessoa que o
+    /// arquivo é grande demais. Aqui a recusa é uma frase na tela, e o mesmo limite do anexo comum.
+    /// </summary>
+    [JSInvokable]
+    public async Task AoColarImagem(string nome, string tipo, long tamanho, IJSStreamReference fluxoDoNavegador)
+    {
+        // MESMA GUARDA DO DESENHO: sem sessão de edição não há cursor onde inserir, e `_anexando`
+        // impede duas colagens simultâneas disputarem o mesmo ponto do texto.
+        if (_aberta is null || _sessao is null || _anexando) return;
+
+        if (tamanho <= 0) return;   // colagem vazia: nada a dizer, nada a fazer
+        if (tamanho > ServicoDeAnexos.TamanhoMaximoPadraoBytes)
+        {
+            Avisos.Add($"A imagem tem {tamanho / 1024 / 1024} MB e o limite é " +
+                       $"{ServicoDeAnexos.TamanhoMaximoPadraoBytes / 1024 / 1024} MB.", Severity.Error);
+            return;
+        }
+
+        _anexando = true;
+        try
+        {
+            // O fluxo do JS não é reposicionável, e o armazém precisa poder ler do começo — copiar para
+            // memória primeiro é o que evita depender disso. O teto acima é o que torna a cópia segura.
+            await using var doNavegador = await fluxoDoNavegador.OpenReadStreamAsync(
+                ServicoDeAnexos.TamanhoMaximoPadraoBytes);
+            using var memoria = new MemoryStream();
+            await doNavegador.CopyToAsync(memoria);
+            memoria.Position = 0;
+
+            var anexo = await Anexos.AnexarAsync(NomeDaColagem(nome, tipo), memoria, memoria.Length);
+            if (!anexo.Ok)
+            {
+                Avisos.Add(anexo.Mensagem ?? "Não consegui guardar a imagem colada.", Severity.Error);
+                return;
+            }
+
+            await _sessao.InserirAsync(anexo.Valor!.Markdown + "\n");
+            // Grava já, pelo mesmo motivo do desenho: o arquivo está no disco e a referência a ele só na
+            // tela. Esperar o autosave deixa uma janela em que fechar a aba perde a ligação.
+            await AoMudarOTexto(await _sessao.LerAsync());
+            Avisos.Add("Imagem colada na nota.", Severity.Success);
+        }
+        catch (Exception e)
+        {
+            Avisos.Add("Não consegui colar a imagem.", Severity.Error);
+            Console.Error.WriteLine(e);
+        }
+        finally
+        {
+            _anexando = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// O nome do arquivo colado. A extensão sai do TIPO informado pelo navegador, não do nome — a área
+    /// de transferência costuma entregar nome vazio, e um anexo sem extensão não é reconhecido como
+    /// imagem pelo vault (deixaria de virar `![[…]]` e viraria link).
+    /// </summary>
+    private static string NomeDaColagem(string nome, string tipo)
+    {
+        var extensao = Path.GetExtension(nome);
+        if (string.IsNullOrWhiteSpace(extensao))
+            extensao = tipo switch
+            {
+                "image/png" => ".png",
+                "image/jpeg" => ".jpg",
+                "image/gif" => ".gif",
+                "image/webp" => ".webp",
+                "image/bmp" => ".bmp",
+                // tipo desconhecido cai em .png: é o que o navegador produz ao copiar da tela, e um
+                // formato errado no nome é melhor que nome sem extensão, que o vault não embute.
+                _ => ".png",
+            };
+        return $"colado-{DateTime.Now:yyyy-MM-dd-HHmmss}{extensao}";
+    }
+
+    /// <summary>
+    /// Chamado pelo JavaScript quando o texto ficou parado. É o autosave.
+    /// </summary>
+    [JSInvokable]
+    public async Task AoMudarOTexto(string texto)
+    {
+        if (_aberta is null) return;
+        _textoPendente = texto;
+
+        var resultado = await Servico.SalvarAsync(_aberta.Nota.Caminho, texto, _impressaoCarregada);
+        if (resultado.Ok)
+        {
+            _impressaoCarregada = resultado.Valor!.Impressao;
+            _textoNoDisco = texto;
+            _conflito = false;
+            // "salvo" com hora é o que faz o autosave ser CONFIÁVEL em vez de mágico: sem sinal, todo
+            // usuário eventualmente aperta Ctrl+S por desconfiança, e desconfiança de autosave vira hábito.
+            _estado = $"salvo {Servico.Agora.ToLocalTime():HH:mm:ss}";
+            await RecarregarLateraisAsync();
+        }
+        else if (resultado.Motivo == MotivoDaFalha.Conflito)
+        {
+            _conflito = true;
+            _estado = "conflito";
+        }
+        else
+        {
+            _estado = "erro ao salvar";
+            Avisos.Add(resultado.Mensagem ?? "Não consegui salvar.", Severity.Error);
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Grava o que está no editor AGORA, sem esperar o autosave.
+    ///
+    /// O AUTOSAVE TEM UMA JANELA DE 1,2 SEGUNDO, e essa janela era um buraco: quem digitava e clicava
+    /// noutra nota antes de o temporizador disparar perdia o que escreveu, sem aviso nenhum. Fechar o
+    /// editor cancelava o temporizador — o texto morava só no CodeMirror, e o CodeMirror ia embora com
+    /// ele. Perder texto em silêncio é o pior defeito que um editor pode ter: a pessoa não sabe se
+    /// digitou errado, se o sistema apagou, ou se ficou louca.
+    ///
+    /// Lê do EDITOR e não de <c>_textoPendente</c>: aquele só existe depois que o autosave rodou pelo
+    /// menos uma vez, e o caso que se perde é justamente o que nunca rodou.
+    ///
+    /// Falha de leitura é engolida de propósito: se chegamos aqui com o circuito caindo, não há o que
+    /// gravar e não há tela para avisar.
+    /// </summary>
+    private async Task GravarOQueEstaNoEditorAsync()
+    {
+        if (_aberta is null || _sessao is null || _lendo) return;
+
+        string texto;
+        try { texto = await _sessao.LerAsync(); }
+        catch { return; }
+
+        // Nada mudou desde a última gravação — não gravar é o que impede o vigia do vault de acordar à
+        // toa a cada troca de nota.
+        if (string.Equals(texto, _textoNoDisco, StringComparison.Ordinal)) return;
+
+        var r = await Servico.SalvarAsync(_aberta.Nota.Caminho, texto, _impressaoCarregada);
+        if (r.Ok) { _textoNoDisco = texto; return; }
+
+        // DIZ, e não engole. Trocar de nota apagando o que se escreveu porque houve conflito seria
+        // repetir o mesmo defeito de outra forma.
+        Avisos.Add(
+            r.Motivo == MotivoDaFalha.Conflito
+                ? $"\"{_aberta.Nota.Caminho.Nome}\" mudou por fora; não gravei o que estava no editor."
+                : r.Mensagem ?? $"Não consegui salvar \"{_aberta.Nota.Caminho.Nome}\".",
+            Severity.Warning);
+    }
+
+    private async Task AbrirAsync(CaminhoNota caminho)
+    {
+        // ANTES DE FECHAR O EDITOR, e não depois: fechar destrói o CodeMirror, e com ele o único lugar
+        // onde o texto recém-digitado existia.
+        await GravarOQueEstaNoEditorAsync();
+        await FecharEditorAsync();
+
+        // ZERADOS AQUI, os dois. `_textoPendente` guardava o texto da nota ANTERIOR e não era limpo na
+        // troca — quem digitasse em A, fosse para B e renomeasse B gravaria o conteúdo de A por cima de
+        // B. Nunca aconteceu comigo porque exige a sequência exata; aconteceria com quem usa.
+        _textoPendente = null;
+        _textoNoDisco = null;
+
+        var resultado = await Servico.AbrirAsync(caminho);
+        if (!resultado.Ok)
+        {
+            Avisos.Add(resultado.Mensagem ?? "Nota não encontrada.", Severity.Warning);
+            _aberta = null;
+            return;
+        }
+        _aberta = resultado.Valor;
+        _impressaoCarregada = _aberta!.Nota.Impressao;
+        _textoNoDisco = _aberta.Nota.Conteudo;
+        _conflito = false;
+        _estado = string.Empty;
+        _favorita = Dominica.Learn.Domain.Analise.EditorDeFrontmatter.EhFavorita(_aberta.Nota.Analise);
+        _renderizada = null;
+        if (_lendo) await AoTrocarModoAsync(true);
+
+        // As menções vêm DEPOIS. A varredura lê arquivos do disco, e segurar a abertura da nota por
+        // causa de um painel lateral seria trocar o essencial pelo acessório — quem abriu quer escrever.
+        _cartoes = AnalisadorDeCartoes.Analisar(caminho, _aberta.Nota.Conteudo);
+        AtualizarEtiquetasDaNota();
+
+        _mencoes = null;
+        _parecidas = null;
+        _trechosDosBacklinks = null;
+        _ = CarregarMencoesAsync(caminho);
+        _ = CarregarParecidasAsync(caminho);
+        _ = CarregarTrechosDosBacklinksAsync(caminho);
+        _ = CarregarSugestoesDeEtiquetaAsync(caminho);
+
+        // O ESTADO DE PUBLICAÇÃO É LIMPO E RECARREGADO A CADA NOTA. Deixá-lo de uma nota para a outra
+        // mostraria "Link público (no ar)" numa nota privada — e a pessoa concluiria que publicou o que
+        // não publicou, ou pior, que não publicou o que publicou.
+        _link = null;
+        _ = CarregarLinkPublicoAsync(caminho);
+    }
+
+    /// <summary>
+    /// Em segundo plano, como as menções: é uma consulta ao banco da identidade, e a abertura da nota
+    /// não pode esperar por um item de menu. Enquanto não chega, o menu oferece "publicar" — o que é
+    /// verdade para a esmagadora maioria das notas, e o clique confirma antes de fazer qualquer coisa.
+    /// </summary>
+    private async Task CarregarLinkPublicoAsync(CaminhoNota caminho)
+    {
+        try
+        {
+            var link = await Publicacao.DaNotaAsync(caminho);
+            // A GUARDA CONTRA A TROCA DE NOTA: a consulta pode voltar depois de a pessoa já ter aberto
+            // outra. Sem comparar o caminho, o link de uma nota apareceria no menu da seguinte.
+            if (_aberta?.Nota.Caminho == caminho) { _link = link; StateHasChanged(); }
+        }
+        catch (Exception e)
+        {
+            // Não é erro de tela: o menu simplesmente oferece "publicar", e publicar é idempotente —
+            // se já houver link, o serviço devolve o mesmo. Falhar aqui não pode estragar a abertura.
+            Log.LogWarning(e, "não consegui saber se {Caminho} está publicada", caminho.Valor);
+        }
+    }
+
+    /// <summary>
+    /// Publica a nota num link — PERGUNTANDO ANTES, e dizendo a consequência por extenso.
+    ///
+    /// A CONFIRMAÇÃO NÃO É CERIMÔNIA. Este é o único gesto do Learn que põe conteúdo do vault ao alcance
+    /// de quem não tem conta, e ele fica a um clique de distância de "Baixar como .md" no mesmo menu.
+    /// "Tem certeza?" não bastaria: o que a pessoa precisa ler é que qualquer um com o endereço lê a
+    /// nota sem entrar.
+    /// </summary>
+    private async Task PublicarAsync()
+    {
+        if (_aberta is null) return;
+
+        // O TEXTO É MONTADO ANTES, e o cast vem depois, sobre a variável. Escrito como
+        // `(MarkupString)$"…" + "…" + "…"`, o cast liga só ao PRIMEIRO pedaço — precedência — e a
+        // concatenação devolve uma string comum.
+        var corpo =
+            $"Vou criar um endereço secreto para <strong>{System.Net.WebUtility.HtmlEncode(_aberta.Nota.Titulo)}</strong>. " +
+            "Qualquer pessoa com esse endereço vai poder <strong>ler a nota sem ter conta</strong> no Learn — " +
+            "só esta nota, e sem poder editar. Você pode revogar o link a qualquer momento.";
+
+        // DialogParameters TIPADO, como no Turmas.razor, e não o dicionário por string. A versão por
+        // string aceita `object` em tudo: com a precedência errada acima, uma string chegava no lugar
+        // do MarkupString, o Blazor explodia ao RENDERIZAR ("Unable to cast System.String to
+        // MarkupString") e o circuito caía inteiro — na tela, o item do menu apenas não fazia nada.
+        // Foi o e2e que pegou. Tipado, isso é erro de compilação.
+        var parametros = new DialogParameters<DialogoDeConfirmar>
+        {
+            { x => x.Titulo, "Publicar esta nota num link?" },
+            { x => x.Corpo, (MarkupString)corpo },
+            { x => x.Confirmar, "Publicar" },
+        };
+
+        var dialogo = await Dialogos.ShowAsync<DialogoDeConfirmar>("Publicar", parametros);
+        if (await dialogo.Result is not { Canceled: false, Data: true }) return;
+
+        var r = await Publicacao.PublicarAsync(_aberta.Nota.Caminho.Valor);
+        if (!r.Ok || r.Valor is null)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui publicar a nota.", Severity.Error);
+            return;
+        }
+
+        _link = r.Valor;
+        // ABRE O DIÁLOGO DO LINK EM SEGUIDA, sem a pessoa pedir: publicar sem ver o endereço não serve
+        // para nada — ela publicou justamente para mandar a URL a alguém.
+        await VerLinkAsync();
+    }
+
+    /// <summary>O endereço, para copiar — ou para revogar.</summary>
+    private async Task VerLinkAsync()
+    {
+        if (_link is null) return;
+
+        // ABSOLUTO, porque é o que vai ser colado num WhatsApp. `ToAbsoluteUri` resolve contra o
+        // <base href>, então o endereço sai certo mesmo com o Learn servido num sub-caminho.
+        var url = Navegacao.ToAbsoluteUri(_link.CaminhoNaUrl).ToString();
+
+        var dialogo = await Dialogos.ShowAsync<DialogoDeLinkPublico>(
+            "Link público", new DialogParameters<DialogoDeLinkPublico> { { x => x.Url, url } });
+
+        if (await dialogo.Result is not { Canceled: false, Data: true }) return;
+
+        // REVOGOU. O token vai no pedido, e não o caminho: é ele que identifica a publicação, e é ele
+        // que o serviço confere contra o dono logado.
+        if (await Publicacao.RevogarAsync(_link.Token.Valor))
+        {
+            _link = null;
+            Avisos.Add("Link revogado — o endereço parou de funcionar.", Severity.Success);
+        }
+        else
+        {
+            Avisos.Add("Não consegui revogar o link.", Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// Abre o diálogo do cartão e insere o texto NO CURSOR.
+    ///
+    /// Grava logo em seguida, sem esperar o autosave: o cartão acabou de ser digitado num diálogo que já
+    /// fechou, e uma janela em que fechar a aba o perderia seria a pior forma de estrear o recurso.
+    /// </summary>
+    private async Task CriarCartaoAsync()
+    {
+        if (_aberta is null || _sessao is null) return;
+
+        // O trecho selecionado entra como RESPOSTA. Ver o comentário do parâmetro no diálogo: quem marca
+        // uma frase no resumo está marcando o fato, e a pergunta é o que ainda não existe.
+        var selecionado = await _sessao.SelecaoAsync();
+
+        var parametros = new DialogParameters<DialogoDeNovoCartao> { { c => c.Selecao, selecionado } };
+        var d = await Dialogos.ShowAsync<DialogoDeNovoCartao>("Cartão novo", parametros);
+        var r = await d.Result;
+        if (r is null || r.Canceled || r.Data is not string texto) return;
+
+        await _sessao.InserirBlocoAsync(texto);
+        await AoMudarOTexto(await _sessao.LerAsync());
+
+        // A lista ao lado sai do texto: sem recalcular, o cartão recém-criado não apareceria nela, e o
+        // gesto pareceria não ter funcionado.
+        _cartoes = AnalisadorDeCartoes.Analisar(_aberta.Nota.Caminho, await _sessao.LerAsync());
+    }
+
+    /// <summary>
+    /// Procura quem cita esta nota sem ligar. Roda solta, fora do caminho de abertura.
+    ///
+    /// A CONFERÊNCIA DO CAMINHO NO FIM não é paranoia: quem abre uma nota e clica logo na seguinte teria
+    /// o painel da primeira aterrissando sobre a segunda, oferecendo ligar menções que são de outra nota.
+    /// </summary>
+    private async Task CarregarMencoesAsync(CaminhoNota caminho)
+    {
+        try
+        {
+            var achadas = await Conhecimento.MencoesNaoLigadasAsync(caminho);
+            if (_aberta?.Nota.Caminho != caminho) return;
+            _mencoes = achadas;
+        }
+        catch (Exception e)
+        {
+            // Painel lateral que falha não pode derrubar a tela de escrever.
+            _mencoes = [];
+            Log.LogWarning(e, "Não consegui procurar menções para {Caminho}.", caminho.Valor);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// Rola a LEITURA até o título clicado no roteiro. Quem clica escrevendo é levado ao modo ler
+    /// primeiro — a leitura é onde o mapa da nota faz sentido. O índice é a posição do cabeçalho no
+    /// markdown; o JS ignora títulos de transclusão para os dois lados contarem igual (ver roteiro.js).
+    /// </summary>
+    private async Task IrAoCabecalhoAsync(int indice)
+    {
+        if (!_lendo)
+        {
+            await AoTrocarModoAsync(true);
+            StateHasChanged();
+            await Task.Delay(250);   // o HTML da leitura precisa pousar na página antes de rolar
+        }
+
+        var modulo = await JS.InvokeAsync<IJSObjectReference>("import", "./js/roteiro.js");
+        try { await modulo.InvokeVoidAsync("irAte", IdDaLeitura, indice); }
+        finally { await modulo.DisposeAsync(); }
+    }
+
+    /// <summary>Abre (criando se preciso) a nota diária de hoje. Ver NotaDiaria.</summary>
+    private async Task AbrirHojeAsync()
+    {
+        var r = await Conhecimento.NotaDeHojeAsync();
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui abrir a nota de hoje.", Severity.Warning);
+            return;
+        }
+        Ir(r.Valor!);
+    }
+
+    /// <summary>
+    /// Abre uma nota QUALQUER — a serendipidade do Obsidian. Revisitar o que se esqueceu de ter escrito
+    /// é como nota antiga ganha link novo; sem isto, o vault velho vira arquivo morto por gravidade.
+    /// </summary>
+    private async Task AbrirAleatoriaAsync()
+    {
+        var todos = (await Conhecimento.TodosOsCaminhosAsync())
+            .Where(c => _aberta is null || c != _aberta.Nota.Caminho).ToList();
+        if (todos.Count == 0)
+        {
+            Avisos.Add("O vault ainda não tem outra nota para sortear.", Severity.Info);
+            return;
+        }
+        Ir(todos[Random.Shared.Next(todos.Count)]);
+    }
+
+    /// <summary>
+    /// Procura as parecidas ainda não ligadas. Roda solta como as menções, e pela mesma razão: painel
+    /// lateral não pode segurar a abertura da nota. Mesma conferência de caminho no fim.
+    /// </summary>
+    private async Task CarregarParecidasAsync(CaminhoNota caminho)
+    {
+        try
+        {
+            var achadas = await Conhecimento.ParecidasAsync(caminho);
+            if (_aberta?.Nota.Caminho != caminho) return;
+            _parecidas = achadas;
+        }
+        catch (Exception e)
+        {
+            _parecidas = [];
+            Log.LogWarning(e, "Não consegui procurar parecidas para {Caminho}.", caminho.Valor);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// Liga a nota aberta à parecida sugerida — a conexão que a máquina viu, aceita num clique. Reabre
+    /// para o painel refletir o que foi gravado (a parecida sai da lista e entra nas Relacionadas).
+    /// </summary>
+    private async Task LigarParecidaAsync(NotaParecida p)
+    {
+        if (_aberta is null || _ligando) return;
+        var aberta = _aberta.Nota.Caminho;
+
+        _ligando = true;
+        try
+        {
+            var r = await Conhecimento.LigarAsync(aberta, p.Caminho);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui ligar.", Severity.Warning);
+                return;
+            }
+            Avisos.Add(r.Valor!.JaHavia
+                ? $"{aberta.Nome} já apontava para {p.Caminho.Nome}."
+                : $"Escrevi \"{r.Valor.Linha}\" em {aberta.Nome}.", Severity.Success);
+            await AbrirAsync(aberta);
+        }
+        finally
+        {
+            _ligando = false;
+        }
+    }
+
+    /// <summary>
+    /// Escreve nesta nota uma ligação para outra, escolhida numa busca. O "[[" deixa de ser o único
+    /// caminho — vira atalho de quem já gosta.
+    /// </summary>
+    private Task LigarDaquiAsync() => EscolherELigarAsync(
+        "Ligar a uma nota",
+        "A ligação é escrita NESTA nota, numa seção \"Relacionadas\" no fim.",
+        daquiParaEscolhida: true);
+
+    /// <summary>
+    /// A direção que não tinha caminho nenhum na interface: fazer OUTRA nota apontar para esta.
+    /// </summary>
+    private Task LigarParaCaAsync() => EscolherELigarAsync(
+        "Fazer outra apontar para cá",
+        "A ligação é escrita NA OUTRA nota — ela passa a apontar para esta.",
+        daquiParaEscolhida: false);
+
+    private async Task EscolherELigarAsync(string titulo, string explicacao, bool daquiParaEscolhida)
+    {
+        if (_aberta is null || _ligando) return;
+
+        var aberta = _aberta.Nota.Caminho;
+        var parametros = new DialogParameters<DialogoDeEscolherNota>
+        {
+            { d => d.Titulo, titulo },
+            { d => d.Explicacao, explicacao },
+            { d => d.Excluir, aberta },
+        };
+
+        var dialogo = await Dialogos.ShowAsync<DialogoDeEscolherNota>(titulo, parametros);
+        var escolha = await dialogo.Result;
+        if (escolha is null || escolha.Canceled || escolha.Data is not CaminhoNota outra) return;
+
+        _ligando = true;
+        try
+        {
+            var (dentroDe, apontarPara) = daquiParaEscolhida ? (aberta, outra) : (outra, aberta);
+            var r = await Conhecimento.LigarAsync(dentroDe, apontarPara);
+
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui ligar.", Severity.Warning);
+                return;
+            }
+
+            // DIZ ONDE ESCREVEU E O QUÊ. Escrever numa nota que não está aberta é legítimo e não pode
+            // ser silencioso: num produto cujo lema é "o vault é seu", mexer no arquivo por baixo do
+            // pano é grave. Ver LigacaoEscrita.
+            Avisos.Add(r.Valor!.JaHavia
+                ? $"{dentroDe.Nome} já apontava para {apontarPara.Nome}."
+                : $"Escrevi \"{r.Valor.Linha}\" em {dentroDe.Nome}.", Severity.Success);
+
+            // Reabre: os backlinks e o texto desta nota podem ter mudado, e uma tela que não reflete o
+            // que acabou de ser gravado é a mesma coisa que não ter gravado.
+            await AbrirAsync(aberta);
+        }
+        finally
+        {
+            _ligando = false;
+        }
+    }
+
+    private async Task LigarMencaoAsync(MencaoEmNota m)
+    {
+        if (_aberta is null || _ligando) return;
+
+        _ligando = true;
+        try
+        {
+            var r = await Conhecimento.LigarMencaoAsync(m.Onde, m.Mencao, _aberta.Nota.Caminho);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui ligar.", Severity.Warning);
+                // Recarrega a lista: se o motivo foi o texto ter mudado, as posições velhas não servem
+                // mais e deixá-las na tela convidaria a errar de novo.
+                _mencoes = null;
+                await CarregarMencoesAsync(_aberta.Nota.Caminho);
+                return;
+            }
+
+            Avisos.Add($"Ligada em {m.Titulo}.", Severity.Success);
+            // A outra nota agora aponta para esta: os backlinks daqui mudaram.
+            await AbrirAsync(_aberta.Nota.Caminho);
+        }
+        finally
+        {
+            _ligando = false;
+        }
+    }
+
+    private async Task RecarregarAsync()
+    {
+        if (_aberta is null) return;
+        await AbrirAsync(_aberta.Nota.Caminho);
+    }
+
+    private async Task ForcarGravacaoAsync()
+    {
+        if (_aberta is null || _textoPendente is null) return;
+        // impressão nula = "eu sei que mudou, grava assim mesmo" — a saída explícita do caso de uso
+        var r = await Servico.SalvarAsync(_aberta.Nota.Caminho, _textoPendente, impressaoEsperada: null);
+        if (r.Ok)
+        {
+            _impressaoCarregada = r.Valor!.Impressao;
+            _conflito = false;
+            _estado = $"salvo {Servico.Agora.ToLocalTime():HH:mm:ss}";
+        }
+    }
+
+    /// <summary>
+    /// Abre o diálogo de criação. <paramref name="nomeSugerido"/> vem preenchido quando a criação nasce de
+    /// uma ligação quebrada — o nome já é o que está escrito no <c>[[link]]</c>.
+    /// </summary>
+    private async Task CriarAsync(string? nomeSugerido = null)
+    {
+        var parametros = new DialogParameters<DialogoDeNovaNota>
+        {
+            { d => d.Templates, _templates },
+            { d => d.NomeInicial, nomeSugerido ?? $"Nota {Servico.Agora.ToLocalTime():yyyy-MM-dd HHmm}" },
+        };
+
+        var dialogo = await Dialogos.ShowAsync<DialogoDeNovaNota>("Nota nova", parametros);
+        var fechou = await dialogo.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not EscolhaDeNovaNota escolha) return;
+
+        var r = escolha.Template is null
+            ? await Servico.CriarAsync(escolha.Destino, $"# {escolha.Destino.Nome}\n\n")
+            : await Conhecimento.CriarDeTemplateAsync(escolha.Template, escolha.Destino);
+
+        if (!r.Ok && r.Motivo != MotivoDaFalha.JaExiste)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui criar.", Severity.Error);
+            return;
+        }
+        Ir(escolha.Destino);
+    }
+
+    /// <summary>
+    /// Cria uma matéria. Vira uma pasta com o mapa de conteúdo dela dentro — pasta vazia não sobrevive
+    /// neste vault, porque o repositório limpa as que ficam sem arquivo.
+    /// </summary>
+    /// <summary>
+    /// Renomeia ou move a nota aberta. O caminho inteiro é editável — mudar a pasta É mover, e separar
+    /// "renomear" de "mover" em duas telas obrigaria o usuário a saber de antemão qual das duas ele
+    /// quer, quando na prática ele quer as duas ao mesmo tempo ("põe isto em Tributário e chama de X").
+    ///
+    /// Quem conserta os [[links]] das outras notas é o ServicoDeNotas; aqui só se pergunta e se conta o
+    /// resultado. O número de notas ajustadas aparece no aviso porque é a prova de que os caminhos
+    /// foram preservados — e o único jeito de a pessoa notar quando NENHUM foi.
+    /// </summary>
+    private async Task RenomearAsync()
+    {
+        if (_aberta is null) return;
+        var atual = _aberta.Nota.Caminho;
+
+        var parametros = new DialogParameters<DialogoDeRenomear>
+        {
+            { d => d.CaminhoAtual, atual.Valor },
+        };
+        var dialogo = await Dialogos.ShowAsync<DialogoDeRenomear>("Renomear ou mover", parametros);
+        var fechou = await dialogo.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not CaminhoNota destino) return;
+        if (destino == atual) return;
+
+        // Grava o que estiver no editor ANTES de mover: o texto não salvo mora no navegador, e mover o
+        // arquivo debaixo dele perderia o que a pessoa acabou de escrever.
+        if (_textoPendente is not null)
+            await Servico.SalvarAsync(atual, _textoPendente, impressaoEsperada: null);
+
+        var r = await Servico.RenomearAsync(atual, destino);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui renomear.", Severity.Error);
+            return;
+        }
+
+        Avisos.Add($"Agora é \"{destino.Valor}\".", Severity.Success);
+        await RecarregarLateraisAsync();
+        Ir(destino);
+    }
+
+    /// <summary>
+    /// As versões guardadas da nota aberta. Restaurar grava por cima (arquivando o de agora antes) e
+    /// reabre a nota — o editor precisa mostrar o texto restaurado, não o que estava na tela.
+    /// </summary>
+    private async Task VerVersoesAsync()
+    {
+        if (_aberta is null) return;
+        var caminho = _aberta.Nota.Caminho;
+
+        var parametros = new DialogParameters<DialogoDeVersoes> { { d => d.Caminho, caminho.Valor } };
+        var dialogo = await Dialogos.ShowAsync<DialogoDeVersoes>("Versões", parametros);
+        var fechou = await dialogo.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not long id) return;
+
+        // O que estiver no editor vai para o histórico junto: restaurar por cima de texto não salvo
+        // não pode perder o texto não salvo — ele vira a versão seguinte da lista.
+        if (_textoPendente is not null)
+            await Servico.SalvarAsync(caminho, _textoPendente, impressaoEsperada: null);
+
+        var r = await Servico.RestaurarAsync(caminho, id);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui restaurar.", Severity.Error);
+            return;
+        }
+
+        Avisos.Add("Versão restaurada — o texto de antes ficou guardado nas versões.", Severity.Success);
+        await AbrirAsync(caminho);
+    }
+
+    /// <summary>Recupera uma nota apagada: recria o arquivo com a última versão guardada e o abre.</summary>
+    private async Task RecuperarApagadaAsync()
+    {
+        var dialogo = await Dialogos.ShowAsync<DialogoDeApagadas>("Recuperar nota apagada");
+        var fechou = await dialogo.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not RevisaoResumida revisao) return;
+
+        var r = await Servico.RestaurarAsync(revisao.Caminho, revisao.Id);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui recuperar.", Severity.Error);
+            return;
+        }
+
+        Avisos.Add($"\"{revisao.Caminho.Valor}\" voltou.", Severity.Success);
+        await RecarregarLateraisAsync();
+        Ir(revisao.Caminho);
+    }
+
+    /// <summary>
+    /// Exclui a nota aberta, dizendo ANTES quantas ligações apontam para ela.
+    ///
+    /// As ligações NÃO são apagadas junto, e isso é decisão: no Obsidian, link para nota inexistente é
+    /// recurso — é assim que se escreve o que ainda falta. Apagá-las mexeria no texto de outras notas
+    /// para registrar uma decisão sobre esta.
+    /// </summary>
+    private async Task ExcluirAsync()
+    {
+        if (_aberta is null) return;
+        var caminho = _aberta.Nota.Caminho;
+        var apontam = await Conhecimento.QuantasApontamParaAsync(caminho);
+
+        var parametros = new DialogParameters<DialogoDeConfirmarExclusao>
+        {
+            { d => d.Caminho, caminho.Valor },
+            { d => d.LigacoesQueApontam, apontam },
+        };
+        var dialogo = await Dialogos.ShowAsync<DialogoDeConfirmarExclusao>("Excluir nota", parametros);
+        var fechou = await dialogo.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not true) return;
+
+        var r = await Servico.ApagarAsync(caminho);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui excluir.", Severity.Error);
+            return;
+        }
+
+        Avisos.Add($"\"{caminho.Nome}\" foi excluída.", Severity.Success);
+        await FecharEditorAsync();
+        _aberta = null;
+        await RecarregarLateraisAsync();
+        Navegacao.NavigateTo("notas");
+    }
+
+    private async Task CriarMateriaAsync()
+    {
+        var nome = await Dialogos.ShowAsync<DialogoDeNovaMateria>("Matéria nova");
+        var fechou = await nome.Result;
+        if (fechou is null || fechou.Canceled || fechou.Data is not string escolhido) return;
+
+        var r = await Conhecimento.CriarMateriaAsync(escolhido);
+        if (!r.Ok)
+        {
+            Avisos.Add(r.Mensagem ?? "Não consegui criar a matéria.", Severity.Error);
+            return;
+        }
+        await RecarregarLateraisAsync();
+        Ir(r.Valor!.Caminho);
+    }
+
+    private async Task BuscarAsync()
+    {
+        _acertos = string.IsNullOrWhiteSpace(_termo)
+            ? []
+            : await Servico.BuscarAsync(new ConsultaDeBusca { Texto = _termo });
+    }
+
+    /// <summary>
+    /// Mostra as notas de uma matéria. O filtro é por PASTA — prefixo de caminho — que é exatamente o
+    /// que a matéria é; nenhuma coluna nova, nenhum índice a manter.
+    ///
+    /// "Sem matéria" não tem pasta para filtrar, então cai numa varredura das notas da raiz. É a lista
+    /// do que ainda não foi arquivado, e ela precisa ser alcançável para poder encolher.
+    /// </summary>
+    private async Task FiltrarPorMateriaAsync(Materia materia)
+    {
+        _termo = materia.Rotulo;
+        _acertos = materia.Existe
+            ? await Servico.BuscarAsync(new ConsultaDeBusca { Pasta = materia.Nome })
+            : (await Servico.BuscarAsync(new ConsultaDeBusca { Limite = 500 }))
+                .Where(a => !Materia.De(a.Nota.Caminho).Existe)
+                .ToList();
+    }
+
+    private async Task FiltrarPorEtiquetaAsync(EtiquetaContada e)
+    {
+        _termo = e.Etiqueta.ToString();
+        _acertos = await Servico.BuscarAsync(new ConsultaDeBusca { Etiqueta = e.Etiqueta });
+    }
+
+    // —— ETIQUETAS DA NOTA ABERTA ————————————————————————————————————————————————————
+
+    /// <summary>
+    /// Sai da ANÁLISE da nota aberta, e não de uma consulta: as etiquetas já foram lidas do texto ao
+    /// abrir. Uma ida ao índice aqui mostraria o que estava indexado, que atrasa uma gravação em relação
+    /// ao que está na tela — e a ficha recém-posta piscaria fora e voltaria.
+    /// </summary>
+    private void AtualizarEtiquetasDaNota() =>
+        _etiquetasDaNota = _aberta is null ? [] : EtiquetasDaNota.De(_aberta.Nota.Analise);
+
+    /// <summary>
+    /// As sugestões rodam SOLTAS, fora do caminho de abertura: a coocorrência varre as etiquetas de
+    /// todas as notas, e segurar a abertura por causa de um bloco lateral seria trocar o essencial pelo
+    /// acessório. Mesma regra das menções — inclusive a conferência do caminho no fim.
+    /// </summary>
+    private async Task CarregarSugestoesDeEtiquetaAsync(CaminhoNota caminho)
+    {
+        var quais = _etiquetasDaNota.Select(e => e.Etiqueta).ToList();
+        var sugestoes = await Conhecimento.SugerirEtiquetasAsync(quais);
+
+        // Quem abre uma nota e clica logo na seguinte teria as sugestões da primeira aterrissando sobre
+        // a segunda — e sugestão errada aqui vira etiqueta errada no arquivo com um clique.
+        if (_aberta is null || _aberta.Nota.Caminho != caminho) return;
+
+        _sugestoesDeEtiqueta = sugestoes;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Enter põe a etiqueta digitada. É o gesto que a mão espera num campo de etiqueta.</summary>
+    private async Task AoTeclarNaEtiqueta(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or "NumpadEnter") await PorEtiquetaAsync(_etiquetaNova);
+    }
+
+    private async Task PorEtiquetaAsync(string? bruta)
+    {
+        if (_aberta is null || _etiquetando || string.IsNullOrWhiteSpace(bruta)) return;
+
+        _etiquetando = true;
+        try
+        {
+            // GRAVA O QUE ESTÁ NO EDITOR ANTES. Marcar escreve no arquivo a partir do que está no DISCO;
+            // sem isto, o texto ainda não salvo do CodeMirror seria sobrescrito pela versão anterior —
+            // e o gesto de pôr uma etiqueta apagaria o parágrafo recém-digitado.
+            await GravarOQueEstaNoEditorAsync();
+
+            var r = await Conhecimento.MarcarEtiquetaAsync(_aberta.Nota.Caminho, bruta);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui pôr a etiqueta.", Severity.Warning);
+                return;
+            }
+
+            _etiquetaNova = string.Empty;
+            await RecarregarDepoisDeEtiquetarAsync();
+        }
+        finally { _etiquetando = false; }
+    }
+
+    private async Task TirarEtiquetaAsync(Etiqueta etiqueta)
+    {
+        if (_aberta is null || _etiquetando) return;
+
+        _etiquetando = true;
+        try
+        {
+            await GravarOQueEstaNoEditorAsync();
+
+            var r = await Conhecimento.DesmarcarEtiquetaAsync(_aberta.Nota.Caminho, etiqueta);
+            if (!r.Ok)
+            {
+                Avisos.Add(r.Mensagem ?? "Não consegui tirar a etiqueta.", Severity.Warning);
+                return;
+            }
+
+            await RecarregarDepoisDeEtiquetarAsync();
+        }
+        finally { _etiquetando = false; }
+    }
+
+    /// <summary>
+    /// A etiqueta foi gravada NO ARQUIVO, então o conteúdo do editor está velho — reabre, exatamente
+    /// como o favorito faz, para que a próxima gravação não desfaça a etiqueta por conflito de impressão
+    /// digital. Reabrir já recalcula as fichas e as sugestões.
+    /// </summary>
+    private async Task RecarregarDepoisDeEtiquetarAsync()
+    {
+        if (_aberta is null) return;
+        await AbrirAsync(_aberta.Nota.Caminho);
+
+        // A lista da esquerda conta notas por etiqueta: sem isto, o número ao lado dela ficaria
+        // desatualizado em relação ao que esta mesma tela acabou de escrever.
+        _etiquetas = await Servico.EtiquetasAsync();
+    }
+
+    /// <summary>
+    /// O mesmo autocompletar do "#" no editor, servido para o campo. Uma fonte só para as duas portas:
+    /// duas listas de etiqueta que discordassem seriam pior que nenhuma.
+    /// </summary>
+    private async Task<IEnumerable<string>> ProcurarEtiqueta(string? termo, CancellationToken ct)
+    {
+        var sugestoes = await Conhecimento.ParaCompletarEtiquetaAsync(termo, limite: 10, ct);
+        return sugestoes.Select(s => s.Valor);
+    }
+
+    private async Task RecarregarLateraisAsync()
+    {
+        _recentes = await Servico.RecentesAsync();
+        _etiquetas = await Servico.EtiquetasAsync();
+        _favoritas = await Conhecimento.FavoritasAsync();
+        _materias = await Conhecimento.MateriasAsync();
+        _templates = await Conhecimento.TemplatesAsync();
+    }
+
+    // Rotas.Nota e NÃO $"/notas/{...}": a barra inicial descarta o sub-caminho onde o app é servido,
+    // e a navegação cai em dominio.com/notas/... — 404. Ver Rotas.
+    private void Ir(CaminhoNota caminho) => Navegacao.NavigateTo(Rotas.Nota(caminho));
+
+    private async Task FecharEditorAsync()
+    {
+        if (_sessao is not null) { await _sessao.DisposeAsync(); _sessao = null; }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // O MESMO BURACO, na outra saída: sair de /notas para /revisar destrói este componente, e com ele
+        // o editor. É melhor esforço — o circuito pode já estar caindo, e aí não há o que fazer — mas
+        // cobre o caso comum, que é clicar noutra aba do menu logo depois de digitar.
+        await GravarOQueEstaNoEditorAsync();
+        await FecharEditorAsync();
+        _referencia?.Dispose();
+    }
+}

@@ -1,0 +1,167 @@
+@implements IDisposable
+
+@using Dominica.Learn.Domain.Vault
+@using Dominica.Learn.Infrastructure.Vault
+@using Dominica.Learn.Application.Portas
+@using Dominica.Learn.Web.Seguranca
+@using Microsoft.Extensions.Options
+
+@inject NavigationManager NavigationManager
+@inject ApelidoDeQuemEntrou Apelidos
+@inject ILogger<NavMenu> Log
+@inject IOptions<OpcoesDoVault> OpcoesDoVault
+@inject IAcompanhamentosDeEstudo Acompanhamentos
+
+@* A navegação, inline na barra do topo. Sem os ícones bitmap do template: eram SVGs embutidos em
+   base64 com `fill='white'` cravado, o que já os deixava invisíveis em qualquer fundo claro. Cinco
+   itens com nome escrito não precisam de ícone. *@
+
+<nav class="nav-app">
+    @* As três telas do vault são [Authorize]. Mostrá-las a quem não entrou seria oferecer três
+       botões que só fazem voltar para o login — e a tela de login já é a que a pessoa está vendo. *@
+    <AuthorizeView>
+        <Authorized>
+            <NavLink class="nav-item" href="painel">Painel</NavLink>
+            <NavLink class="nav-item" href="plano">Plano</NavLink>
+            <NavLink class="nav-item" href="ciclo">Ciclo</NavLink>
+            <NavLink class="nav-item" href="notas">Notas</NavLink>
+            <NavLink class="nav-item" href="revisar">Revisar</NavLink>
+            <NavLink class="nav-item" href="grafo">Grafo</NavLink>
+            <NavLink class="nav-item" href="etiquetas">Etiquetas</NavLink>
+            @* Ficam depois das telas do próprio estudo porque são sobre o de OUTRA pessoa. *@
+            @* O CONTADOR É O AVISO. Sem ele, quem ganha acesso ao painel de alguém não tem motivo
+               nenhum para abrir esta tela — e o convite morre sem nunca ter sido usado: o professor
+               acha que o aluno ignorou, e o aluno nunca soube. Ver AcompanhamentoNoBanco.VistoEm. *@
+            @* O @if PRECISA COMEÇAR A LINHA. Colado no texto ("Acompanhando@if (...)") o Razor não o
+               reconhece como código e imprime a condição inteira como TEXTO na barra — apareceu na tela
+               como "Acompanhando@if (_novidades > 0) { 0 }". Foi o e2e que pegou. *@
+            <NavLink class="nav-item" href="acompanhando">
+                <span>Acompanhando</span>
+                @if (_novidades > 0)
+                {
+                    <span class="nav-selo">@_novidades</span>
+                }
+            </NavLink>
+            <NavLink class="nav-item" href="turmas">Turmas</NavLink>
+            <NavLink class="nav-item" href="backup">Backup</NavLink>
+            <NavLink class="nav-item" href="manual">Manual</NavLink>
+        </Authorized>
+    </AuthorizeView>
+
+    @* Só aparece para o admin mestre. A rota é protegida por política — isto aqui é conveniência,
+       não segurança: esconder o link nunca protegeu nada. *@
+    <AuthorizeView Policy="@Dominica.Learn.Web.Seguranca.OpcoesDeAdministracao.Politica">
+        <Authorized>
+            <NavLink class="nav-item" href="administracao">Administração</NavLink>
+        </Authorized>
+    </AuthorizeView>
+
+    <AuthorizeView>
+        <Authorized>
+            @* O ALTERNADOR DE VAULT. Só aparece quando há mais de um: com um vault só, um seletor de
+               um item é ruído numa barra que tem seis itens de navegação. Ele nasce escondido e aparece
+               no dia em que passa a significar alguma coisa.
+
+               É FORMULÁRIO, e não link, porque trocar de vault muda estado gravado E precisa recarregar
+               a página: tudo que está na tela foi montado a partir do vault anterior. Ver
+               RotaDeTrocaDeVault, onde as duas razões estão por escrito. *@
+            @if (_vaults.Count > 1)
+            {
+                <span class="nav-sep" aria-hidden="true"></span>
+                <form action="vault/trocar" method="post" class="nav-vault">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="voltarPara" value="@currentUrl" />
+                    <select name="vault" class="nav-vault-seletor" onchange="this.form.submit()"
+                            aria-label="Vault">
+                        @foreach (var v in _vaults)
+                        {
+                            <option value="@v.Valor" selected="@(v == _atual)">@v.Rotulo</option>
+                        }
+                    </select>
+                    @* Sem JavaScript o onchange não dispara, e um seletor que não faz nada é pior que um
+                       botão a mais. *@
+                    <noscript><button type="submit" class="nav-item nav-botao">Ir</button></noscript>
+                </form>
+            }
+
+            <span class="nav-sep" aria-hidden="true"></span>
+            <NavLink class="nav-item nav-quem" href="Account/Manage">@context.User.Identity?.Name</NavLink>
+            <form action="Account/Logout" method="post" class="nav-sair">
+                <AntiforgeryToken />
+                <input type="hidden" name="ReturnUrl" value="@currentUrl" />
+                <button type="submit" class="nav-item nav-botao">Sair</button>
+            </form>
+        </Authorized>
+        <NotAuthorized>
+            <span class="nav-sep" aria-hidden="true"></span>
+            <NavLink class="nav-item" href="Account/Login">Entrar</NavLink>
+        </NotAuthorized>
+    </AuthorizeView>
+</nav>
+
+@code {
+    private string? currentUrl;
+
+    [CascadingParameter] private Task<AuthenticationState>? Estado { get; set; }
+
+    private IReadOnlyList<NomeDoVault> _vaults = [];
+    private NomeDoVault _atual = NomeDoVault.Padrao;
+
+    /// <summary>Quantos acessos abriram para mim e eu ainda não vi — o selo ao lado de "Acompanhando".</summary>
+    private int _novidades;
+
+    protected override void OnInitialized()
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    /// <summary>
+    /// A lista de vaults sai do DISCO, e é lida aqui na barra em vez de vir por um serviço com estado.
+    ///
+    /// Custa uma listagem de diretório por renderização da barra — dezenas de microssegundos — e em
+    /// troca não existe cache para invalidar no dia em que alguém criar uma pasta pelo Obsidian. Ver
+    /// RaizDoVaultDoUsuario.VaultsDe, onde a mesma escolha está justificada por inteiro.
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Estado is null) return;
+
+        var estado = await Estado;
+        if (estado.User.Identity?.IsAuthenticated != true) return;
+
+        try
+        {
+            var apelido = await Apelidos.DeAsync(estado.User);
+            _vaults = RaizDoVaultDoUsuario.VaultsDe(OpcoesDoVault.Value.Raiz, apelido);
+            _atual = await Apelidos.VaultDeAsync(estado.User);
+            // NÃO É POR VAULT: o convite é para a PESSOA, e ela precisa ver o aviso esteja em que vault
+            // estiver. Um selo que some ao trocar de vault seria um aviso que depende de sorte.
+            _novidades = await Acompanhamentos.NovidadesAsync(apelido);
+        }
+        catch (Exception e)
+        {
+            // REGISTRA ANTES DE ENGOLIR. A primeira versão só engolia, e o alternador simplesmente não
+            // aparecia — sem tela de erro, sem log, sem nada para puxar o fio. Um catch mudo numa
+            // degradação silenciosa é o defeito indepurável por construção.
+            Log.LogWarning(e, "Não consegui montar o alternador de vaults; a barra segue sem ele.");
+
+            // A BARRA NÃO PODE DERRUBAR A TELA. Ela é desenhada em TODA página, inclusive nas do
+            // Identity: um erro aqui — cadastro sem apelido, disco fora do ar — levaria junto a tela de
+            // login, e aí não haveria como entrar para consertar. Sem alternador é degradação; sem
+            // login é impasse.
+            _vaults = [];
+        }
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(e.Location);
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+    }
+}

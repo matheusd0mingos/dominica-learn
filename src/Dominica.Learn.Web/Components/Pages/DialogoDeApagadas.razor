@@ -1,0 +1,75 @@
+@* As notas apagadas que ainda têm volta — a outra metade da porta do histórico.
+
+   "Apagada recuperável" = o histórico guarda a última versão e o índice não conhece mais o caminho.
+   Quem apagou por engano às onze da noite encontra a nota AQUI às nove da manhã — a promessa que
+   estava escrita no ApagarAsync e não existia em tela nenhuma.
+
+   O diálogo devolve a revisão escolhida; quem recria a nota é a tela que o abriu. *@
+
+@using Dominica.Learn.Application.CasosDeUso
+@using Dominica.Learn.Application.Portas
+@inject ServicoDeNotas Servico
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">Recuperar nota apagada</MudText>
+    </TitleContent>
+
+    <DialogContent>
+        @if (_carregando)
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+        else if (_apagadas.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                Nenhuma nota apagada com versão guardada. O histórico arquiva a última versão de tudo que
+                se apaga por aqui — o que foi removido direto no disco, fora do Learn, não passa por ele.
+            </MudText>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-2">
+                A última versão guardada de cada nota apagada. Recuperar recria o arquivo no mesmo lugar.
+            </MudText>
+            <MudList T="string" Dense="true">
+                @foreach (var r in _apagadas)
+                {
+                    <MudListItem T="string">
+                        <div class="d-flex align-center gap-2 flex-wrap">
+                            <div style="min-width:0">
+                                <MudText Typo="Typo.body2"><b>@r.Caminho.Valor</b></MudText>
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                    guardada em @r.Em.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                                </MudText>
+                            </div>
+                            <MudSpacer />
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.RestorePage"
+                                       OnClick="@(() => Dialogo.Close(DialogResult.Ok(r)))">
+                                Recuperar
+                            </MudButton>
+                        </div>
+                    </MudListItem>
+                }
+            </MudList>
+        }
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialogo.Cancel())">Fechar</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialogo { get; set; } = default!;
+
+    private IReadOnlyList<RevisaoResumida> _apagadas = [];
+    private bool _carregando = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _apagadas = await Servico.ApagadasAsync();
+        _carregando = false;
+    }
+}
