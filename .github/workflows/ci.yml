@@ -1,0 +1,75 @@
+name: CI
+
+# Duas etapas, porque respondem perguntas diferentes: a suíte .NET prova as regras (sem banco, sem
+# rede, em segundos); o E2E prova o que só o navegador enxerga — layout que corta, botão que não
+# existe, download que não desce. Rodar só a primeira deixaria passar exatamente os defeitos que
+# criaram a pasta e2e/.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testes:
+    name: Testes .NET
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore Dominica.Learn.slnx
+      # TreatWarningsAsErrors está no Directory.Build.props: o build já é o lint.
+      - run: dotnet build Dominica.Learn.slnx --no-restore -c Release
+      - run: dotnet test Dominica.Learn.slnx --no-build -c Release
+
+  e2e:
+    name: E2E (Playwright + Postgres)
+    runs-on: ubuntu-latest
+    needs: testes
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: learn
+          POSTGRES_PASSWORD: learn
+          POSTGRES_DB: learn_indice
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U learn" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      # Os mesmos três bancos que o docker/criar-bancos.sh cria em produção.
+      - name: Criar bancos
+        env:
+          PGPASSWORD: learn
+        run: |
+          psql -h localhost -U learn -d learn_indice -c 'CREATE DATABASE learn_identidade'
+          psql -h localhost -U learn -d learn_indice -c 'CREATE DATABASE learn_registro'
+      # Compila antes: o boot.mjs roda `dotnet run`, e a compilação dentro do timeout do webServer do
+      # Playwright transformaria um build lento num "servidor não subiu".
+      - run: dotnet build src/Dominica.Learn.Web -c Release
+      - working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: e2e/test-results/
+          retention-days: 7
