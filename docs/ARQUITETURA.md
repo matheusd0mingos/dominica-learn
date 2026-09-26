@@ -187,7 +187,6 @@ pela experiência de quem usou.
 **Desenvolvimento** (precisa de um Postgres local):
 
 ```bash
-cd novo/learn
 dotnet run --project src/Dominica.Learn.Web
 ```
 

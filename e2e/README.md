@@ -15,7 +15,7 @@ Os três defeitos que criaram esta pasta são o argumento:
 ## Rodar
 
 ```bash
-cd novo/learn/e2e
+cd e2e
 npm install          # uma vez por clone
 npx playwright test
 ```

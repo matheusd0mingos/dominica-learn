@@ -1,5 +1,11 @@
 # Deploy do Dominica Learn
 
+> **Dois jeitos de subir.** Sozinho, com o `docker-compose.yml` da raiz deste repositório — é o caminho
+> para domínio próprio ou desenvolvimento, e está descrito em *Como rodar* no `README.md`. Ou junto da
+> plataforma Dominica, no mesmo stack e atrás do mesmo Caddy — é o que o resto deste documento descreve.
+> Os caminhos `novo/plataforma/...` citados abaixo são do repositório da plataforma, onde o Learn nasceu
+> antes de ganhar repositório próprio.
+
 ## A pergunta primeiro: é o mesmo arquivo de deploy da plataforma?
 
 **Agora é — o `novo/plataforma/deploy.sh` sobe os dois.**
@@ -18,7 +24,7 @@ Juntar trouxe duas vantagens além dessa obrigação, e as duas contam num VPS p
 2. **Um `deploy.sh` só.** Dois roteiros de deploy é um roteiro que alguém esquece
    de rodar.
 
-O compose próprio do Learn (`novo/learn/docker-compose.yml`) continua existindo e
+O compose próprio do Learn (`docker-compose.yml`, na raiz deste repositório) continua existindo e
 válido: é o caminho para rodar o Learn **sozinho**, em domínio próprio ou em
 desenvolvimento, sem a plataforma junto.
 
