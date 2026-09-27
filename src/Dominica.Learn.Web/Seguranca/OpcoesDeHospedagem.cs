@@ -3,7 +3,7 @@ namespace Dominica.Learn.Web.Seguranca;
 /// <summary>
 /// Onde o Learn é servido dentro do endereço.
 ///
-/// Vazio (padrão) = na raiz do domínio, como <c>learn.dominica.app.br</c>.
+/// Vazio (padrão) = na raiz do domínio, como <c>learn.SEU_DOMINIO</c>.
 /// Preenchido = sob um caminho, como <c>/private/dominica-learn</c>, atrás do proxy da plataforma.
 ///
 /// POR QUE ISSO É CONFIGURAÇÃO E NÃO CÓDIGO: a escolha entre "módulo da Dominica" e "produto vizinho" é

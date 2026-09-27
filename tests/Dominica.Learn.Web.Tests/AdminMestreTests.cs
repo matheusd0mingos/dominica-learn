@@ -20,23 +20,23 @@ public class AdminMestreTests
 
     [Fact]
     public void Reconhece_o_admin_mestre_pelo_email() =>
-        Assert.True(Com("eu@dominica.app.br").EhAdminMestre(Logado("eu@dominica.app.br")));
+        Assert.True(Com("eu@exemplo.com.br").EhAdminMestre(Logado("eu@exemplo.com.br")));
 
     [Fact]
     public void Caixa_do_email_nao_importa() =>
-        Assert.True(Com("eu@dominica.app.br").EhAdminMestre(Logado("EU@Dominica.App.BR")));
+        Assert.True(Com("eu@exemplo.com.br").EhAdminMestre(Logado("EU@Exemplo.Com.BR")));
 
     [Fact]
     public void Reconhece_mesmo_sem_a_claim_de_email()
     {
         // O template do Identity usa o e-mail como nome de usuário, e dependendo do caminho de login a
         // claim de e-mail não vem. Sem esta rede, o dono do sistema não se reconheceria como admin.
-        Assert.True(Com("eu@dominica.app.br").EhAdminMestre(Logado("eu@dominica.app.br", comClaimDeEmail: false)));
+        Assert.True(Com("eu@exemplo.com.br").EhAdminMestre(Logado("eu@exemplo.com.br", comClaimDeEmail: false)));
     }
 
     [Fact]
     public void Outra_pessoa_nao_e_admin() =>
-        Assert.False(Com("eu@dominica.app.br").EhAdminMestre(Logado("joao@exemplo.com")));
+        Assert.False(Com("eu@exemplo.com.br").EhAdminMestre(Logado("joao@exemplo.com")));
 
     [Fact]
     public void Sem_admin_configurado_ninguem_e_admin()
@@ -51,8 +51,8 @@ public class AdminMestreTests
     [Fact]
     public void Anonimo_nunca_e_admin()
     {
-        Assert.False(Com("eu@dominica.app.br").EhAdminMestre(null));
-        Assert.False(Com("eu@dominica.app.br").EhAdminMestre(new ClaimsPrincipal(new ClaimsIdentity())));
+        Assert.False(Com("eu@exemplo.com.br").EhAdminMestre(null));
+        Assert.False(Com("eu@exemplo.com.br").EhAdminMestre(new ClaimsPrincipal(new ClaimsIdentity())));
     }
 
     [Fact]

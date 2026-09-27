@@ -341,8 +341,8 @@ falharia só no primeiro envio, com alguém já esperando o e-mail.
 
 ## A mudança para o subdomínio
 
-O Learn nasceu em `dominica.app.br/private/dominica-learn` e hoje mora em
-**`learn.dominica.app.br`**. O código é o mesmo nos dois casos — foi por isso que
+O Learn nasceu em `SEU_DOMINIO/private/dominica-learn` e hoje mora em
+**`learn.SEU_DOMINIO`**. O código é o mesmo nos dois casos — foi por isso que
 a troca não exigiu recompilar nada.
 
 | | sub-caminho (como era) | subdomínio (como é) |
@@ -366,7 +366,7 @@ a troca não exigiu recompilar nada.
 ### O que muda para quem já usava
 
 - **Todo mundo é deslogado uma vez.** Cookie é por origem: o de
-  `dominica.app.br` não é enviado para `learn.dominica.app.br`. Não há perda de
+  `SEU_DOMINIO` não é enviado para `learn.SEU_DOMINIO`. Não há perda de
   dado — o vault é arquivo no disco do servidor —, é só entrar de novo.
 - **Quem instalou o PWA precisa reinstalar.** O service worker e o `start_url`
   são presos à origem antiga; a instalação velha continua apontando para lá e vai
