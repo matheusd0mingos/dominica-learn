@@ -27,6 +27,9 @@ const env = {
   ASPNETCORE_ENVIRONMENT: 'Development',
   // O cadastro precisa estar aberto: é assim que o auth.setup cria o usuário do teste na primeira vez.
   Administracao__CadastroAberto: 'true',
+  // O limite de tentativas de login é por IP, e aqui TODAS as contas do teste saem do mesmo IP em
+  // segundos. Com o teto de produção (10/min), os testes que logam várias pessoas tomariam 429.
+  Seguranca__TentativasDeAutenticacaoPorMinuto: '1000',
   Vault__Raiz: resolve(e2e, '.vault'),
   // Ruído de log vira ruído de saída do Playwright — e o que importa aqui é a linha do teste.
   Logging__LogLevel__Default: 'Warning',

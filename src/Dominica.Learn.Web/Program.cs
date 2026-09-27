@@ -124,6 +124,13 @@ builder.Services.AddIdentityCore<ApplicationUser>(o =>
         o.Password.RequireDigit = false;
         o.Password.RequireNonAlphanumeric = false;
         o.Password.RequiredUniqueChars = 4;   // barra "aaaaaaaaaaaa", que passa por comprimento
+        // BLOQUEIO POR CONTA, a outra metade do limite por IP (ver "autenticacao" abaixo): o limite por IP
+        // não segura quem distribui as tentativas entre muitos endereços; o bloqueio segura, porque conta
+        // por conta atacada. Os valores são o padrão do Identity, escritos aqui para ninguém procurar —
+        // e o Login.razor precisa pedir lockoutOnFailure: true, senão nada disto conta.
+        o.Lockout.MaxFailedAccessAttempts = 5;
+        o.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
+        o.Lockout.AllowedForNewUsers = true;
         o.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
     })
     .AddEntityFrameworkStores<ApplicationDbContext>()
@@ -153,15 +160,22 @@ builder.Services.ConfigureApplicationCookie(o =>
 builder.Services.AdicionarInfraestruturaDoLearn(builder.Configuration);
 
 // —— LIMITE DE REQUISIÇÕES ——————————————————————————————————————————————————————————
-// Protege o login de força bruta, e a prévia de hover de martelo. O resto do app é Blazor Server (um
+// Protege o login de força bruta, e a prévia de hover de martelo. A política "autenticacao" só vale onde
+// é PEDIDA: está no @attribute [EnableRateLimiting] das telas de conta (Login, Register, ForgotPassword…).
+// Ela chegou a existir aqui sem estar ligada a tela nenhuma — o comentário prometia a proteção e o login
+// aceitava tentativas sem limite. Quem criar tela nova de autenticação precisa pôr o atributo. O resto do app é Blazor Server (um
 // circuito WebSocket por sessão), que não se defende com contagem de requisições HTTP — por isso o
 // limite é aplicado só onde ele serve, em vez de globalmente, onde daria falsa sensação de proteção.
+// O TETO É CONFIGURÁVEL só por causa do E2E: ele cria e loga várias contas do mesmo IP em segundos, o
+// que nenhuma pessoa faz. O boot.mjs sobe o teto lá; em produção vale o padrão, e ninguém deveria mexer.
+var tentativasDeAutenticacaoPorMinuto = builder.Configuration.GetValue("Seguranca:TentativasDeAutenticacaoPorMinuto", 10);
+
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     o.AddPolicy("autenticacao", ctx => RateLimitPartition.GetFixedWindowLimiter(
         ctx.Connection.RemoteIpAddress?.ToString() ?? "desconhecido",
-        _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = tentativasDeAutenticacaoPorMinuto, Window = TimeSpan.FromMinutes(1) }));
 
     // A PRÉVIA É HTTP FORA DO CIRCUITO — a exceção à regra acima. Cada acerto renderiza uma nota do
     // disco, com as transclusões dela; sem teto, um script segurando o mouse renderiza o vault em loop.

@@ -1,4 +1,5 @@
 @page "/Account/Login"
+@attribute [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("autenticacao")]
 
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.Authentication
@@ -140,7 +141,10 @@
                 return;
             }
 
-            result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
+            // lockoutOnFailure LIGADO: veio do template do Identity como false, e com ele desligado não havia
+            // teto nenhum para adivinhar a frase secreta de uma conta — o limite por IP sozinho não segura
+            // quem distribui as tentativas entre muitos endereços. Bloqueio é por CONTA; ver Program.cs.
+            result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: true);
         }
 
         if (result.Succeeded)
